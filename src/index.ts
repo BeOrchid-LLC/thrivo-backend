@@ -1,35 +1,14 @@
-import { Hono } from "hono";
-import { logger } from "hono/logger";
-import { z } from "zod";
+import { serve } from "@hono/node-server";
 import * as Sentry from "@sentry/node";
+import { env } from "./env";
+import { buildApp } from "./app";
+import { logger } from "./lib/logger";
+import { closeDb } from "../db";
+import { closeRedis } from "./lib/redis";
 
-// Environment validation
-const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-  PORT: z.coerce.number().default(4000),
-  DATABASE_URL: z.string().url(),
-  JWT_SECRET: z.string().min(32),
-  SENTRY_DSN: z.string().url().optional(),
-});
+// Process bootstrap: validate env (on import) → init Sentry → build app → serve →
+// register graceful shutdown so Coolify/Docker rolling redeploys don't drop requests.
 
-type Env = z.infer<typeof envSchema>;
-
-let env: Env;
-
-try {
-  env = envSchema.parse(process.env);
-} catch (error) {
-  if (error instanceof z.ZodError) {
-    console.error("Environment validation failed:");
-    error.errors.forEach((err) => {
-      console.error(`  ${err.path.join(".")}: ${err.message}`);
-    });
-    process.exit(1);
-  }
-  throw error;
-}
-
-// Initialize Sentry
 if (env.SENTRY_DSN) {
   Sentry.init({
     dsn: env.SENTRY_DSN,
@@ -38,48 +17,22 @@ if (env.SENTRY_DSN) {
   });
 }
 
-// Create app
-const app = new Hono();
+const app = buildApp();
 
-// Middleware
-app.use(logger());
-
-// Routes
-app.get("/health", (c) => {
-  return c.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-  });
+const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
+  logger.info({ port: info.port }, "thrivo-backend listening");
 });
 
-app.get("/ready", (c) => {
-  return c.json({
-    status: "ready",
-  });
-});
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info({ signal }, "graceful shutdown: draining");
+  server.close();
+  await closeDb();
+  await closeRedis();
+  process.exit(0);
+}
 
-// Error handling
-app.onError((err, c) => {
-  console.error(err);
-  if (env.SENTRY_DSN) {
-    Sentry.captureException(err);
-  }
-  return c.json(
-    {
-      error: {
-        code: "INTERNAL_ERROR",
-        message: env.NODE_ENV === "production" ? "Internal server error" : err.message,
-      },
-    },
-    { status: 500 }
-  );
-});
-
-// Start server
-const port = env.PORT;
-console.log(`[${new Date().toISOString()}] Starting server on port ${port}`);
-
-export default {
-  port,
-  fetch: app.fetch,
-};
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
