@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# One in-flight run per branch; newer pushes cancel older ones.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, build, migrate & test
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://thrivo:thrivo@localhost:5432/thrivo
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-dummy-secret-min-32-characters-long
+      RUN_DB_TESTS: "1"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: thrivo
+          POSTGRES_PASSWORD: thrivo
+          POSTGRES_DB: thrivo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U thrivo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm run build
+      # Prove migrations apply cleanly against a fresh Postgres before tests run.
+      - name: Apply migrations
+        run: npm run db:migrate
+      # Unit + app pipeline + DB integration (RUN_DB_TESTS enables the gated suite).
+      - name: Test
+        run: npm run test:unit
+
+  deploy:
+    name: Deploy (Coolify)
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # CI is the gate: a green check is required before this fires. Coolify then
+      # builds the Dockerfile, runs the pre-deploy migration, and health-gates the
+      # cutover on /health. API and worker are separate Coolify apps → two deploys.
+      - name: Trigger Coolify deploy
+        env:
+          COOLIFY_BASE_URL: ${{ secrets.COOLIFY_BASE_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          API_UUID: ${{ secrets.COOLIFY_API_APP_UUID }}
+          WORKER_UUID: ${{ secrets.COOLIFY_WORKER_APP_UUID }}
+        run: |
+          curl -fsS -X GET "$COOLIFY_BASE_URL/api/v1/deploy?uuid=$API_UUID" \
+            -H "Authorization: Bearer $COOLIFY_TOKEN"
+          curl -fsS -X GET "$COOLIFY_BASE_URL/api/v1/deploy?uuid=$WORKER_UUID" \
+            -H "Authorization: Bearer $COOLIFY_TOKEN"
