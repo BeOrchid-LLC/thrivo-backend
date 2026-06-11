@@ -6,15 +6,19 @@ import { env } from "./env";
 import { pingDb } from "../db";
 import { pingRedis } from "./lib/redis";
 import { AppError } from "./lib/errors";
+import { requestId } from "./middleware/request-id";
+import type { AppEnv } from "./types/http";
 
 /**
  * Builds the configured Hono app without starting a listener, so integration
  * tests can import it directly. Process concerns (env, Sentry, serve, signals)
  * live in index.ts. The full middleware pipeline + routers land in A1-3/A1-6.
  */
-export function buildApp(): Hono {
-  const app = new Hono();
+export function buildApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
 
+  // Correlation id first so every downstream log/error carries it.
+  app.use(requestId);
   app.use(honoLogger());
 
   // Liveness — the process is up.
