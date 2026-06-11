@@ -13,6 +13,7 @@ if (env.SENTRY_DSN) {
   Sentry.init({
     dsn: env.SENTRY_DSN,
     environment: env.NODE_ENV,
+    release: env.GIT_SHA,
     tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 1.0,
   });
 }
@@ -31,6 +32,9 @@ async function shutdown(signal: string): Promise<void> {
   server.close();
   await closeDb();
   await closeRedis();
+  // Flush any buffered error reports before the process exits so a crash-on-deploy
+  // doesn't drop the event that explains it. No-op when Sentry isn't initialized.
+  await Sentry.flush(2000);
   process.exit(0);
 }
 

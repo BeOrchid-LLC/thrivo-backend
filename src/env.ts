@@ -21,6 +21,9 @@ const envSchema = z.object({
 
   // Observability (optional). Empty string in .env is treated as unset.
   SENTRY_DSN: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  // Deployed build identifier (git SHA), injected at build/deploy. Tags Sentry
+  // releases and is surfaced by /health. Absent in local dev → reported as "dev".
+  GIT_SHA: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
 
   // Later-phase secrets become *required* in their own phase by extending this
   // schema, following the same fail-fast pattern, e.g.:

@@ -1,12 +1,10 @@
 import { Hono } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
-import * as Sentry from "@sentry/node";
 import { env } from "./env";
 import { pingDb } from "../db";
 import { pingRedis } from "./lib/redis";
-import { AppError } from "./lib/errors";
 import { requestId } from "./middleware/request-id";
 import { requestLogger } from "./middleware/logger";
+import { errorHandler } from "./middleware/error";
 import type { AppEnv } from "./types/http";
 
 /**
@@ -22,8 +20,16 @@ export function buildApp(): Hono<AppEnv> {
   app.use(requestId);
   app.use(requestLogger);
 
-  // Liveness — the process is up.
-  app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+  // Liveness — the process is up. No I/O; reports the running build + uptime so
+  // a probe response also confirms which version answered.
+  app.get("/health", (c) =>
+    c.json({
+      status: "ok",
+      version: env.GIT_SHA ?? "dev",
+      uptimeSeconds: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    })
+  );
 
   // Readiness — dependencies are reachable. 503 when degraded so orchestrators hold traffic.
   app.get("/ready", async (c) => {
@@ -35,24 +41,7 @@ export function buildApp(): Hono<AppEnv> {
     );
   });
 
-  app.onError((err, c) => {
-    if (err instanceof AppError) {
-      return c.json(
-        { error: { code: err.code, message: err.message, details: err.details } },
-        err.status as ContentfulStatusCode
-      );
-    }
-    Sentry.captureException(err);
-    return c.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: env.NODE_ENV === "production" ? "Internal server error" : err.message,
-        },
-      },
-      500
-    );
-  });
+  app.onError(errorHandler);
 
   return app;
 }
