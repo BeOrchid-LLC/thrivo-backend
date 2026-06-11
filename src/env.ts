@@ -28,8 +28,18 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
 
-  // Auth/session secret (BetterAuth lands in A1-4; renamed there if needed).
-  JWT_SECRET: z.string().min(32),
+  // Auth (A1-4). BetterAuth signs sessions/tokens with this secret; required.
+  BETTER_AUTH_SECRET: z.string().min(32),
+  // Public base URL of the API (BetterAuth callback/cookie issuer). Dev default.
+  AUTH_BASE_URL: z.string().url().default("http://localhost:4000"),
+
+  // OAuth provider credentials (optional — a provider is configured only when its
+  // full set is present, so dev/CI boot without them). External lead time per
+  // ADR-0017 (Google client; Apple Service ID + key).
+  GOOGLE_CLIENT_ID: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  GOOGLE_CLIENT_SECRET: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  APPLE_CLIENT_ID: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  APPLE_CLIENT_SECRET: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
 
   // Observability (optional). Empty string in .env is treated as unset.
   SENTRY_DSN: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),

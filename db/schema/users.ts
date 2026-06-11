@@ -16,6 +16,10 @@ export const users = pgTable("users", {
   email: citext("email").notNull().unique(),
   name: text("name").notNull(),
 
+  // Neutral link to the provider-owned auth identity (auth_user.id). Nullable
+  // until reconciled on first sign-in; keeps the domain table auth-agnostic.
+  authSubjectId: text("auth_subject_id").unique(),
+
   // Onboarding profile (canonical SI; UI converts units at the edge).
   goal: goalEnum("goal"),
   sex: sexEnum("sex"),

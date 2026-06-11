@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { renderTemplate } from "../../src/lib/email/registry";
 
 describe("email template registry", () => {
+  it("renders the otp template with the code and a purpose-specific subject", () => {
+    const out = renderTemplate("otp", { code: "123456", purpose: "sign-in" });
+    expect(out.subject).toContain("123456");
+    expect(out.subject).toContain("sign-in");
+    expect(out.html).toContain("123456");
+    expect(out.text).toContain("123456");
+  });
+
   it("renders the notification template with subject, html and text", () => {
     const out = renderTemplate("notification", {
       title: "Welcome to Thrivo",
