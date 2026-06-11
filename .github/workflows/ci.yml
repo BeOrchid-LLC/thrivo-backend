@@ -58,9 +58,10 @@ jobs:
       # Prove migrations apply cleanly against a fresh Postgres before tests run.
       - name: Apply migrations
         run: npm run db:migrate
-      # Unit + app pipeline + DB integration (RUN_DB_TESTS enables the gated suite).
+      # Unit + app pipeline + DB integration (RUN_DB_TESTS enables the gated
+      # suite); coverage thresholds gate the run.
       - name: Test
-        run: npm run test:unit
+        run: npm run test:coverage
 
   deploy:
     name: Deploy (Coolify)
