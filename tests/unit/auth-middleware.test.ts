@@ -1,0 +1,38 @@
+import { Hono } from "hono";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { verifyRequest } = vi.hoisted(() => ({ verifyRequest: vi.fn() }));
+vi.mock("../../src/auth", () => ({ verifyRequest }));
+const { resolveUser } = vi.hoisted(() => ({ resolveUser: vi.fn() }));
+vi.mock("../../src/services/identity.service", () => ({ resolveUser }));
+
+import { authMiddleware } from "../../src/middleware/auth";
+import type { AppEnv } from "../../src/types/http";
+
+function app() {
+  const a = new Hono<AppEnv>();
+  a.use(authMiddleware);
+  a.get("/", (c) => c.json({ user: c.var.user ?? null }));
+  return a;
+}
+
+describe("auth middleware", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("resolves a principal to c.var.user", async () => {
+    verifyRequest.mockResolvedValue({ subjectId: "s1", email: "a@b.com", emailVerified: true });
+    resolveUser.mockResolvedValue({ id: "u1", email: "a@b.com" });
+
+    const body = (await (await app().request("/")).json()) as { user: { id: string } | null };
+    expect(body.user?.id).toBe("u1");
+    expect(resolveUser).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the request anonymous when there is no session", async () => {
+    verifyRequest.mockResolvedValue(null);
+
+    const body = (await (await app().request("/")).json()) as { user: unknown };
+    expect(body.user).toBeNull();
+    expect(resolveUser).not.toHaveBeenCalled();
+  });
+});
