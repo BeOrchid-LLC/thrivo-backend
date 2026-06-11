@@ -15,7 +15,7 @@
     "test:watch": "vitest --watch",
     "worker": "tsx watch src/jobs/worker.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx db/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx db/seed.ts",
     "lint": "eslint src db --ext .ts",
