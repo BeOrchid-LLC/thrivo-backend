@@ -1,42 +1,36 @@
-import { afterAll, describe, expect, it } from "vitest";
-import { db, closeDb } from "../../db";
-import { newId } from "../../src/lib/ids";
-import { userRepo, foodItemRepo, foodLogRepo } from "../../src/repositories";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { db, closeDb, resetDb } from "../helpers/db";
+import { makeUser, makeFoodItem } from "../helpers/factories";
+import { userRepo, foodLogRepo } from "../../src/repositories";
 
-// Integration suite — runs against a real test Postgres with migrations applied.
-// Gated so `npm run test:unit` stays green without infra. Enable with RUN_DB_TESTS=1.
+// Integration suite — runs against a real test Postgres with migrations applied
+// (globalSetup). Gated so `npm run test:unit` stays green without infra; enable
+// with RUN_DB_TESTS=1. Each test starts from a truncated database.
 const run = process.env.RUN_DB_TESTS === "1";
 
-function uniqueEmail(): string {
-  return `${newId()}@test.thrivo.fit`;
-}
-
 describe.skipIf(!run)("integration: repositories", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
   afterAll(async () => {
     await closeDb();
   });
 
   it("creates a user and reads it back (active only)", async () => {
-    const user = await userRepo.createUser({ email: uniqueEmail(), name: "Ada" });
+    const user = await makeUser({ name: "Ada" });
     const found = await userRepo.findById(user.id);
     expect(found?.id).toBe(user.id);
   });
 
   it("soft delete hides the user from active reads", async () => {
-    const email = uniqueEmail();
-    const user = await userRepo.createUser({ email, name: "Grace" });
+    const user = await makeUser({ name: "Grace" });
     await userRepo.softDeleteUser(user.id);
-    expect(await userRepo.findActiveByEmail(email)).toBeNull();
+    expect(await userRepo.findActiveByEmail(user.email)).toBeNull();
   });
 
   it("logs a food with snapshotted nutrients (incl. pure-manual null item)", async () => {
-    const user = await userRepo.createUser({ email: uniqueEmail(), name: "Lin" });
-    const item = await foodItemRepo.insertItem({
-      tier: "personal",
-      origin: "personal",
-      name: "Home Oatmeal",
-      ownerUserId: user.id,
-    });
+    const user = await makeUser({ name: "Lin" });
+    const item = await makeFoodItem({ name: "Home Oatmeal", ownerUserId: user.id });
     const linked = await foodLogRepo.createLog({
       userId: user.id,
       loggedAt: new Date(),
@@ -74,8 +68,8 @@ describe.skipIf(!run)("integration: repositories", () => {
   });
 
   it("scopes diary reads per user (no IDOR)", async () => {
-    const a = await userRepo.createUser({ email: uniqueEmail(), name: "A" });
-    const b = await userRepo.createUser({ email: uniqueEmail(), name: "B" });
+    const a = await makeUser({ name: "A" });
+    const b = await makeUser({ name: "B" });
     await foodLogRepo.createLog({
       userId: a.id,
       loggedAt: new Date(),
@@ -93,11 +87,10 @@ describe.skipIf(!run)("integration: repositories", () => {
   });
 
   it("deletes a log via its composite PK", async () => {
-    const user = await userRepo.createUser({ email: uniqueEmail(), name: "Del" });
-    const loggedAt = new Date();
+    const user = await makeUser({ name: "Del" });
     const log = await foodLogRepo.createLog({
       userId: user.id,
-      loggedAt,
+      loggedAt: new Date(),
       localDate: "2026-06-08",
       meal: "dinner",
       source: "manual",
@@ -113,13 +106,15 @@ describe.skipIf(!run)("integration: repositories", () => {
   });
 
   it("rolls back a transaction on error (no partial writes)", async () => {
-    const email = uniqueEmail();
+    const user = await makeUser({ name: "Seed" });
+    void foodItemRepo; // keep the catalog repo import meaningful across edits
     await expect(
       db.transaction(async (tx) => {
-        await userRepo.createUser({ email, name: "Rollback" }, tx);
+        await userRepo.updateProfile(user.id, { name: "Changed" }, tx);
         throw new Error("boom");
       })
     ).rejects.toThrow("boom");
-    expect(await userRepo.findActiveByEmail(email)).toBeNull();
+    const after = await userRepo.findById(user.id);
+    expect(after?.name).toBe("Seed");
   });
 });
