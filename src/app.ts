@@ -7,6 +7,7 @@ import { requestLogger } from "./middleware/logger";
 import { securityHeaders } from "./middleware/security-headers";
 import { corsMiddleware } from "./middleware/cors";
 import { bodyLimitMiddleware } from "./middleware/body-limit";
+import { apiRateLimit } from "./middleware/rate-limit";
 import { errorHandler } from "./middleware/error";
 import type { AppEnv } from "./types/http";
 
@@ -25,6 +26,10 @@ export function buildApp(): Hono<AppEnv> {
   app.use(securityHeaders);
   app.use(corsMiddleware);
   app.use(bodyLimitMiddleware);
+
+  // General per-IP ceiling on the API surface only — health/ready probes are
+  // exempt (not under /api/v1). Auth routers add a tighter bucket on top.
+  app.use("/api/v1/*", apiRateLimit);
 
   // Liveness — the process is up. No I/O; reports the running build + uptime so
   // a probe response also confirms which version answered.
