@@ -7,7 +7,9 @@ import { requestLogger } from "./middleware/logger";
 import { securityHeaders } from "./middleware/security-headers";
 import { corsMiddleware } from "./middleware/cors";
 import { bodyLimitMiddleware } from "./middleware/body-limit";
-import { apiRateLimit } from "./middleware/rate-limit";
+import { apiRateLimit, authRateLimit } from "./middleware/rate-limit";
+import { authMiddleware } from "./middleware/auth";
+import { authHandler } from "./auth";
 import { errorHandler } from "./middleware/error";
 import type { AppEnv } from "./types/http";
 
@@ -28,8 +30,16 @@ export function buildApp(): Hono<AppEnv> {
   app.use(bodyLimitMiddleware);
 
   // General per-IP ceiling on the API surface only — health/ready probes are
-  // exempt (not under /api/v1). Auth routers add a tighter bucket on top.
+  // exempt (not under /api/v1).
   app.use("/api/v1/*", apiRateLimit);
+
+  // Resolve the session → c.var.user for every API request (non-fatal).
+  app.use("/api/v1/*", authMiddleware);
+
+  // BetterAuth owns sign-up/in/out, OAuth callbacks, and OTP under /api/v1/auth/**,
+  // behind a tighter rate-limit bucket. This is the only mount point of the seam.
+  app.use("/api/v1/auth/*", authRateLimit);
+  app.on(["POST", "GET"], "/api/v1/auth/*", (c) => authHandler(c.req.raw));
 
   // Liveness — the process is up. No I/O; reports the running build + uptime so
   // a probe response also confirms which version answered.

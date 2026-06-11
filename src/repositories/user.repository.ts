@@ -24,6 +24,33 @@ export async function findActiveByEmail(email: string, tx: Executor = db): Promi
   return row ?? null;
 }
 
+/** Look up the domain profile by its linked auth identity (identity reconcile). */
+export async function findByAuthSubjectId(
+  authSubjectId: string,
+  tx: Executor = db
+): Promise<User | null> {
+  const [row] = await tx
+    .select()
+    .from(users)
+    .where(and(eq(users.authSubjectId, authSubjectId), isNull(users.deletedAt)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Bind an existing profile to an auth identity (first sign-in via a new method). */
+export async function linkAuthSubject(
+  id: string,
+  authSubjectId: string,
+  tx: Executor = db
+): Promise<User | null> {
+  const [row] = await tx
+    .update(users)
+    .set({ authSubjectId })
+    .where(and(eq(users.id, id), isNull(users.deletedAt)))
+    .returning();
+  return row ?? null;
+}
+
 export async function createUser(input: NewUserRow, tx: Executor = db): Promise<User> {
   const [row] = await tx.insert(users).values(input).returning();
   return row;
