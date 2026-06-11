@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { logger as honoLogger } from "hono/logger";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import * as Sentry from "@sentry/node";
 import { env } from "./env";
@@ -7,6 +6,7 @@ import { pingDb } from "../db";
 import { pingRedis } from "./lib/redis";
 import { AppError } from "./lib/errors";
 import { requestId } from "./middleware/request-id";
+import { requestLogger } from "./middleware/logger";
 import type { AppEnv } from "./types/http";
 
 /**
@@ -17,9 +17,10 @@ import type { AppEnv } from "./types/http";
 export function buildApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  // Correlation id first so every downstream log/error carries it.
+  // Correlation id first so every downstream log/error carries it, then the
+  // request-scoped logger that binds the id and logs each request on finish.
   app.use(requestId);
-  app.use(honoLogger());
+  app.use(requestLogger);
 
   // Liveness — the process is up.
   app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
