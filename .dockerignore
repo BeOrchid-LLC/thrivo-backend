@@ -1,0 +1,25 @@
+# Build artifacts & deps (reinstalled/rebuilt inside the image)
+node_modules
+dist
+
+# VCS & CI
+.git
+.gitignore
+.github
+
+# Tests & coverage (not needed in the runtime image)
+tests
+coverage
+
+# Local env & secrets — never bake into an image
+.env
+.env.*
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
+npm-debug.log*
+
+# Docs & plans
+**/*.md
