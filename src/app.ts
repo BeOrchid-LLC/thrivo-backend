@@ -10,6 +10,7 @@ import { bodyLimitMiddleware } from "./middleware/body-limit";
 import { apiRateLimit, authRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
 import { authHandler } from "./auth";
+import { usersRouter } from "./routes/users";
 import { errorHandler } from "./middleware/error";
 import type { AppEnv } from "./types/http";
 
@@ -40,6 +41,9 @@ export function buildApp(): Hono<AppEnv> {
   // behind a tighter rate-limit bucket. This is the only mount point of the seam.
   app.use("/api/v1/auth/*", authRateLimit);
   app.on(["POST", "GET"], "/api/v1/auth/*", (c) => authHandler(c.req.raw));
+
+  // Feature routers (auth-gated). /users/me is the A1 reference route; A2 adds the rest.
+  app.route("/api/v1/users", usersRouter);
 
   // Liveness — the process is up. No I/O; reports the running build + uptime so
   // a probe response also confirms which version answered.
