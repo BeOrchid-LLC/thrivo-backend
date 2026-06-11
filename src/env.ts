@@ -12,6 +12,18 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 
+  // CORS allowlist (comma-separated first-party origins). Native mobile sends no
+  // Origin, so this governs the web + admin browsers. Dev default covers both.
+  CORS_ORIGINS: z
+    .string()
+    .default("http://localhost:3000,http://localhost:3001")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean)
+    ),
+
   // Data + infrastructure (required — the server refuses to boot without them).
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
