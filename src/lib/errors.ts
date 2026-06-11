@@ -6,6 +6,7 @@ export type ErrorCode =
   | "VALIDATION_ERROR"
   | "UNAUTHORIZED"
   | "FORBIDDEN"
+  | "PREMIUM_REQUIRED"
   | "NOT_FOUND"
   | "CONFLICT"
   | "RATE_LIMITED"
@@ -41,6 +42,13 @@ export class UnauthorizedError extends AppError {
 export class ForbiddenError extends AppError {
   constructor(message = "Forbidden") {
     super("FORBIDDEN", message, 403);
+  }
+}
+
+/** 403 with a distinct code so clients can show an upgrade prompt (vs a plain forbid). */
+export class PremiumRequiredError extends AppError {
+  constructor(message = "Premium subscription required") {
+    super("PREMIUM_REQUIRED", message, 403);
   }
 }
 
