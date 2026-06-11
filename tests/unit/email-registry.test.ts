@@ -1,0 +1,34 @@
+import { describe, expect, it } from "vitest";
+import { renderTemplate } from "../../src/lib/email/registry";
+
+describe("email template registry", () => {
+  it("renders the notification template with subject, html and text", () => {
+    const out = renderTemplate("notification", {
+      title: "Welcome to Thrivo",
+      body: "Let's hit your goals.",
+      cta: { label: "Open app", url: "https://thrivo.fit/app" },
+    });
+
+    expect(out.subject).toBe("Welcome to Thrivo");
+    expect(out.html).toContain("Welcome to Thrivo");
+    expect(out.html).toContain("Let&#39;s hit your goals.");
+    expect(out.html).toContain("https://thrivo.fit/app");
+    expect(out.text).toContain("Open app: https://thrivo.fit/app");
+  });
+
+  it("escapes HTML in props to prevent markup injection", () => {
+    const out = renderTemplate("notification", {
+      title: "<script>alert(1)</script>",
+      body: "plain",
+    });
+    expect(out.html).not.toContain("<script>alert(1)</script>");
+    expect(out.html).toContain("&lt;script&gt;");
+  });
+
+  it("throws on an unknown template name", () => {
+    // Cast through unknown — runtime callers (worker payloads) aren't type-checked.
+    expect(() => renderTemplate("nope" as unknown as "notification", {} as never)).toThrow(
+      /unknown email template/
+    );
+  });
+});

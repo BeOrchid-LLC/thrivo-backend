@@ -25,9 +25,14 @@ const envSchema = z.object({
   // releases and is surfaced by /health. Absent in local dev → reported as "dev".
   GIT_SHA: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
 
+  // Transactional email (Resend). Optional this phase — the email infra is
+  // scaffolded in A1-8 but sends go live in A2/A5, where RESEND_API_KEY becomes
+  // required. Without a key the send path degrades (logs + marks email_logs).
+  RESEND_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  EMAIL_FROM: z.string().min(1).default("Thrivo <noreply@thrivo.fit>"),
+
   // Later-phase secrets become *required* in their own phase by extending this
   // schema, following the same fail-fast pattern, e.g.:
-  //   RESEND_API_KEY: z.string().min(1),         // A2/A5 — transactional email
   //   REVENUECAT_WEBHOOK_SECRET: z.string(),      // A5  — subscription webhooks
   //   STRIPE_SECRET_KEY: z.string(),              // A5  — billing fallback
   //   EXPO_ACCESS_TOKEN: z.string(),              // A2  — push delivery
