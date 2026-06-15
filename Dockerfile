@@ -55,7 +55,16 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/index.js"]
 
-# ---- worker: background jobs — no HTTP, no port, no /health to probe ----
+# ---- worker: background jobs — no HTTP server, so no /health endpoint ----
+# Can't use HEALTHCHECK NONE: Coolify parses the Dockerfile, finds the api
+# stage's HEALTHCHECK, and flags the whole app as having a custom healthcheck
+# (custom_healthcheck_found=true). It then waits on the worker container's
+# Docker health status, and `docker inspect .State.Health.Status` errors out
+# with no Health key (rolling update fails). Give the worker a real liveness
+# probe on its actual dependency — a Redis PING (the BullMQ broker). Populates
+# .State.Health so the deploy passes, and marks the worker unhealthy if its
+# Redis connection dies (a BullMQ worker with dead Redis is silently useless).
 FROM runtime AS worker
-HEALTHCHECK NONE
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "const R=require('ioredis');const r=new R(process.env.REDIS_URL,{lazyConnect:true,maxRetriesPerRequest:1,enableOfflineQueue:false,connectTimeout:4000});r.connect().then(()=>r.ping()).then(()=>{r.disconnect();process.exit(0)}).catch(()=>process.exit(1))"
 CMD ["node", "dist/worker.js"]
