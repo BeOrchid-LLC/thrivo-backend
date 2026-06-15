@@ -15,7 +15,10 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm install --no-audit --no-fund
+# --include=dev: Coolify injects NODE_ENV=production into the build env, which
+# makes npm skip devDependencies (tsup, typescript, ...) needed by `npm run
+# build`. Force them in regardless. The runtime stage stays --omit=dev.
+RUN npm install --include=dev --no-audit --no-fund
 
 # ---- build: bundle the three entrypoints with tsup ----
 FROM node:22-bookworm-slim AS build
