@@ -14,7 +14,12 @@
 # install` reconciles package.json -> lockfile in-environment instead.
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+# Only package.json — NOT package-lock.json. The committed lockfile is generated
+# on Windows and records only win32 platform-specific optional deps (e.g.
+# @rollup/rollup-win32-x64-msvc), so on the Linux builder npm skips the Linux
+# native binary (@rollup/rollup-linux-x64-gnu) and rollup/tsup fail to load
+# (npm/cli#4828). Resolving fresh from package.json pulls the correct platform.
+COPY package.json ./
 # --include=dev: Coolify injects NODE_ENV=production into the build env, which
 # makes npm skip devDependencies (tsup, typescript, ...) needed by `npm run
 # build`. Force them in regardless. The runtime stage stays --omit=dev.
@@ -32,7 +37,9 @@ RUN npm run build
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
-COPY package.json package-lock.json ./
+# package.json only (see deps stage) — avoid the Windows lockfile's platform-
+# pinned optional deps so npm resolves prod deps for the Linux runtime.
+COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 # Bundled entrypoints (index/worker/migrate) and the .sql files the migrator reads.
 COPY --from=build /app/dist ./dist
