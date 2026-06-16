@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db, closeDb, resetDb } from "../helpers/db";
 import { makeUser, makeFoodItem } from "../helpers/factories";
-import { userRepo, foodLogRepo } from "../../src/repositories";
+import { userRepo, foodItemRepo, foodLogRepo } from "../../src/repositories";
 
 // Integration suite — runs against a real test Postgres with migrations applied
 // (globalSetup). Gated so `npm run test:unit` stays green without infra; enable
