@@ -50,7 +50,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # Drop the Windows-generated lockfile before installing — it records only
+      # win32 optional deps (npm/cli#4828), so npm ci on this Linux runner skips
+      # @rollup/rollup-linux-x64-gnu and the build step fails. Deleting it lets
+      # npm resolve platform-correct deps fresh. The npm tarball cache (restored
+      # above via cache: npm) still makes the install fast.
+      - run: rm -f package-lock.json && npm install --no-audit --no-fund
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
