@@ -12,7 +12,10 @@ import { env } from "../env";
  */
 const options: LoggerOptions = {
   level: env.LOG_LEVEL,
-  base: { service: "thrivo-backend" },
+  // base: null drops the per-line pid/hostname/service noise. Re-add a
+  // `base: { service: "thrivo-backend" }` here if logs are later shipped to a
+  // shared aggregator where distinguishing the source matters.
+  base: null,
   redact: {
     paths: [
       "req.headers.authorization",
@@ -32,4 +35,11 @@ export const logger =
         ...options,
         transport: { target: "pino-pretty", options: { translateTime: "SYS:standard" } },
       })
-    : pino(options);
+    : pino({
+        ...options,
+        // The JSON lines read directly in Coolify: ISO-8601 timestamps and
+        // string level names ("info" instead of 30). pino-pretty already does
+        // both in development.
+        timestamp: pino.stdTimeFunctions.isoTime,
+        formatters: { level: (label) => ({ level: label }) },
+      });

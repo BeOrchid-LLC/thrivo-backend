@@ -19,6 +19,11 @@ export const requestLogger = createMiddleware<AppEnv>(async (c, next) => {
   await next();
   const durationMs = Date.now() - start;
 
+  // Orchestrator probes hit /health (and /ready) every ~30s and would otherwise
+  // dominate the log. Skip them while healthy; still surface a failing probe.
+  const isProbe = c.req.path === "/health" || c.req.path === "/ready";
+  if (isProbe && c.res.status < 400) return;
+
   const fields = {
     method: c.req.method,
     path: c.req.path,
