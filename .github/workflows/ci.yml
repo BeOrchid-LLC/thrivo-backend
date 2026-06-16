@@ -15,6 +15,7 @@ jobs:
   check:
     name: Lint, typecheck, build, migrate & test
     runs-on: ubuntu-latest
+    environment: production
     env:
       NODE_ENV: test
       DATABASE_URL: postgres://thrivo:thrivo@localhost:5432/thrivo
@@ -73,6 +74,7 @@ jobs:
     needs: check
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       # CI is the gate: a green check is required before this fires. Coolify then
       # builds the Dockerfile, runs the pre-deploy migration, and health-gates the
