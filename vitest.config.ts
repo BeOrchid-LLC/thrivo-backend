@@ -3,6 +3,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    // Integration tests share a real Postgres via resetDb(); parallel file
+    // execution causes concurrent truncates to corrupt each other's fixtures.
+    fileParallelism: false,
     include: ["tests/**/*.test.ts"],
     // Applies migrations once when RUN_DB_TESTS=1; no-op for unit-only runs.
     globalSetup: ["tests/helpers/global-setup.ts"],
