@@ -32,6 +32,9 @@ export const auth = betterAuth({
   baseURL: env.AUTH_BASE_URL,
   basePath: "/api/v1/auth",
   secret: env.BETTER_AUTH_SECRET,
+  // Origins accepted as a post-flow `callbackURL`. `baseURL` is trusted implicitly;
+  // this adds the web/admin origins and the mobile app scheme (deep-link return).
+  trustedOrigins: env.AUTH_TRUSTED_ORIGINS,
   database: drizzleAdapter(db, { provider: "pg", schema: authSchema }),
   // Auth identity is provider-owned; our domain `users` table links by
   // `auth_subject_id`. The auth identity table is named `auth_user` to avoid

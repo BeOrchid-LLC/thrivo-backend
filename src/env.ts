@@ -32,6 +32,18 @@ const envSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32),
   // Public base URL of the API (BetterAuth callback/cookie issuer). Dev default.
   AUTH_BASE_URL: z.string().url().default("http://localhost:4000"),
+  // Origins BetterAuth accepts as a post-flow `callbackURL` (web/admin origins +
+  // the mobile app scheme for the deep-link return). `baseURL` is always trusted,
+  // so it is not listed here. Comma-separated; dev default covers local web.
+  AUTH_TRUSTED_ORIGINS: z
+    .string()
+    .default("http://localhost:3000,http://localhost:3001,thrivo://")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean)
+    ),
 
   // OAuth provider credentials (optional — a provider is configured only when its
   // full set is present, so dev/CI boot without them). External lead time per
