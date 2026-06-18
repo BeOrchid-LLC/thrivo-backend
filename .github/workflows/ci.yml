@@ -89,8 +89,39 @@ jobs:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           API_UUID: ${{ secrets.COOLIFY_API_APP_UUID }}
           WORKER_UUID: ${{ secrets.COOLIFY_WORKER_APP_UUID }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.COOLIFY_CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.COOLIFY_CF_ACCESS_CLIENT_SECRET }}
         run: |
-          curl -fsS -X GET "$COOLIFY_BASE_URL/api/v1/deploy?uuid=$API_UUID" \
-            -H "Authorization: Bearer $COOLIFY_TOKEN"
-          curl -fsS -X GET "$COOLIFY_BASE_URL/api/v1/deploy?uuid=$WORKER_UUID" \
-            -H "Authorization: Bearer $COOLIFY_TOKEN"
+          base_url="${COOLIFY_BASE_URL%/}"
+
+          if [ -z "$base_url" ] || [ -z "$COOLIFY_TOKEN" ] || [ -z "$API_UUID" ] || [ -z "$WORKER_UUID" ] || [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
+            echo "::error::Missing one or more Coolify deploy secrets."
+            exit 1
+          fi
+
+          case "$base_url" in
+            https://*) ;;
+            http://*)
+              echo "::error::COOLIFY_BASE_URL must be the public HTTPS Coolify URL, not the internal HTTP instance FQDN."
+              exit 1
+              ;;
+            *)
+              echo "::error::COOLIFY_BASE_URL must include https://."
+              exit 1
+              ;;
+          esac
+
+          deploy() {
+            name="$1"
+            uuid="$2"
+            echo "Triggering Coolify deploy for $name..."
+            curl --fail-with-body --show-error --silent --location --max-redirs 3 \
+              --proto '=https' --tlsv1.2 \
+              -X GET "$base_url/api/v1/deploy?uuid=$uuid" \
+              -H "Authorization: Bearer $COOLIFY_TOKEN" \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
+          }
+
+          deploy "API" "$API_UUID"
+          deploy "worker" "$WORKER_UUID"
