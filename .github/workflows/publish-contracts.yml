@@ -24,6 +24,6 @@ jobs:
       - run: rm -f package-lock.json && npm install --no-audit --no-fund
       - run: npm run contracts:build
       - run: npm run contracts:pack:dry
-      - run: npm publish ./contracts
+      - run: npm publish ./contracts --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
