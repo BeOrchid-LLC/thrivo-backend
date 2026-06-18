@@ -7,6 +7,9 @@ describe("ok envelope", () => {
   });
 
   it("includes meta when provided", () => {
-    expect(ok([1, 2], { nextCursor: "abc" })).toEqual({ data: [1, 2], meta: { nextCursor: "abc" } });
+    expect(ok([1, 2], { nextCursor: "abc" })).toEqual({
+      data: [1, 2],
+      meta: { nextCursor: "abc" },
+    });
   });
 });

@@ -53,7 +53,10 @@ describe.skipIf(!run)("integration: auth", () => {
     const session = await createSession();
 
     await app.request("/api/v1/users/me", { headers: authed(session) }); // reconcile the profile
-    const del = await app.request("/api/v1/users/me", { method: "DELETE", headers: authed(session) });
+    const del = await app.request("/api/v1/users/me", {
+      method: "DELETE",
+      headers: authed(session),
+    });
     expect(del.status).toBe(204);
     expect(await userRepo.findActiveByEmail(session.email)).toBeNull();
   });
