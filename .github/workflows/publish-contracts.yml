@@ -1,0 +1,29 @@
+name: Publish contracts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "contracts-v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish @beorchid-llc/thrivo-contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+          scope: "@beorchid-llc"
+      - run: rm -f package-lock.json && npm install --no-audit --no-fund
+      - run: npm run contracts:build
+      - run: npm run contracts:pack:dry
+      - run: npm publish ./contracts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

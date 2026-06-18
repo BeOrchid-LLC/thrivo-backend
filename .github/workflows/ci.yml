@@ -62,6 +62,8 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
+      - run: npm run contracts:build
+      - run: npm run contracts:pack:dry
       - run: npm run build
       # Prove migrations apply cleanly against a fresh Postgres before tests run.
       - name: Apply migrations

@@ -1,6 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
-import { makeUser, makeFoodItem, makeWeightEntry, makeWaterEntry, makeCheckIn } from "../helpers/factories";
+import {
+  makeUser,
+  makeFoodItem,
+  makeWeightEntry,
+  makeWaterEntry,
+  makeCheckIn,
+} from "../helpers/factories";
 import {
   weightEntryRepo,
   waterIntakeRepo,

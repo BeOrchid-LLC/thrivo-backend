@@ -36,6 +36,10 @@ describe("email.service.sendTemplatedEmail", () => {
     const [queue, jobName, data] = enqueue.mock.calls[0];
     expect(queue).toBe("emails");
     expect(jobName).toBe("send-email");
-    expect(data).toMatchObject({ emailLogId: "log_99", to: "user@thrivo.fit", template: "notification" });
+    expect(data).toMatchObject({
+      emailLogId: "log_99",
+      to: "user@thrivo.fit",
+      template: "notification",
+    });
   });
 });

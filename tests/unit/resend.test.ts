@@ -2,14 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mutable mocked env so each test can flip RESEND_API_KEY.
 const state = vi.hoisted(() => ({
-  env: { RESEND_API_KEY: "re_test_key" as string | undefined, EMAIL_FROM: "Thrivo <noreply@thrivo.fit>" },
+  env: {
+    RESEND_API_KEY: "re_test_key" as string | undefined,
+    EMAIL_FROM: "Thrivo <noreply@thrivo.fit>",
+  },
 }));
 vi.mock("../../src/env", () => ({ env: state.env }));
 
 import { sendEmail, EmailNotConfiguredError, EmailSendError } from "../../src/integrations/resend";
 
 const okResponse = (id: string) =>
-  ({ ok: true, status: 200, json: async () => ({ id }), text: async () => "" }) as unknown as Response;
+  ({
+    ok: true,
+    status: 200,
+    json: async () => ({ id }),
+    text: async () => "",
+  }) as unknown as Response;
 const errResponse = (status: number) =>
   ({ ok: false, status, json: async () => ({}), text: async () => "boom" }) as unknown as Response;
 

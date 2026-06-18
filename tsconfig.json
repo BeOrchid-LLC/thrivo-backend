@@ -20,6 +20,6 @@
       "@db/*": ["db/*"]
     }
   },
-  "include": ["src", "db"],
+  "include": ["src", "db", "contracts/src"],
   "exclude": ["node_modules", "dist"]
 }

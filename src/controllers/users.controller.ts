@@ -1,12 +1,13 @@
 import type { Context } from "hono";
+import { userProfileSchema, type UserProfile } from "../../contracts/src/users";
 import { ok } from "../lib/response";
 import { userRepo } from "../repositories";
 import type { AppEnv } from "../types/http";
 import type { User } from "../repositories/user.repository";
 
 // Public profile DTO — never leaks the auth link or soft-delete bookkeeping.
-function toProfile(u: User) {
-  return {
+function toProfile(u: User): UserProfile {
+  return userProfileSchema.parse({
     id: u.id,
     email: u.email,
     name: u.name,
@@ -26,7 +27,7 @@ function toProfile(u: User) {
     tier: u.tier,
     onboardingStep: u.onboardingStep,
     createdAt: u.createdAt,
-  };
+  });
 }
 
 /** GET /users/me — the caller's own profile. `requireAuth` guarantees the user. */
