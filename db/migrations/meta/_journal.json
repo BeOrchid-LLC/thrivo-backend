@@ -22,6 +22,13 @@
       "when": 1781180995398,
       "tag": "0002_calm_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781828243996,
+      "tag": "0003_tricky_human_torch",
+      "breakpoints": true
     }
   ]
 }

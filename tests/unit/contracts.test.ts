@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   errorCodeSchema,
   getMeResponseSchema,
+  updateProfilePayloadSchema,
   userProfileSchema,
   userRoutes,
 } from "../../contracts/src";
@@ -23,10 +24,15 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       targetProteinG: 120,
       targetCarbsG: 160,
       targetFatG: 55,
+      activityLevel: "light",
+      manualDailyTargetKcal: null,
       notifyAt: "09:00:00",
       timezone: "Africa/Lagos",
       tier: "free",
+      accountStatus: "free_trial",
+      trialEndsAt: new Date("2026-06-25T00:00:00.000Z"),
       onboardingStep: 3,
+      isOnboarded: true,
       createdAt: new Date("2026-06-18T00:00:00.000Z"),
     });
 
@@ -39,6 +45,25 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       path: "/api/v1/users/me",
       auth: "user",
     });
+    expect(userRoutes.updateProfile).toEqual({
+      method: "PATCH",
+      path: "/api/v1/users/me/profile",
+      auth: "user",
+    });
     expect(errorCodeSchema.options).toContain("PREMIUM_REQUIRED");
+  });
+
+  it("validates profile update payloads", () => {
+    expect(
+      updateProfilePayloadSchema.parse({
+        firstName: "Ada",
+        sex: "prefer_not_to_say",
+        activityLevel: "moderate",
+        ageYears: 31,
+        activationIntent: "start_free_trial",
+      }).firstName
+    ).toBe("Ada");
+
+    expect(updateProfilePayloadSchema.safeParse({ ageYears: 12 }).success).toBe(false);
   });
 });

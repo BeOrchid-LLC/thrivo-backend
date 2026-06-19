@@ -1,0 +1,130 @@
+import type { NewUserRow, UserTier } from "../../db/schema";
+import type { UpdateProfilePayload } from "../../contracts/src/users";
+import { userRepo } from "../repositories";
+import type { User } from "../repositories/user.repository";
+import { NotFoundError } from "../lib/errors";
+import { calculateTargets, deriveMacroTargets, type ActivityLevel } from "./tdee.service";
+
+export type AccountStatus = "dormant" | "free_trial" | "free_plan" | "paid";
+
+const TRIAL_DAYS = 7;
+const START_TRIAL_ONBOARDING_STEP = 6;
+const COMPLETE_ONBOARDING_STEP = 7;
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function decimal(n: number): string {
+  return n.toFixed(1);
+}
+
+function numberFromDb(value: string | null): number | null {
+  return value === null ? null : Number.parseFloat(value);
+}
+
+function timeWithSeconds(value: string): string {
+  return value.length === 5 ? `${value}:00` : value;
+}
+
+export function effectiveAccountStatus(user: User, now = new Date()): AccountStatus {
+  if (user.tier === ("premium" satisfies UserTier)) return "paid";
+  const status = (user.accountStatus ?? "dormant") as AccountStatus;
+  if (status === "free_trial" && user.trialEndsAt && user.trialEndsAt <= now) {
+    return "free_plan";
+  }
+  return status;
+}
+
+export function isUserOnboarded(user: User, now = new Date()): boolean {
+  return effectiveAccountStatus(user, now) !== "dormant";
+}
+
+function firstNameOnly(value: string): string {
+  return value.trim().split(/\s+/)[0] ?? value.trim();
+}
+
+function buildTargetPatch(user: User, patch: Partial<NewUserRow>): Partial<NewUserRow> {
+  const goal = patch.goal ?? user.goal;
+  const sex = patch.sex ?? user.sex;
+  const age = patch.age ?? user.age;
+  const heightCm = numberFromDb((patch.heightCm ?? user.heightCm) as string | null);
+  const weightKg = numberFromDb((patch.weightKg ?? user.weightKg) as string | null);
+  const activityLevel = (patch.activityLevel ?? user.activityLevel) as ActivityLevel | null;
+  const manualDailyTargetKcal = patch.manualDailyTargetKcal ?? user.manualDailyTargetKcal;
+
+  if (manualDailyTargetKcal) {
+    return {
+      dailyTargetKcal: manualDailyTargetKcal,
+      ...deriveMacroTargets(manualDailyTargetKcal),
+    };
+  }
+
+  if (!goal || !sex || !age || heightCm === null || weightKg === null) return {};
+
+  return calculateTargets({
+    goal,
+    sex,
+    ageYears: age,
+    heightCm,
+    weightKg,
+    activityLevel,
+  });
+}
+
+export async function updateUserProfile(
+  user: User,
+  input: UpdateProfilePayload,
+  now = new Date()
+): Promise<User> {
+  const patch: Partial<NewUserRow> = {};
+
+  if (input.firstName !== undefined) patch.name = firstNameOnly(input.firstName);
+  if (input.goal !== undefined) patch.goal = input.goal;
+  if (input.sex !== undefined) patch.sex = input.sex;
+  if (input.ageYears !== undefined) patch.age = input.ageYears;
+  if (input.heightCm !== undefined) patch.heightCm = decimal(input.heightCm);
+  if (input.currentWeightKg !== undefined) patch.weightKg = decimal(input.currentWeightKg);
+  if (input.targetWeightKg !== undefined) patch.targetWeightKg = decimal(input.targetWeightKg);
+  if (input.activityLevel !== undefined) patch.activityLevel = input.activityLevel;
+  if (input.manualDailyTargetKcal !== undefined) {
+    patch.manualDailyTargetKcal = input.manualDailyTargetKcal;
+  }
+  if (input.notifyAt !== undefined) patch.notifyAt = timeWithSeconds(input.notifyAt);
+  if (input.timezone !== undefined) patch.timezone = input.timezone;
+  if (input.onboardingStep !== undefined) patch.onboardingStep = input.onboardingStep;
+
+  Object.assign(patch, buildTargetPatch(user, patch));
+
+  if (input.activationIntent) {
+    if (input.activationIntent === "start_free_trial") {
+      patch.onboardingStep = Math.max(
+        input.onboardingStep ?? user.onboardingStep,
+        START_TRIAL_ONBOARDING_STEP
+      );
+    } else if (input.activationIntent === "complete") {
+      patch.onboardingStep = Math.max(
+        input.onboardingStep ?? user.onboardingStep,
+        COMPLETE_ONBOARDING_STEP
+      );
+    }
+
+    if (effectiveAccountStatus(user, now) === "dormant") {
+      if (user.trialEndsAt) {
+        patch.accountStatus = "free_plan";
+      } else {
+        patch.accountStatus = "free_trial";
+        patch.trialEndsAt = addDays(now, TRIAL_DAYS);
+      }
+    }
+  } else if (
+    effectiveAccountStatus(user, now) === "free_plan" &&
+    user.accountStatus !== "free_plan"
+  ) {
+    patch.accountStatus = "free_plan";
+  }
+
+  const updated = await userRepo.updateProfile(user.id, patch);
+  if (!updated) throw new NotFoundError("User not found");
+  return updated;
+}
