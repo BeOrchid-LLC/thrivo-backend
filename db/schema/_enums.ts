@@ -5,7 +5,7 @@ import { pgEnum } from "drizzle-orm/pg-core";
 
 export const userTierEnum = pgEnum("user_tier", ["free", "premium"]);
 export const goalEnum = pgEnum("goal", ["lose", "maintain", "gain"]);
-export const sexEnum = pgEnum("sex", ["male", "female"]);
+export const sexEnum = pgEnum("sex", ["male", "female", "prefer_not_to_say"]);
 export const mealEnum = pgEnum("meal", ["breakfast", "lunch", "dinner", "snack"]);
 export const logSourceEnum = pgEnum("log_source", ["barcode", "manual", "search"]);
 export const moodEnum = pgEnum("mood", ["great", "good", "ok", "low", "bad"]);

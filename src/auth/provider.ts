@@ -1,10 +1,10 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { emailOTP, bearer } from "better-auth/plugins";
+import { emailOTP, bearer, magicLink } from "better-auth/plugins";
 import { db } from "../../db";
 import { env } from "../env";
 import * as authSchema from "../../db/schema/auth";
-import { sendAuthOtp } from "./emails";
+import { sendAuthMagicLink, sendAuthOtp } from "./emails";
 
 // A provider is configured only when its full credential pair is present, so dev
 // and CI boot without OAuth secrets (ADR-0017 external lead time).
@@ -54,6 +54,11 @@ export const auth = betterAuth({
       otpLength: 6,
       expiresIn: 600,
       sendVerificationOTP: ({ email, otp, type }) => sendAuthOtp(email, otp, type),
+    }),
+    magicLink({
+      expiresIn: 900,
+      sendMagicLink: ({ email, url, token, metadata }) =>
+        sendAuthMagicLink(email, url, token, metadata),
     }),
     bearer(), // mobile bearer tokens alongside the web cookie
   ],
