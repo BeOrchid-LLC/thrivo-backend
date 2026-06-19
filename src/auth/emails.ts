@@ -16,3 +16,25 @@ export async function sendAuthOtp(email: string, otp: string, type: string): Pro
     props: { code: otp, purpose: PURPOSE[type] ?? "sign-in" },
   });
 }
+
+export async function sendAuthMagicLink(
+  email: string,
+  fallbackUrl: string,
+  token: string,
+  metadata?: Record<string, unknown>
+): Promise<void> {
+  const appUrl = typeof metadata?.appUrl === "string" ? metadata.appUrl : null;
+  const url = appUrl
+    ? `${appUrl}${appUrl.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`
+    : fallbackUrl;
+
+  await sendTemplatedEmail({
+    to: email,
+    template: "notification",
+    props: {
+      title: "Sign in to Thrivo",
+      body: "Use this secure link to continue. It expires in 15 minutes.",
+      cta: { label: "Continue to Thrivo", url },
+    },
+  });
+}

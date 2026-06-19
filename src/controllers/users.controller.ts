@@ -1,7 +1,16 @@
 import type { Context } from "hono";
-import { userProfileSchema, type UserProfile } from "../../contracts/src/users";
+import {
+  updateProfilePayloadSchema,
+  userProfileSchema,
+  type UserProfile,
+} from "../../contracts/src/users";
 import { ok } from "../lib/response";
 import { userRepo } from "../repositories";
+import {
+  effectiveAccountStatus,
+  isUserOnboarded,
+  updateUserProfile,
+} from "../services/user.service";
 import type { AppEnv } from "../types/http";
 import type { User } from "../repositories/user.repository";
 
@@ -22,10 +31,15 @@ function toProfile(u: User): UserProfile {
     targetProteinG: u.targetProteinG,
     targetCarbsG: u.targetCarbsG,
     targetFatG: u.targetFatG,
+    activityLevel: u.activityLevel,
+    manualDailyTargetKcal: u.manualDailyTargetKcal,
     notifyAt: u.notifyAt,
     timezone: u.timezone,
     tier: u.tier,
+    accountStatus: effectiveAccountStatus(u),
+    trialEndsAt: u.trialEndsAt,
     onboardingStep: u.onboardingStep,
+    isOnboarded: isUserOnboarded(u),
     createdAt: u.createdAt,
   });
 }
@@ -34,6 +48,15 @@ function toProfile(u: User): UserProfile {
 export function getMe(c: Context<AppEnv>) {
   const user = c.get("user")!;
   return c.json(ok(toProfile(user)));
+}
+
+/** PATCH /users/me/profile — persist onboarding/profile draft fields and targets. */
+export async function updateMeProfile(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  const validJson = c.req.valid as (target: "json") => unknown;
+  const input = updateProfilePayloadSchema.parse(validJson("json"));
+  const updated = await updateUserProfile(user, input);
+  return c.json(ok(toProfile(updated)));
 }
 
 /** DELETE /users/me — GDPR soft delete of the caller's own account. */

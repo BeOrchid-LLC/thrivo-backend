@@ -34,6 +34,8 @@ export const users = pgTable("users", {
   targetProteinG: integer("target_protein_g"),
   targetCarbsG: integer("target_carbs_g"),
   targetFatG: integer("target_fat_g"),
+  activityLevel: text("activity_level"),
+  manualDailyTargetKcal: integer("manual_daily_target_kcal"),
 
   // Nudge scheduling.
   notifyAt: time("notify_at"),
@@ -42,6 +44,7 @@ export const users = pgTable("users", {
   // Entitlement (ADR-0014). subscriptionStatus is a denormalized mirror for fast
   // gating; the authoritative detail lives in `subscriptions`.
   tier: userTierEnum("tier").notNull().default("free"),
+  accountStatus: text("account_status").notNull().default("dormant"),
   subscriptionStatus: text("subscription_status"),
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
 
