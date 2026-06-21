@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { emailOTP, bearer, magicLink } from "better-auth/plugins";
+import { expo } from "@better-auth/expo";
 import { db } from "../../db";
 import { env } from "../env";
 import * as authSchema from "../../db/schema/auth";
@@ -50,6 +51,9 @@ export const auth = betterAuth({
     accountLinking: { enabled: true, trustedProviders: ["google", "apple"] },
   },
   plugins: [
+    // Enables the Expo client: handles the native app scheme (thrivo://) as an
+    // OAuth callback target and the bearer-token handoff back to the mobile app.
+    expo(),
     emailOTP({
       otpLength: 6,
       expiresIn: 600,
