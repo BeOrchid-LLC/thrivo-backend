@@ -23,7 +23,13 @@ COPY package.json ./
 # --include=dev: Coolify injects NODE_ENV=production into the build env, which
 # makes npm skip devDependencies (tsup, typescript, ...) needed by `npm run
 # build`. Force them in regardless. The runtime stage stays --omit=dev.
-RUN npm install --include=dev --no-audit --no-fund
+# --legacy-peer-deps: better-call@1.3.6 (pulled by @better-auth/expo 1.6.20 ->
+# @better-auth/core) declares peerOptional zod@^4, but this backend is pinned to
+# zod 3 (@hono/zod-validator + all schemas). On a clean install npm tries to
+# satisfy that optional peer with zod@4.x and ERESOLVE-fails; the flag skips peer
+# resolution so the single zod 3 stays. better-call's zod integration is optional
+# and unused — verified at runtime on zod 3 (the expo proxy endpoint loads).
+RUN npm install --include=dev --no-audit --no-fund --legacy-peer-deps
 
 # ---- build: bundle the three entrypoints with tsup ----
 FROM node:22-bookworm-slim AS build
@@ -40,7 +46,9 @@ WORKDIR /app
 # package.json only (see deps stage) — avoid the Windows lockfile's platform-
 # pinned optional deps so npm resolves prod deps for the Linux runtime.
 COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
+# --legacy-peer-deps: same zod 3 vs better-call peerOptional zod@^4 conflict as
+# the deps stage (see above) — prod deps include the better-auth/expo tree.
+RUN npm install --omit=dev --no-audit --no-fund --legacy-peer-deps && npm cache clean --force
 # Bundled entrypoints (index/worker/migrate) and the .sql files the migrator reads.
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/db/migrations ./db/migrations
