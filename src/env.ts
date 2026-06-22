@@ -35,6 +35,10 @@ const envSchema = z.object({
   // authority); refresh is DB-backed + rotating, so it can live longer safely.
   ACCESS_TOKEN_TTL: z.string().default("15m"),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  // Deep link the OAuth callback redirects to with the issued tokens (the app
+  // parses ?token/?refresh/?error). Fixed scheme — never built from user input,
+  // so the callback can't be turned into an open redirect.
+  APP_AUTH_REDIRECT_URL: z.string().default("thrivo://auth"),
   // Public base URL of the API (BetterAuth callback/cookie issuer). Dev default.
   AUTH_BASE_URL: z.string().url().default("http://localhost:4000"),
   // Origins BetterAuth accepts as a post-flow `callbackURL` (web/admin origins +

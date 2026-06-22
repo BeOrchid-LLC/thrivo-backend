@@ -9,3 +9,8 @@ export function sha256Hex(value: string): string {
 export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString("base64url");
 }
+
+/** base64url(SHA-256(value)) — the PKCE S256 code-challenge transform. */
+export function sha256Base64Url(value: string): string {
+  return createHash("sha256").update(value).digest("base64url");
+}

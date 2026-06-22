@@ -69,3 +69,10 @@ export class InternalError extends AppError {
     super("INTERNAL_ERROR", message, 500, details);
   }
 }
+
+/** 502 — an upstream dependency (e.g. an OAuth provider) failed or misbehaved. */
+export class UpstreamError extends AppError {
+  constructor(message = "Upstream service error", details?: unknown) {
+    super("UPSTREAM_ERROR", message, 502, details);
+  }
+}
