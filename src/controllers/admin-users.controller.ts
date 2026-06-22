@@ -1,0 +1,40 @@
+import type { Context } from "hono";
+import { z } from "zod";
+import { ok } from "../lib/response";
+import { NotFoundError } from "../lib/errors";
+import { adminUserRepo } from "../repositories";
+import type { AppEnv } from "../types/http";
+
+const listParamsSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().optional(),
+  status: z.string().optional(),
+});
+
+/** GET /admin/users — paginated user list with optional search + status filter. */
+export async function listAdminUsers(c: Context<AppEnv>) {
+  const query = c.req.query();
+  const params = listParamsSchema.parse(query);
+  const result = await adminUserRepo.listUsers(params);
+  return c.json(ok(result));
+}
+
+/** GET /admin/users/:id — full user detail for the admin panel. */
+export async function getAdminUser(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  const user = await adminUserRepo.findById(id);
+  if (!user) throw new NotFoundError("User not found");
+  return c.json(ok({ user }));
+}
+
+/**
+ * DELETE /admin/users/:id — permanent hard delete for test teardown.
+ * Cascades FK-linked rows (food_logs, sessions, etc.) via the DB constraint.
+ * Returns 204 whether or not the user existed (idempotent).
+ */
+export async function hardDeleteAdminUser(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  await adminUserRepo.hardDeleteUser(id);
+  return c.body(null, 204);
+}

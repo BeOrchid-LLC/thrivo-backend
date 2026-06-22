@@ -11,6 +11,7 @@ import { apiRateLimit, authRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
 import { authRouter } from "./routes/auth";
 import { usersRouter } from "./routes/users";
+import { adminRouter } from "./routes/admin";
 import { errorHandler } from "./middleware/error";
 import type { AppEnv } from "./types/http";
 
@@ -45,6 +46,9 @@ export function buildApp(): Hono<AppEnv> {
 
   // Feature routers (auth-gated). /users/me is the A1 reference route; A2 adds the rest.
   app.route("/api/v1/users", usersRouter);
+
+  // Admin surface (staff only, OTP + cookie session).
+  app.route("/api/v1/admin", adminRouter);
 
   // Liveness — the process is up. No I/O; reports the running build + uptime so
   // a probe response also confirms which version answered.

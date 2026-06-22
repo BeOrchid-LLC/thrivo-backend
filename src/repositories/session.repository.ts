@@ -34,7 +34,10 @@ export async function create(input: NewSession, tx: Executor = db): Promise<void
  * or concurrent rotation finds zero rows, so there is no SELECT-then-DELETE race
  * (read-modify-write hazard, scar #12). Expired rows are left for cleanup.
  */
-export async function consumeValid(tokenHash: string, tx: Executor = db): Promise<SessionRow | null> {
+export async function consumeValid(
+  tokenHash: string,
+  tx: Executor = db
+): Promise<SessionRow | null> {
   const [row] = await tx
     .delete(session)
     .where(and(eq(session.token, tokenHash), gt(session.expiresAt, new Date())))

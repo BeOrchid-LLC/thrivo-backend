@@ -1,16 +1,22 @@
 import { createMiddleware } from "hono/factory";
+import { getCookie } from "hono/cookie";
 import { UnauthorizedError, ForbiddenError } from "../lib/errors";
+import { verifyAdminSession, ADMIN_COOKIE } from "../admin/session.service";
 import type { AppEnv } from "../types/http";
 
 /**
- * Gate admin routes at the boundary. The admin role source (BetterAuth admin
- * plugin + role column) lands in A5, so this is **default-deny** today; admin
- * surfaces are additionally network-gated by Cloudflare Access (ADR-0018).
+ * Gate admin routes: reads the httpOnly `admin_session` JWT cookie, verifies it,
+ * and enforces the `admin` role. Sets `c.var.adminUser` for downstream handlers.
+ * No BetterAuth dependency — the admin OTP flow issues this cookie directly.
  */
 export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
-  if (!c.var.user) throw new UnauthorizedError("Authentication required");
-  // A5: read a real role/claim. Until then no one passes — fail closed.
-  const role = (c.var.user as { role?: string }).role;
-  if (role !== "admin") throw new ForbiddenError("Admin access required");
+  const token = getCookie(c, ADMIN_COOKIE);
+  if (!token) throw new UnauthorizedError("Authentication required");
+
+  const claims = await verifyAdminSession(token);
+  if (!claims) throw new UnauthorizedError("Session expired, please sign in again");
+  if (claims.role !== "admin") throw new ForbiddenError("Admin access required");
+
+  c.set("adminUser", claims);
   await next();
 });

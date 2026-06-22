@@ -1,5 +1,6 @@
 import type { Logger } from "pino";
 import type { User } from "../repositories/user.repository";
+import type { AdminClaims } from "../admin/session.service";
 
 /**
  * Typed Hono context for the app. Declared on Hono's `Variables` generic so
@@ -13,5 +14,7 @@ export type AppEnv = {
     logger: Logger;
     /** Resolved domain user when authenticated; undefined for anonymous requests. */
     user?: User;
+    /** Authenticated admin claims set by `requireAdmin` middleware. */
+    adminUser?: AdminClaims;
   };
 };

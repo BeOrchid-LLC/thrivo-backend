@@ -64,6 +64,22 @@ const envSchema = z.object({
   RESEND_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
   EMAIL_FROM: z.string().min(1).default("Thrivo <noreply@thrivo.fit>"),
 
+  // Admin panel auth. ADMIN_EMAILS is a comma-separated allowlist of staff email
+  // addresses permitted to sign in to the admin panel via OTP. Empty = no one can
+  // sign in, which is a safe default for environments without admin staff.
+  ADMIN_EMAILS: z
+    .string()
+    .default("")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  // httpOnly cookie TTL for admin sessions. Short but comfortable for a staff
+  // session; re-login is low-friction. Expressed as a `jose` duration string.
+  ADMIN_SESSION_TTL: z.string().default("8h"),
+
   // Later-phase secrets become *required* in their own phase by extending this
   // schema, following the same fail-fast pattern, e.g.:
   //   REVENUECAT_WEBHOOK_SECRET: z.string(),      // A5  — subscription webhooks
