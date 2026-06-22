@@ -4,7 +4,7 @@ import { signAccessToken, verifyAccessToken } from "../../src/auth/tokens";
 import { env } from "../../src/env";
 
 const principal = { subjectId: "auth_123", email: "a@b.com", emailVerified: true, name: "A B" };
-const secret = new TextEncoder().encode(env.BETTER_AUTH_SECRET);
+const secret = new TextEncoder().encode(env.AUTH_SECRET);
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 describe("access tokens", () => {

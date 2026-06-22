@@ -7,11 +7,9 @@ import type { AuthPrincipal } from "./types";
  * the signature + expiry, so `verifyRequest` never hits the DB on the hot path.
  * Revocation is handled at the refresh layer (DB-backed sessions), not here.
  *
- * Signed with the existing auth secret (`BETTER_AUTH_SECRET`) so no env change is
- * needed mid-migration; renamed to a neutral `AUTH_SECRET` when BetterAuth is
- * decommissioned (Phase 5).
+ * Signed with `AUTH_SECRET` (HS256, symmetric — the API both signs and verifies).
  */
-const secret = new TextEncoder().encode(env.BETTER_AUTH_SECRET);
+const secret = new TextEncoder().encode(env.AUTH_SECRET);
 const ISSUER = "thrivo";
 const AUDIENCE = "thrivo-app";
 

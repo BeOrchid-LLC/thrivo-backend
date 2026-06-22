@@ -28,9 +28,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
 
-  // Auth (A1-4). Signs access JWTs (HS256) + the legacy BetterAuth session during
-  // migration; required. Renamed to AUTH_SECRET when BetterAuth is removed (Phase 5).
-  BETTER_AUTH_SECRET: z.string().min(32),
+  // Signs access JWTs (HS256); required, min 32 chars. Falls back to the legacy
+  // BETTER_AUTH_SECRET name so existing deploys keep booting without an env change.
+  AUTH_SECRET: z.preprocess((v) => v ?? process.env.BETTER_AUTH_SECRET, z.string().min(32)),
   // Hand-rolled auth token lifetimes. Access is short (stateless, signature is
   // authority); refresh is DB-backed + rotating, so it can live longer safely.
   ACCESS_TOKEN_TTL: z.string().default("15m"),
@@ -39,20 +39,10 @@ const envSchema = z.object({
   // parses ?token/?refresh/?error). Fixed scheme — never built from user input,
   // so the callback can't be turned into an open redirect.
   APP_AUTH_REDIRECT_URL: z.string().default("thrivo://auth"),
-  // Public base URL of the API (BetterAuth callback/cookie issuer). Dev default.
+  // Public base URL of the API. The Google OAuth redirect URI is derived from
+  // this (<AUTH_BASE_URL>/api/v1/auth/google/callback) and the magic-link
+  // fallback URL. Dev default.
   AUTH_BASE_URL: z.string().url().default("http://localhost:4000"),
-  // Origins BetterAuth accepts as a post-flow `callbackURL` (web/admin origins +
-  // the mobile app scheme for the deep-link return). `baseURL` is always trusted,
-  // so it is not listed here. Comma-separated; dev default covers local web.
-  AUTH_TRUSTED_ORIGINS: z
-    .string()
-    .default("http://localhost:3000,http://localhost:3001,thrivo://")
-    .transform((s) =>
-      s
-        .split(",")
-        .map((o) => o.trim())
-        .filter(Boolean)
-    ),
 
   // OAuth provider credentials (optional — a provider is configured only when its
   // full set is present, so dev/CI boot without them). External lead time per
