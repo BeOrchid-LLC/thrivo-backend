@@ -21,10 +21,7 @@ export type AdminListResult = {
   };
 };
 
-function resolveStatus(u: {
-  deletedAt: Date | null;
-  accountStatus: string;
-}): AdminUser["status"] {
+function resolveStatus(u: { deletedAt: Date | null; accountStatus: string }): AdminUser["status"] {
   if (u.deletedAt !== null) return "deleted";
   if (u.accountStatus === "dormant") return "suspended";
   return "active";

@@ -4,20 +4,22 @@ import { z } from "zod";
 import { ok } from "../lib/response";
 import { UnauthorizedError, ForbiddenError } from "../lib/errors";
 import { isAllowedAdminEmail, issueAdminOtp, consumeAdminOtp } from "../admin/otp.service";
-import {
-  signAdminSession,
-  ADMIN_COOKIE,
-  ADMIN_COOKIE_OPTS,
-} from "../admin/session.service";
+import { signAdminSession, ADMIN_COOKIE, ADMIN_COOKIE_OPTS } from "../admin/session.service";
 import { sendTemplatedEmail } from "../services/email.service";
 import type { AppEnv } from "../types/http";
 
 const requestOtpSchema = z.object({
-  email: z.string().email().transform((e) => e.toLowerCase()),
+  email: z
+    .string()
+    .email()
+    .transform((e) => e.toLowerCase()),
 });
 
 const verifyOtpSchema = z.object({
-  email: z.string().email().transform((e) => e.toLowerCase()),
+  email: z
+    .string()
+    .email()
+    .transform((e) => e.toLowerCase()),
   code: z.string().min(4).max(8),
 });
 
