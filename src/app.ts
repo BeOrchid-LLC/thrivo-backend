@@ -10,6 +10,7 @@ import { bodyLimitMiddleware } from "./middleware/body-limit";
 import { apiRateLimit, authRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
 import { authHandler } from "./auth";
+import { authRouter } from "./routes/auth";
 import { usersRouter } from "./routes/users";
 import { errorHandler } from "./middleware/error";
 import type { AppEnv } from "./types/http";
@@ -37,9 +38,15 @@ export function buildApp(): Hono<AppEnv> {
   // Resolve the session → c.var.user for every API request (non-fatal).
   app.use("/api/v1/*", authMiddleware);
 
-  // BetterAuth owns sign-up/in/out, OAuth callbacks, and OTP under /api/v1/auth/**,
-  // behind a tighter rate-limit bucket. This is the only mount point of the seam.
+  // Auth endpoints share a tighter rate-limit bucket (credential/OTP abuse).
   app.use("/api/v1/auth/*", authRateLimit);
+
+  // Hand-rolled auth (magic link; Google OAuth in Phase 3) — registered ahead of
+  // the legacy BetterAuth catch-all so these specific routes take precedence.
+  app.route("/api/v1/auth", authRouter);
+
+  // Legacy BetterAuth handles any remaining /api/v1/auth/** paths (sign-in/out,
+  // existing sessions) during migration; removed at cutover (Phase 5).
   app.on(["POST", "GET"], "/api/v1/auth/*", (c) => authHandler(c.req.raw));
 
   // Feature routers (auth-gated). /users/me is the A1 reference route; A2 adds the rest.

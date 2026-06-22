@@ -1,10 +1,10 @@
-import { createHash, randomBytes } from "node:crypto";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { newId } from "../lib/ids";
 import { authIdentityRepo, sessionRepo } from "../repositories";
 import type { AuthUserRow } from "../repositories/auth-identity.repository";
 import { env } from "../env";
+import { sha256Hex, randomToken } from "./crypto";
 import { signAccessToken } from "./tokens";
 import type { AuthPrincipal } from "./types";
 
@@ -17,8 +17,6 @@ export type IssuedTokens = {
 
 export type SessionContext = { ipAddress?: string | null; userAgent?: string | null };
 
-const REFRESH_BYTES = 32;
-
 /** Map our auth identity row to the provider-neutral principal (ADR-0019). */
 export function principalOf(row: AuthUserRow): AuthPrincipal {
   return {
@@ -27,14 +25,6 @@ export function principalOf(row: AuthUserRow): AuthPrincipal {
     emailVerified: row.emailVerified,
     name: row.name ?? undefined,
   };
-}
-
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
-function newRefreshToken(): string {
-  return randomBytes(REFRESH_BYTES).toString("base64url");
 }
 
 function refreshExpiry(): Date {
@@ -52,14 +42,14 @@ export async function issueSession(
   tx: Executor = db
 ): Promise<IssuedTokens> {
   const accessToken = await signAccessToken(principal);
-  const refreshToken = newRefreshToken();
+  const refreshToken = randomToken();
   const refreshExpiresAt = refreshExpiry();
 
   await sessionRepo.create(
     {
       id: newId(),
       userId: principal.subjectId,
-      tokenHash: hashToken(refreshToken),
+      tokenHash: sha256Hex(refreshToken),
       expiresAt: refreshExpiresAt,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
@@ -82,7 +72,7 @@ export async function rotateSession(
   ctx: SessionContext = {},
   tx: Executor = db
 ): Promise<{ tokens: IssuedTokens; principal: AuthPrincipal } | null> {
-  const row = await sessionRepo.consumeValid(hashToken(refreshToken), tx);
+  const row = await sessionRepo.consumeValid(sha256Hex(refreshToken), tx);
   if (!row) return null;
 
   const identity = await authIdentityRepo.findById(row.userId, tx);
@@ -95,5 +85,5 @@ export async function rotateSession(
 
 /** Revoke the session behind a refresh token (logout this device). */
 export async function revokeSession(refreshToken: string, tx: Executor = db): Promise<void> {
-  await sessionRepo.deleteByTokenHash(hashToken(refreshToken), tx);
+  await sessionRepo.deleteByTokenHash(sha256Hex(refreshToken), tx);
 }
