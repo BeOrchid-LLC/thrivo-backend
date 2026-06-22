@@ -28,22 +28,21 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
 
-  // Auth (A1-4). BetterAuth signs sessions/tokens with this secret; required.
-  BETTER_AUTH_SECRET: z.string().min(32),
-  // Public base URL of the API (BetterAuth callback/cookie issuer). Dev default.
+  // Signs access JWTs (HS256); required, min 32 chars. Falls back to the legacy
+  // BETTER_AUTH_SECRET name so existing deploys keep booting without an env change.
+  AUTH_SECRET: z.preprocess((v) => v ?? process.env.BETTER_AUTH_SECRET, z.string().min(32)),
+  // Hand-rolled auth token lifetimes. Access is short (stateless, signature is
+  // authority); refresh is DB-backed + rotating, so it can live longer safely.
+  ACCESS_TOKEN_TTL: z.string().default("15m"),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  // Deep link the OAuth callback redirects to with the issued tokens (the app
+  // parses ?token/?refresh/?error). Fixed scheme — never built from user input,
+  // so the callback can't be turned into an open redirect.
+  APP_AUTH_REDIRECT_URL: z.string().default("thrivo://auth"),
+  // Public base URL of the API. The Google OAuth redirect URI is derived from
+  // this (<AUTH_BASE_URL>/api/v1/auth/google/callback) and the magic-link
+  // fallback URL. Dev default.
   AUTH_BASE_URL: z.string().url().default("http://localhost:4000"),
-  // Origins BetterAuth accepts as a post-flow `callbackURL` (web/admin origins +
-  // the mobile app scheme for the deep-link return). `baseURL` is always trusted,
-  // so it is not listed here. Comma-separated; dev default covers local web.
-  AUTH_TRUSTED_ORIGINS: z
-    .string()
-    .default("http://localhost:3000,http://localhost:3001,thrivo://")
-    .transform((s) =>
-      s
-        .split(",")
-        .map((o) => o.trim())
-        .filter(Boolean)
-    ),
 
   // OAuth provider credentials (optional — a provider is configured only when its
   // full set is present, so dev/CI boot without them). External lead time per
@@ -64,6 +63,22 @@ const envSchema = z.object({
   // required. Without a key the send path degrades (logs + marks email_logs).
   RESEND_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
   EMAIL_FROM: z.string().min(1).default("Thrivo <noreply@thrivo.fit>"),
+
+  // Admin panel auth. ADMIN_EMAILS is a comma-separated allowlist of staff email
+  // addresses permitted to sign in to the admin panel via OTP. Empty = no one can
+  // sign in, which is a safe default for environments without admin staff.
+  ADMIN_EMAILS: z
+    .string()
+    .default("")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  // httpOnly cookie TTL for admin sessions. Short but comfortable for a staff
+  // session; re-login is low-friction. Expressed as a `jose` duration string.
+  ADMIN_SESSION_TTL: z.string().default("8h"),
 
   // Later-phase secrets become *required* in their own phase by extending this
   // schema, following the same fail-fast pattern, e.g.:

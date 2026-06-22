@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db, closeDb } from "../../db";
+import { getRedis } from "../../src/lib/redis";
 import type { Tx } from "../../db/tx";
 
 export { db, closeDb };
@@ -8,6 +9,9 @@ export { db, closeDb };
  * Truncate every application table (FK-cascading, identity reset) for a clean
  * slate between tests. The drizzle migration ledger lives in the `drizzle`
  * schema, so filtering to `public` leaves it untouched.
+ *
+ * Also clears Redis rate-limit buckets (`rl:*`) so tests that share a Redis
+ * instance don't exhaust each other's auth rate limit between test cases.
  */
 export async function resetDb(): Promise<void> {
   const result = await db.execute<{ tablename: string }>(
@@ -16,6 +20,10 @@ export async function resetDb(): Promise<void> {
   const tables = result.rows.map((r) => `"${r.tablename}"`);
   if (tables.length === 0) return;
   await db.execute(sql.raw(`truncate table ${tables.join(", ")} restart identity cascade`));
+
+  const redis = getRedis();
+  const rlKeys = await redis.keys("rl:*");
+  if (rlKeys.length > 0) await redis.del(...rlKeys);
 }
 
 /**

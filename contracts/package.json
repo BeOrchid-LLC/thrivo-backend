@@ -1,6 +1,6 @@
 {
   "name": "@beorchid-llc/thrivo-contracts",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Shared Thrivo API request and response contracts.",
   "type": "module",
   "private": false,
@@ -19,6 +19,14 @@
     "./users": {
       "types": "./dist/users.d.ts",
       "import": "./dist/users.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./admin": {
+      "types": "./dist/admin.d.ts",
+      "import": "./dist/admin.js"
     }
   },
   "files": [

@@ -7,11 +7,9 @@
 # `api` / `worker`). Coolify builds from git and health-gates the API on /health.
 
 # ---- deps: full install (incl. dev) for the build stage ----
-# `npm install` (not `npm ci`): the @better-auth/cli (1.4.x) and better-auth
-# (1.6.x) trees pull two @better-auth/core versions, and npm's hoisting of that
-# pair differs across npm patch versions — a lockfile generated on a dev machine
-# is rejected by the builder's npm under `npm ci`'s strict sync check. `npm
-# install` reconciles package.json -> lockfile in-environment instead.
+# `npm install` (not `npm ci`): the committed lockfile is generated on Windows
+# and records win32-only optional deps, so the Linux builder must resolve fresh
+# from package.json (see below) rather than sync against that lockfile.
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 # Only package.json — NOT package-lock.json. The committed lockfile is generated
@@ -23,13 +21,7 @@ COPY package.json ./
 # --include=dev: Coolify injects NODE_ENV=production into the build env, which
 # makes npm skip devDependencies (tsup, typescript, ...) needed by `npm run
 # build`. Force them in regardless. The runtime stage stays --omit=dev.
-# --legacy-peer-deps: better-call@1.3.6 (pulled by @better-auth/expo 1.6.20 ->
-# @better-auth/core) declares peerOptional zod@^4, but this backend is pinned to
-# zod 3 (@hono/zod-validator + all schemas). On a clean install npm tries to
-# satisfy that optional peer with zod@4.x and ERESOLVE-fails; the flag skips peer
-# resolution so the single zod 3 stays. better-call's zod integration is optional
-# and unused — verified at runtime on zod 3 (the expo proxy endpoint loads).
-RUN npm install --include=dev --no-audit --no-fund --legacy-peer-deps
+RUN npm install --include=dev --no-audit --no-fund
 
 # ---- build: bundle the three entrypoints with tsup ----
 FROM node:22-bookworm-slim AS build
@@ -46,9 +38,7 @@ WORKDIR /app
 # package.json only (see deps stage) — avoid the Windows lockfile's platform-
 # pinned optional deps so npm resolves prod deps for the Linux runtime.
 COPY package.json ./
-# --legacy-peer-deps: same zod 3 vs better-call peerOptional zod@^4 conflict as
-# the deps stage (see above) — prod deps include the better-auth/expo tree.
-RUN npm install --omit=dev --no-audit --no-fund --legacy-peer-deps && npm cache clean --force
+RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 # Bundled entrypoints (index/worker/migrate) and the .sql files the migrator reads.
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/db/migrations ./db/migrations

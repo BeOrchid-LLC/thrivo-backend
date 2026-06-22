@@ -9,8 +9,9 @@ import { corsMiddleware } from "./middleware/cors";
 import { bodyLimitMiddleware } from "./middleware/body-limit";
 import { apiRateLimit, authRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
-import { authHandler } from "./auth";
+import { authRouter } from "./routes/auth";
 import { usersRouter } from "./routes/users";
+import { adminRouter } from "./routes/admin";
 import { errorHandler } from "./middleware/error";
 import type { AppEnv } from "./types/http";
 
@@ -37,13 +38,17 @@ export function buildApp(): Hono<AppEnv> {
   // Resolve the session → c.var.user for every API request (non-fatal).
   app.use("/api/v1/*", authMiddleware);
 
-  // BetterAuth owns sign-up/in/out, OAuth callbacks, and OTP under /api/v1/auth/**,
-  // behind a tighter rate-limit bucket. This is the only mount point of the seam.
+  // Auth endpoints share a tighter rate-limit bucket (credential abuse).
   app.use("/api/v1/auth/*", authRateLimit);
-  app.on(["POST", "GET"], "/api/v1/auth/*", (c) => authHandler(c.req.raw));
+
+  // Hand-rolled auth: magic link + Google OAuth + token lifecycle.
+  app.route("/api/v1/auth", authRouter);
 
   // Feature routers (auth-gated). /users/me is the A1 reference route; A2 adds the rest.
   app.route("/api/v1/users", usersRouter);
+
+  // Admin surface (staff only, OTP + cookie session).
+  app.route("/api/v1/admin", adminRouter);
 
   // Liveness — the process is up. No I/O; reports the running build + uptime so
   // a probe response also confirms which version answered.

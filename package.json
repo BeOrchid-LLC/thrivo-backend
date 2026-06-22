@@ -31,26 +31,21 @@
     "checks": "npm run lint && npm run format:check && npm run typecheck && npm run contracts:typecheck"
   },
   "dependencies": {
-    "@better-auth/expo": "^1.6.20",
     "@hono/node-server": "^1.13.0",
     "@hono/zod-validator": "^0.4.1",
     "@sentry/node": "^8.32.0",
-    "better-auth": "^1.6.16",
     "bullmq": "^5.13.0",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.0",
     "ioredis": "^5.4.1",
+    "jose": "^6.2.3",
     "pg": "^8.12.0",
     "pino": "^9.4.0",
     "uuidv7": "^1.0.2",
     "zod": "^3.24.0"
   },
-  "overrides": {
-    "@better-auth/core": "^1.6.18"
-  },
   "devDependencies": {
-    "@better-auth/cli": "^1.4.21",
     "@eslint/js": "^9.11.0",
     "@types/node": "^22.5.0",
     "@types/pg": "^8.12.0",
