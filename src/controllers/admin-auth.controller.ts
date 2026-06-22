@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import { ok } from "../lib/response";
-import { UnauthorizedError, ForbiddenError } from "../lib/errors";
+import { ForbiddenError } from "../lib/errors";
 import { isAllowedAdminEmail, issueAdminOtp, consumeAdminOtp } from "../admin/otp.service";
 import { signAdminSession, ADMIN_COOKIE, ADMIN_COOKIE_OPTS } from "../admin/session.service";
 import { sendTemplatedEmail } from "../services/email.service";
@@ -45,18 +45,40 @@ export async function postAdminRequestOtp(c: Context<AppEnv>) {
 
 /**
  * POST /admin/auth/verify-otp — redeem the OTP and set an httpOnly session cookie.
+ * Applies exponential backoff: 30 s → 5 min → 1 hr → 24 hr lockout.
+ * Sets `Retry-After` on all failure responses so clients can surface a countdown.
  */
 export async function postAdminVerifyOtp(c: Context<AppEnv>) {
   const { email, code } = verifyOtpSchema.parse(await c.req.json());
 
   if (!isAllowedAdminEmail(email)) throw new ForbiddenError("Not authorised as admin");
 
-  const valid = await consumeAdminOtp(email, code);
-  if (!valid) throw new UnauthorizedError("Invalid or expired code");
+  const result = await consumeAdminOtp(email, code);
+
+  if (!result.ok) {
+    if (result.retryAfter !== undefined) c.header("Retry-After", String(result.retryAfter));
+
+    if (result.reason === "backoff" || result.reason === "locked") {
+      return c.json(
+        {
+          error: {
+            code: "RATE_LIMITED",
+            message:
+              result.reason === "locked"
+                ? "Too many failed attempts — account locked for 24 hours."
+                : `Too many failed attempts — try again in ${result.retryAfter} seconds.`,
+          },
+        },
+        429
+      );
+    }
+
+    // Wrong code — 401 with optional Retry-After hint for a UI countdown.
+    return c.json({ error: { code: "UNAUTHORIZED", message: "Invalid or expired code" } }, 401);
+  }
 
   const claims = { id: email, email, name: null, role: "admin" as const };
   const token = await signAdminSession(claims);
-
   setCookie(c, ADMIN_COOKIE, token, ADMIN_COOKIE_OPTS);
 
   return c.json(
