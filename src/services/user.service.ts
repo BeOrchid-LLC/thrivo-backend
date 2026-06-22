@@ -90,7 +90,7 @@ export async function updateUserProfile(
   if (input.manualDailyTargetKcal !== undefined) {
     patch.manualDailyTargetKcal = input.manualDailyTargetKcal;
   }
-  if (input.notifyAt !== undefined) patch.notifyAt = timeWithSeconds(input.notifyAt);
+  if (input.notifyTimes !== undefined) patch.notifyTimes = input.notifyTimes.map(timeWithSeconds);
   if (input.timezone !== undefined) patch.timezone = input.timezone;
   if (input.onboardingStep !== undefined) patch.onboardingStep = input.onboardingStep;
 

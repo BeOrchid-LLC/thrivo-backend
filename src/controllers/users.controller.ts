@@ -33,7 +33,7 @@ function toProfile(u: User): UserProfile {
     targetFatG: u.targetFatG,
     activityLevel: u.activityLevel,
     manualDailyTargetKcal: u.manualDailyTargetKcal,
-    notifyAt: u.notifyAt,
+    notifyTimes: u.notifyTimes,
     timezone: u.timezone,
     tier: u.tier,
     accountStatus: effectiveAccountStatus(u),
