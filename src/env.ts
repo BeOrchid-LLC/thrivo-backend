@@ -28,8 +28,13 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
 
-  // Auth (A1-4). BetterAuth signs sessions/tokens with this secret; required.
+  // Auth (A1-4). Signs access JWTs (HS256) + the legacy BetterAuth session during
+  // migration; required. Renamed to AUTH_SECRET when BetterAuth is removed (Phase 5).
   BETTER_AUTH_SECRET: z.string().min(32),
+  // Hand-rolled auth token lifetimes. Access is short (stateless, signature is
+  // authority); refresh is DB-backed + rotating, so it can live longer safely.
+  ACCESS_TOKEN_TTL: z.string().default("15m"),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   // Public base URL of the API (BetterAuth callback/cookie issuer). Dev default.
   AUTH_BASE_URL: z.string().url().default("http://localhost:4000"),
   // Origins BetterAuth accepts as a post-flow `callbackURL` (web/admin origins +
