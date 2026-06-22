@@ -1,4 +1,4 @@
-import { integer, numeric, pgTable, text, time, timestamp } from "drizzle-orm/pg-core";
+import { integer, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { citext, idPk, timestamps } from "./_shared";
 import { goalEnum, sexEnum, userTierEnum } from "./_enums";
@@ -37,8 +37,9 @@ export const users = pgTable("users", {
   activityLevel: text("activity_level"),
   manualDailyTargetKcal: integer("manual_daily_target_kcal"),
 
-  // Nudge scheduling.
-  notifyAt: time("notify_at"),
+  // Nudge scheduling. Up to 3 daily reminder times (HH:mm:ss); labels are derived
+  // in the client by position (Morning/Midday/Evening).
+  notifyTimes: text("notify_times").array(),
   timezone: text("timezone"),
 
   // Entitlement (ADR-0014). subscriptionStatus is a denormalized mirror for fast

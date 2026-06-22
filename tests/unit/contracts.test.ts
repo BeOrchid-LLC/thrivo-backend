@@ -26,7 +26,7 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       targetFatG: 55,
       activityLevel: "light",
       manualDailyTargetKcal: null,
-      notifyAt: "09:00:00",
+      notifyTimes: ["08:00:00", "12:30:00"],
       timezone: "Africa/Lagos",
       tier: "free",
       accountStatus: "free_trial",

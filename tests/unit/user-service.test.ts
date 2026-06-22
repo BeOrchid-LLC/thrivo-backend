@@ -26,7 +26,7 @@ const baseUser = {
   targetFatG: null,
   activityLevel: null,
   manualDailyTargetKcal: null,
-  notifyAt: null,
+  notifyTimes: null,
   timezone: null,
   tier: "free",
   accountStatus: "dormant",

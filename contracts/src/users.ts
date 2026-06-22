@@ -31,7 +31,7 @@ export const userProfileSchema = z.object({
   targetFatG: z.number().int().nullable(),
   activityLevel: activityLevelSchema.nullable(),
   manualDailyTargetKcal: z.number().int().nullable(),
-  notifyAt: z.string().nullable(),
+  notifyTimes: z.array(z.string()).nullable(),
   timezone: z.string().nullable(),
   tier: tierSchema,
   accountStatus: accountStatusSchema,
@@ -58,9 +58,9 @@ export const updateProfilePayloadSchema = z.object({
   activityLevel: activityLevelSchema.optional(),
   unitSystem: z.enum(["metric", "imperial"]).optional(),
   manualDailyTargetKcal: z.number().int().positive().optional(),
-  notifyAt: z
-    .string()
-    .regex(/^\d{2}:\d{2}(:\d{2})?$/)
+  notifyTimes: z
+    .array(z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/))
+    .max(3)
     .optional(),
   timezone: z.string().min(1).optional(),
   onboardingStep: z.number().int().min(1).optional(),
