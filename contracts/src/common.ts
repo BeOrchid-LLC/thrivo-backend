@@ -51,3 +51,18 @@ export type RouteContract = {
   path: `/api/v1/${string}`;
   auth: "public" | "user" | "admin" | "signature";
 };
+
+// ---------------------------------------------------------------------------
+// Utility aliases used by admin-panel consumers
+// ---------------------------------------------------------------------------
+
+/** Generic success envelope `{ data: T, meta? }` — admin-panel alias of apiSuccessSchema. */
+export const successEnvelope = apiSuccessSchema;
+
+/** Untyped primitive schemas for ID fields and ISO date strings. */
+export const idSchema = z.string().min(1);
+export const isoDateSchema = z.string();
+
+/** Named time-series point used in admin analytics charts. */
+export const timePointSchema = z.object({ date: z.string(), value: z.number() });
+export type TimePoint = z.infer<typeof timePointSchema>;
