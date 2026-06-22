@@ -53,8 +53,11 @@ export async function requestMagicLink(email: string): Promise<void> {
     expiresAt: new Date(Date.now() + TTL_MIN * 60 * 1000),
   });
 
+  // Distinct deep link from the OAuth return (thrivo://auth): the magic-link
+  // route exchanges this verification token, whereas the OAuth deep link already
+  // carries the issued session tokens.
   const fallbackUrl = `${env.AUTH_BASE_URL}/auth/magic-link?token=${encodeURIComponent(token)}`;
-  await sendAuthMagicLink(email, fallbackUrl, token, { appUrl: "thrivo://auth" });
+  await sendAuthMagicLink(email, fallbackUrl, token, { appUrl: "thrivo://magic-link" });
 }
 
 /**
