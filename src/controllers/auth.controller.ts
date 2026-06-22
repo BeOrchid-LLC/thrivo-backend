@@ -1,15 +1,20 @@
 import type { Context } from "hono";
 import { ok } from "../lib/response";
 import { env } from "../env";
-import { ValidationError, UpstreamError } from "../lib/errors";
-import { magicLinkRequestSchema, magicLinkVerifySchema, type AuthSession } from "../auth/schemas";
+import { ValidationError, UpstreamError, UnauthorizedError } from "../lib/errors";
+import {
+  magicLinkRequestSchema,
+  magicLinkVerifySchema,
+  refreshRequestSchema,
+  type AuthSession,
+} from "../auth/schemas";
 import { requestMagicLink, verifyMagicLink } from "../auth/magic-link.service";
+import { rotateSession, revokeSession, type IssuedTokens } from "../auth/session.service";
 import {
   completeGoogleSignIn,
   isGoogleConfigured,
   startGoogleSignIn,
 } from "../auth/oauth/google.service";
-import type { IssuedTokens } from "../auth/session.service";
 import { sessionContext } from "../auth/request-context";
 import type { AppEnv } from "../types/http";
 
@@ -49,6 +54,32 @@ export async function postMagicLinkVerify(c: Context<AppEnv>) {
   const { token } = magicLinkVerifySchema.parse((c.req.valid as (t: "json") => unknown)("json"));
   const tokens = await verifyMagicLink(token, sessionContext(c));
   return c.json(ok(toAuthSession(tokens)));
+}
+
+/**
+ * POST /auth/refresh — rotate the refresh token for a fresh access + refresh
+ * pair. 401 when the token is unknown, expired, or already used (rotation makes
+ * a stolen-then-used token self-invalidating).
+ */
+export async function postRefresh(c: Context<AppEnv>) {
+  const { refreshToken } = refreshRequestSchema.parse(
+    (c.req.valid as (t: "json") => unknown)("json")
+  );
+  const result = await rotateSession(refreshToken, sessionContext(c));
+  if (!result) throw new UnauthorizedError("Your session has expired, please sign in again");
+  return c.json(ok(toAuthSession(result.tokens)));
+}
+
+/**
+ * POST /auth/logout — revoke the refresh session (this device). Idempotent:
+ * an unknown token still returns 204 so logout never fails the client.
+ */
+export async function postLogout(c: Context<AppEnv>) {
+  const { refreshToken } = refreshRequestSchema.parse(
+    (c.req.valid as (t: "json") => unknown)("json")
+  );
+  await revokeSession(refreshToken);
+  return c.body(null, 204);
 }
 
 /**

@@ -1,11 +1,17 @@
 import { Hono } from "hono";
 import { validate } from "../middleware/validate";
-import { magicLinkRequestSchema, magicLinkVerifySchema } from "../auth/schemas";
+import {
+  magicLinkRequestSchema,
+  magicLinkVerifySchema,
+  refreshRequestSchema,
+} from "../auth/schemas";
 import {
   getGoogleCallback,
   getGoogleStart,
+  postLogout,
   postMagicLinkRequest,
   postMagicLinkVerify,
+  postRefresh,
 } from "../controllers/auth.controller";
 import type { AppEnv } from "../types/http";
 
@@ -21,6 +27,10 @@ authRouter.post(
   postMagicLinkRequest
 );
 authRouter.post("/magic-link/verify", validate("json", magicLinkVerifySchema), postMagicLinkVerify);
+
+// Token lifecycle.
+authRouter.post("/refresh", validate("json", refreshRequestSchema), postRefresh);
+authRouter.post("/logout", validate("json", refreshRequestSchema), postLogout);
 
 // Google OAuth (system browser → consent → callback → app deep link).
 authRouter.get("/google/start", getGoogleStart);

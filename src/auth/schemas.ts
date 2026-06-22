@@ -21,6 +21,12 @@ export const magicLinkVerifySchema = z.object({
 });
 export type MagicLinkVerify = z.infer<typeof magicLinkVerifySchema>;
 
+/** Refresh + logout both take the opaque refresh token in the body. */
+export const refreshRequestSchema = z.object({
+  refreshToken: z.string().min(1).max(512),
+});
+export type RefreshRequest = z.infer<typeof refreshRequestSchema>;
+
 /** Token pair returned to a client after a successful auth flow. */
 export const authSessionSchema = z.object({
   accessToken: z.string(),

@@ -80,6 +80,53 @@ describe.skipIf(!run)("integration: magic link", () => {
     expect(((await me.json()) as JsonBody).data.email).toBe(email);
   });
 
+  it("rotates the refresh token and invalidates the old one (rotation-on-use)", async () => {
+    const app = buildApp();
+    const raw = "rotate-token-1";
+    await seedToken("rotate@test.thrivo.fit", raw, new Date(Date.now() + 60_000));
+
+    const first = (await (
+      await post(app, "/api/v1/auth/magic-link/verify", { token: raw })
+    ).json()) as JsonBody;
+
+    // Refresh returns a new pair and a working access token.
+    const refreshed = await post(app, "/api/v1/auth/refresh", {
+      refreshToken: first.data.refreshToken,
+    });
+    expect(refreshed.status).toBe(200);
+    const next = (await refreshed.json()) as JsonBody;
+    expect(next.data.refreshToken).not.toBe(first.data.refreshToken);
+    const me = await app.request("/api/v1/users/me", {
+      headers: { authorization: `Bearer ${next.data.accessToken}` },
+    });
+    expect(me.status).toBe(200);
+
+    // The consumed (old) refresh token can no longer be used.
+    expect(
+      (await post(app, "/api/v1/auth/refresh", { refreshToken: first.data.refreshToken })).status
+    ).toBe(401);
+  });
+
+  it("logout revokes the refresh session (idempotent)", async () => {
+    const app = buildApp();
+    const raw = "logout-token-1";
+    await seedToken("logout@test.thrivo.fit", raw, new Date(Date.now() + 60_000));
+    const s = (await (
+      await post(app, "/api/v1/auth/magic-link/verify", { token: raw })
+    ).json()) as JsonBody;
+
+    expect(
+      (await post(app, "/api/v1/auth/logout", { refreshToken: s.data.refreshToken })).status
+    ).toBe(204);
+    // Revoked → refresh now fails; a second logout is still a no-op 204.
+    expect(
+      (await post(app, "/api/v1/auth/refresh", { refreshToken: s.data.refreshToken })).status
+    ).toBe(401);
+    expect(
+      (await post(app, "/api/v1/auth/logout", { refreshToken: s.data.refreshToken })).status
+    ).toBe(204);
+  });
+
   it("rejects a replayed token — one-time-use (no double redemption)", async () => {
     const app = buildApp();
     const raw = "replay-token-xyz";
