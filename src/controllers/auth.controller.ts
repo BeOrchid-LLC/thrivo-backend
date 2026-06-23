@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { ok } from "../lib/response";
+import { respondOk } from "../lib/response";
 import { env } from "../env";
 import { ValidationError, UpstreamError, UnauthorizedError } from "../lib/errors";
 import {
@@ -43,7 +43,7 @@ function appRedirect(params: Record<string, string>): string {
 export async function postMagicLinkRequest(c: Context<AppEnv>) {
   const { email } = magicLinkRequestSchema.parse((c.req.valid as (t: "json") => unknown)("json"));
   await requestMagicLink(email);
-  return c.json(ok({ status: "sent" }), 202);
+  return respondOk(c, null, "Magic link sent", 202);
 }
 
 /**
@@ -53,7 +53,7 @@ export async function postMagicLinkRequest(c: Context<AppEnv>) {
 export async function postMagicLinkVerify(c: Context<AppEnv>) {
   const { token } = magicLinkVerifySchema.parse((c.req.valid as (t: "json") => unknown)("json"));
   const tokens = await verifyMagicLink(token, sessionContext(c));
-  return c.json(ok(toAuthSession(tokens)));
+  return respondOk(c, toAuthSession(tokens));
 }
 
 /**
@@ -67,7 +67,7 @@ export async function postRefresh(c: Context<AppEnv>) {
   );
   const result = await rotateSession(refreshToken, sessionContext(c));
   if (!result) throw new UnauthorizedError("Your session has expired, please sign in again");
-  return c.json(ok(toAuthSession(result.tokens)));
+  return respondOk(c, toAuthSession(result.tokens));
 }
 
 /**

@@ -36,7 +36,14 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       createdAt: new Date("2026-06-18T00:00:00.000Z"),
     });
 
-    expect(getMeResponseSchema.parse({ data: profile }).data.email).toBe("test@example.com");
+    expect(
+      getMeResponseSchema.parse({
+        success: true,
+        data: profile,
+        responseCode: 200,
+        message: "Success",
+      }).data.email
+    ).toBe("test@example.com");
   });
 
   it("exports stable route metadata and error codes", () => {

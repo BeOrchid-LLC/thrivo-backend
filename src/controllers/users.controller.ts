@@ -4,7 +4,7 @@ import {
   userProfileSchema,
   type UserProfile,
 } from "../../contracts/src/users";
-import { ok } from "../lib/response";
+import { respondOk } from "../lib/response";
 import { userRepo } from "../repositories";
 import {
   effectiveAccountStatus,
@@ -47,7 +47,7 @@ function toProfile(u: User): UserProfile {
 /** GET /users/me — the caller's own profile. `requireAuth` guarantees the user. */
 export function getMe(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  return c.json(ok(toProfile(user)));
+  return respondOk(c, toProfile(user));
 }
 
 /** PATCH /users/me/profile — persist onboarding/profile draft fields and targets. */
@@ -56,7 +56,7 @@ export async function updateMeProfile(c: Context<AppEnv>) {
   const validJson = c.req.valid as (target: "json") => unknown;
   const input = updateProfilePayloadSchema.parse(validJson("json"));
   const updated = await updateUserProfile(user, input);
-  return c.json(ok(toProfile(updated)));
+  return respondOk(c, toProfile(updated));
 }
 
 /** DELETE /users/me — GDPR soft delete of the caller's own account. */

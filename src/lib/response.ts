@@ -1,12 +1,21 @@
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { AppEnv } from "../types/http";
+
 /**
- * Success envelope. Every endpoint returns `{ data, meta? }`; the error half
- * (`{ error: { code, message, details? } }`) is produced centrally by the error
- * boundary (middleware/error.ts), so handlers only ever build the success shape.
+ * Single response helper for success paths. Stamps `success: true`, the HTTP
+ * status code, and a human-readable message into the body alongside `data` so
+ * clients can branch on `success` alone rather than inspecting HTTP status or
+ * key presence.
+ *
+ * 204 No Content endpoints (logout, soft-delete) bypass this and use
+ * `c.body(null, 204)` directly — they carry no payload.
  */
-export type Meta = { nextCursor?: string | null } & Record<string, unknown>;
-
-export type ApiSuccess<T> = { data: T; meta?: Meta };
-
-export function ok<T>(data: T, meta?: Meta): ApiSuccess<T> {
-  return meta ? { data, meta } : { data };
+export function respondOk<T>(
+  c: Context<AppEnv>,
+  data: T,
+  message = "Success",
+  status: ContentfulStatusCode = 200
+) {
+  return c.json({ success: true, data, responseCode: status, message }, status);
 }

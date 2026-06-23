@@ -23,25 +23,32 @@ export const metaSchema = z
 export type Meta = z.infer<typeof metaSchema>;
 
 export const apiErrorSchema = z.object({
+  success: z.literal(false),
   error: z.object({
-    code: errorCodeSchema,
+    code: z.string(),
     message: z.string(),
     details: z.unknown().optional(),
   }),
+  responseCode: z.number(),
+  message: z.string(),
 });
 
 export type ApiError = z.infer<typeof apiErrorSchema>;
 
 export function apiSuccessSchema<T extends z.ZodTypeAny>(data: T) {
   return z.object({
+    success: z.literal(true),
     data,
-    meta: metaSchema.optional(),
+    responseCode: z.number(),
+    message: z.string(),
   });
 }
 
 export type ApiSuccess<T> = {
+  success: true;
   data: T;
-  meta?: Meta;
+  responseCode: number;
+  message: string;
 };
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";

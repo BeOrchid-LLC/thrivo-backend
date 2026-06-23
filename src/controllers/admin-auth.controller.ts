@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
-import { ok } from "../lib/response";
+import { respondOk } from "../lib/response";
 import { ForbiddenError } from "../lib/errors";
 import { isAllowedAdminEmail, issueAdminOtp, consumeAdminOtp } from "../admin/otp.service";
 import { signAdminSession, ADMIN_COOKIE, ADMIN_COOKIE_OPTS } from "../admin/session.service";
@@ -40,7 +40,7 @@ export async function postAdminRequestOtp(c: Context<AppEnv>) {
     });
   }
 
-  return c.json(ok({ status: "sent" }), 202);
+  return respondOk(c, null, "OTP sent", 202);
 }
 
 /**
@@ -59,31 +59,31 @@ export async function postAdminVerifyOtp(c: Context<AppEnv>) {
     if (result.retryAfter !== undefined) c.header("Retry-After", String(result.retryAfter));
 
     if (result.reason === "backoff" || result.reason === "locked") {
+      const message =
+        result.reason === "locked"
+          ? "Too many failed attempts — account locked for 24 hours."
+          : `Too many failed attempts — try again in ${result.retryAfter} seconds.`;
       return c.json(
-        {
-          error: {
-            code: "RATE_LIMITED",
-            message:
-              result.reason === "locked"
-                ? "Too many failed attempts — account locked for 24 hours."
-                : `Too many failed attempts — try again in ${result.retryAfter} seconds.`,
-          },
-        },
+        { success: false, error: { code: "RATE_LIMITED", message }, responseCode: 429, message },
         429
       );
     }
 
     // Wrong code — 401 with optional Retry-After hint for a UI countdown.
-    return c.json({ error: { code: "UNAUTHORIZED", message: "Invalid or expired code" } }, 401);
+    const message = "Invalid or expired code";
+    return c.json(
+      { success: false, error: { code: "UNAUTHORIZED", message }, responseCode: 401, message },
+      401
+    );
   }
 
   const claims = { id: email, email, name: null, role: "admin" as const };
   const token = await signAdminSession(claims);
   setCookie(c, ADMIN_COOKIE, token, ADMIN_COOKIE_OPTS);
 
-  return c.json(
-    ok({ admin: { id: claims.id, email: claims.email, name: claims.name, role: claims.role } })
-  );
+  return respondOk(c, {
+    admin: { id: claims.id, email: claims.email, name: claims.name, role: claims.role },
+  });
 }
 
 /**
@@ -92,9 +92,9 @@ export async function postAdminVerifyOtp(c: Context<AppEnv>) {
  */
 export function getAdminSession(c: Context<AppEnv>) {
   const admin = c.get("adminUser")!;
-  return c.json(
-    ok({ admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } })
-  );
+  return respondOk(c, {
+    admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role },
+  });
 }
 
 /**
@@ -102,5 +102,5 @@ export function getAdminSession(c: Context<AppEnv>) {
  */
 export function postAdminLogout(c: Context<AppEnv>) {
   deleteCookie(c, ADMIN_COOKIE, { ...ADMIN_COOKIE_OPTS, maxAge: 0 });
-  return c.json(ok({ success: true }));
+  return respondOk(c, null, "Logged out");
 }

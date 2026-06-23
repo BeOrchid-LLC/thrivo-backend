@@ -15,3 +15,4 @@ dist/
 .env.production
 coverage/
 .nyc_output/
+.mcp.json

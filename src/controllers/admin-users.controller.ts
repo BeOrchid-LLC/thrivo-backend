@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { z } from "zod";
-import { ok } from "../lib/response";
+import { respondOk } from "../lib/response";
 import { NotFoundError } from "../lib/errors";
 import { adminUserRepo } from "../repositories";
 import type { AppEnv } from "../types/http";
@@ -17,7 +17,7 @@ export async function listAdminUsers(c: Context<AppEnv>) {
   const query = c.req.query();
   const params = listParamsSchema.parse(query);
   const result = await adminUserRepo.listUsers(params);
-  return c.json(ok(result));
+  return respondOk(c, result);
 }
 
 /** GET /admin/users/:id — full user detail for the admin panel. */
@@ -25,7 +25,7 @@ export async function getAdminUser(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
   const user = await adminUserRepo.findById(id);
   if (!user) throw new NotFoundError("User not found");
-  return c.json(ok({ user }));
+  return respondOk(c, { user });
 }
 
 /**
