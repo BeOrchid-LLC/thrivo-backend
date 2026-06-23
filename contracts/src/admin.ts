@@ -23,8 +23,8 @@ export type Admin = z.infer<typeof adminSchema>;
 export const adminSessionResponseSchema = z.object({ admin: adminSchema });
 export type AdminSessionResponse = z.infer<typeof adminSessionResponseSchema>;
 
-export const adminAckSchema = z.object({ success: z.boolean() });
-export type AdminAck = z.infer<typeof adminAckSchema>;
+export const adminAckSchema = z.null();
+export type AdminAck = null;
 
 export const adminOtpRequestPayloadSchema = z.object({
   email: z.string().email(),
