@@ -45,7 +45,7 @@ export const users = pgTable("users", {
   // Entitlement (ADR-0014). subscriptionStatus is a denormalized mirror for fast
   // gating; the authoritative detail lives in `subscriptions`.
   tier: userTierEnum("tier").notNull().default("free"),
-  accountStatus: text("account_status").notNull().default("dormant"),
+  accountStatus: text("account_status").notNull().default("free_plan"),
   subscriptionStatus: text("subscription_status"),
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
 

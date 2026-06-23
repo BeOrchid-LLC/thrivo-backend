@@ -6,7 +6,11 @@ const repo = vi.hoisted(() => ({
 vi.mock("../../src/repositories", () => ({ userRepo: repo }));
 
 import type { User } from "../../src/repositories/user.repository";
-import { effectiveAccountStatus, updateUserProfile } from "../../src/services/user.service";
+import {
+  effectiveAccountStatus,
+  isUserOnboarded,
+  updateUserProfile,
+} from "../../src/services/user.service";
 
 const baseUser = {
   id: "018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2",
@@ -61,19 +65,23 @@ describe("user.service", () => {
     expect(updated.trialEndsAt).toEqual(new Date("2026-06-25T12:00:00.000Z"));
   });
 
-  it("activates on skip while preserving the skipped onboarding step", async () => {
+  it("skip marks onboarding done (jumps to COMPLETE step) without changing accountStatus", async () => {
     const now = new Date("2026-06-18T12:00:00.000Z");
     repo.updateProfile.mockImplementation(async (_id, patch) => ({ ...baseUser, ...patch }));
 
-    await updateUserProfile(baseUser, { activationIntent: "skip", onboardingStep: 2 }, now);
+    const updated = await updateUserProfile(
+      baseUser,
+      { activationIntent: "skip", onboardingStep: 2 },
+      now
+    );
 
     expect(repo.updateProfile).toHaveBeenCalledWith(
       baseUser.id,
-      expect.objectContaining({
-        accountStatus: "free_trial",
-        onboardingStep: 2,
-      })
+      expect.objectContaining({ onboardingStep: 7 }) // jumps to COMPLETE_ONBOARDING_STEP
     );
+    expect(repo.updateProfile.mock.calls[0][1]).not.toHaveProperty("accountStatus");
+    expect(repo.updateProfile.mock.calls[0][1]).not.toHaveProperty("trialEndsAt");
+    expect(updated.onboardingStep).toBe(7);
   });
 
   it("does not restart an existing trial", async () => {
@@ -91,13 +99,35 @@ describe("user.service", () => {
     expect(repo.updateProfile.mock.calls[0][1]).not.toHaveProperty("accountStatus");
   });
 
-  it("sends prior-trial dormant users to free_plan on activation", async () => {
-    const user = { ...baseUser, trialEndsAt: new Date("2026-06-01T00:00:00.000Z") } as User;
+  it("free_plan user starting trial gets free_trial and a trialEndsAt 7 days out", async () => {
+    const now = new Date("2026-06-18T12:00:00.000Z");
+    const user = { ...baseUser, accountStatus: "free_plan" } as User;
     repo.updateProfile.mockImplementation(async (_id, patch) => ({ ...user, ...patch }));
 
-    await updateUserProfile(user, { activationIntent: "complete" });
+    const updated = await updateUserProfile(
+      user,
+      { activationIntent: "start_free_trial", onboardingStep: 6 },
+      now
+    );
 
-    expect(repo.updateProfile.mock.calls[0][1]).toMatchObject({ accountStatus: "free_plan" });
+    expect(repo.updateProfile).toHaveBeenCalledWith(
+      user.id,
+      expect.objectContaining({ accountStatus: "free_trial", onboardingStep: 6 })
+    );
+    expect(updated.trialEndsAt).toEqual(new Date("2026-06-25T12:00:00.000Z"));
+  });
+
+  it("complete marks onboarding done without changing accountStatus", async () => {
+    const user = { ...baseUser, accountStatus: "free_plan" } as User;
+    repo.updateProfile.mockImplementation(async (_id, patch) => ({ ...user, ...patch }));
+
+    await updateUserProfile(user, { activationIntent: "complete", onboardingStep: 8 });
+
+    expect(repo.updateProfile).toHaveBeenCalledWith(
+      user.id,
+      expect.objectContaining({ onboardingStep: 8 })
+    );
+    expect(repo.updateProfile.mock.calls[0][1]).not.toHaveProperty("accountStatus");
   });
 
   it("resolves expired free trials as free_plan", () => {
@@ -108,5 +138,11 @@ describe("user.service", () => {
     } as User;
 
     expect(effectiveAccountStatus(user, new Date("2026-06-18T00:00:00.000Z"))).toBe("free_plan");
+  });
+
+  it("isUserOnboarded is false until onboardingStep reaches COMPLETE_ONBOARDING_STEP", () => {
+    expect(isUserOnboarded({ ...baseUser, onboardingStep: 6 } as User)).toBe(false);
+    expect(isUserOnboarded({ ...baseUser, onboardingStep: 7 } as User)).toBe(true);
+    expect(isUserOnboarded({ ...baseUser, onboardingStep: 8 } as User)).toBe(true);
   });
 });

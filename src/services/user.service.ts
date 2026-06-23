@@ -36,8 +36,8 @@ export function effectiveAccountStatus(user: User, now = new Date()): AccountSta
   return status;
 }
 
-export function isUserOnboarded(user: User, now = new Date()): boolean {
-  return effectiveAccountStatus(user, now) !== "dormant";
+export function isUserOnboarded(user: User): boolean {
+  return user.onboardingStep >= COMPLETE_ONBOARDING_STEP;
 }
 
 function firstNameOnly(value: string): string {
@@ -96,31 +96,28 @@ export async function updateUserProfile(
 
   Object.assign(patch, buildTargetPatch(user, patch));
 
-  if (input.activationIntent) {
-    if (input.activationIntent === "start_free_trial") {
-      patch.onboardingStep = Math.max(
-        input.onboardingStep ?? user.onboardingStep,
-        START_TRIAL_ONBOARDING_STEP
-      );
-    } else if (input.activationIntent === "complete") {
-      patch.onboardingStep = Math.max(
-        input.onboardingStep ?? user.onboardingStep,
-        COMPLETE_ONBOARDING_STEP
-      );
+  if (input.activationIntent === "start_free_trial") {
+    patch.onboardingStep = Math.max(
+      input.onboardingStep ?? user.onboardingStep,
+      START_TRIAL_ONBOARDING_STEP
+    );
+    const currentStatus = effectiveAccountStatus(user, now);
+    // Only start a trial if user is on free plan (or legacy dormant) and hasn't had one before.
+    if ((currentStatus === "free_plan" || currentStatus === "dormant") && !user.trialEndsAt) {
+      patch.accountStatus = "free_trial";
+      patch.trialEndsAt = addDays(now, TRIAL_DAYS);
     }
-
-    if (effectiveAccountStatus(user, now) === "dormant") {
-      if (user.trialEndsAt) {
-        patch.accountStatus = "free_plan";
-      } else {
-        patch.accountStatus = "free_trial";
-        patch.trialEndsAt = addDays(now, TRIAL_DAYS);
-      }
-    }
+  } else if (input.activationIntent === "complete" || input.activationIntent === "skip") {
+    // Mark onboarding done — skip jumps to the complete threshold regardless of current step.
+    patch.onboardingStep = Math.max(
+      input.onboardingStep ?? user.onboardingStep,
+      COMPLETE_ONBOARDING_STEP
+    );
   } else if (
     effectiveAccountStatus(user, now) === "free_plan" &&
     user.accountStatus !== "free_plan"
   ) {
+    // Sync expired-trial users whose accountStatus wasn't written yet (edge case).
     patch.accountStatus = "free_plan";
   }
 
