@@ -15,8 +15,14 @@ import type { AppEnv } from "../types/http";
  */
 export const errorHandler: ErrorHandler<AppEnv> = (err, c) => {
   if (err instanceof AppError) {
+    const message = err.message;
     return c.json(
-      { error: { code: err.code, message: err.message, details: err.details } },
+      {
+        success: false,
+        error: { code: err.code, message, details: err.details },
+        responseCode: err.status,
+        message,
+      },
       err.status as ContentfulStatusCode
     );
   }
@@ -29,13 +35,13 @@ export const errorHandler: ErrorHandler<AppEnv> = (err, c) => {
     Sentry.captureException(err);
   });
 
+  const message = env.NODE_ENV === "production" ? "Internal server error" : String(err);
   return c.json(
     {
-      error: {
-        code: "INTERNAL_ERROR",
-        message: env.NODE_ENV === "production" ? "Internal server error" : String(err),
-        requestId,
-      },
+      success: false,
+      error: { code: "INTERNAL_ERROR", message, requestId },
+      responseCode: 500,
+      message,
     },
     500
   );
