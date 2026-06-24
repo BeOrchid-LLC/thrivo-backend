@@ -9,6 +9,7 @@ import {
   getAuthSession,
   getGoogleCallback,
   getGoogleStart,
+  getMagicLinkCallback,
   postLogout,
   postMagicLinkRequest,
   postMagicLinkVerify,
@@ -29,6 +30,7 @@ authRouter.post(
   postMagicLinkRequest
 );
 authRouter.post("/magic-link/verify", validate("json", magicLinkVerifySchema), postMagicLinkVerify);
+authRouter.get("/magic-link/callback", getMagicLinkCallback);
 
 // Token lifecycle.
 authRouter.post("/refresh", validate("json", refreshRequestSchema), postRefresh);

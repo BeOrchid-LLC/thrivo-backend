@@ -39,9 +39,9 @@ async function emailThrottleExceeded(email: string): Promise<boolean> {
 
 /**
  * Issue a magic-link email for `email`. The raw token travels only in the email
- * (as a `thrivo://auth?token=…` deep link); we persist just its SHA-256 hash.
- * Behaviour is identical whether or not the email already has an account — the
- * account is created on verify — so this never leaks account existence.
+ * (HTTPS callback URL); we persist just its SHA-256 hash. Behaviour is identical
+ * whether or not the email already has an account — the account is created on
+ * verify — so this never leaks account existence.
  */
 export async function requestMagicLink(email: string): Promise<void> {
   if (await emailThrottleExceeded(email)) return;
@@ -54,11 +54,10 @@ export async function requestMagicLink(email: string): Promise<void> {
     expiresAt: new Date(Date.now() + TTL_MIN * 60 * 1000),
   });
 
-  // Distinct deep link from the OAuth return (thrivo://auth): the magic-link
-  // route exchanges this verification token, whereas the OAuth deep link already
-  // carries the issued session tokens.
-  const fallbackUrl = `${env.AUTH_BASE_URL}/auth/magic-link?token=${encodeURIComponent(token)}`;
-  await sendAuthMagicLink(email, fallbackUrl, token, { appUrl: "thrivo://magic-link" });
+  // HTTPS CTA survives email click tracking; the callback verifies server-side
+  // and redirects to thrivo://auth with issued tokens (same as Google OAuth).
+  const ctaUrl = `${env.AUTH_BASE_URL}/api/v1/auth/magic-link/callback?token=${encodeURIComponent(token)}`;
+  await sendAuthMagicLink(email, ctaUrl);
 }
 
 /**

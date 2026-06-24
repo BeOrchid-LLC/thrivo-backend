@@ -149,4 +149,61 @@ describe.skipIf(!run)("integration: magic link", () => {
 
     expect((await post(app, "/api/v1/auth/magic-link/verify", { token: raw })).status).toBe(401);
   });
+
+  it("callback redirects to thrivo://auth with tokens on a valid token", async () => {
+    const app = buildApp();
+    const email = "callback@test.thrivo.fit";
+    const raw = "callback-raw-token";
+    await seedToken(email, raw, new Date(Date.now() + 60_000));
+
+    const res = await app.request(
+      `/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`
+    );
+    expect(res.status).toBe(302);
+
+    const location = res.headers.get("location") ?? "";
+    expect(location.startsWith("thrivo://auth?")).toBe(true);
+    const params = new URLSearchParams(location.slice(location.indexOf("?") + 1));
+    const accessToken = params.get("token");
+    expect(accessToken).toBeTruthy();
+    expect(params.get("refresh")).toBeTruthy();
+    expect(params.get("error")).toBeNull();
+
+    const me = await app.request("/api/v1/users/me", {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(me.status).toBe(200);
+    expect(((await me.json()) as JsonBody).data.email).toBe(email);
+  });
+
+  it("callback redirects with error=expired when the token is missing", async () => {
+    const res = await buildApp().request("/api/v1/auth/magic-link/callback");
+    expect(new URL(res.headers.get("location") ?? "").searchParams.get("error")).toBe("expired");
+  });
+
+  it("callback redirects with error=expired on an invalid or replayed token", async () => {
+    const app = buildApp();
+    const raw = "callback-replay-token";
+    await seedToken("callback-replay@test.thrivo.fit", raw, new Date(Date.now() + 60_000));
+
+    expect(
+      (await app.request(`/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`))
+        .status
+    ).toBe(302);
+    const replay = await app.request(
+      `/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`
+    );
+    expect(new URL(replay.headers.get("location") ?? "").searchParams.get("error")).toBe("expired");
+  });
+
+  it("callback redirects with error=expired on an expired token", async () => {
+    const app = buildApp();
+    const raw = "callback-expired-token";
+    await seedToken("callback-expired@test.thrivo.fit", raw, new Date(Date.now() - 1000));
+
+    const res = await app.request(
+      `/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`
+    );
+    expect(new URL(res.headers.get("location") ?? "").searchParams.get("error")).toBe("expired");
+  });
 });
