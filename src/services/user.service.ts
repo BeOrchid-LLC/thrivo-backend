@@ -40,6 +40,10 @@ export function isUserOnboarded(user: User): boolean {
   return user.onboardingStep >= COMPLETE_ONBOARDING_STEP;
 }
 
+export function isUserOnboardingSkipped(user: User): boolean {
+  return user.onboardingSkipped === true;
+}
+
 function firstNameOnly(value: string): string {
   return value.trim().split(/\s+/)[0] ?? value.trim();
 }
@@ -107,12 +111,16 @@ export async function updateUserProfile(
       patch.accountStatus = "free_trial";
       patch.trialEndsAt = addDays(now, TRIAL_DAYS);
     }
-  } else if (input.activationIntent === "complete" || input.activationIntent === "skip") {
-    // Mark onboarding done — skip jumps to the complete threshold regardless of current step.
+  } else if (input.activationIntent === "complete") {
     patch.onboardingStep = Math.max(
       input.onboardingStep ?? user.onboardingStep,
       COMPLETE_ONBOARDING_STEP
     );
+  } else if (input.activationIntent === "skip") {
+    patch.onboardingSkipped = true;
+    if (input.onboardingStep !== undefined) {
+      patch.onboardingStep = Math.max(input.onboardingStep, user.onboardingStep);
+    }
   } else if (
     effectiveAccountStatus(user, now) === "free_plan" &&
     user.accountStatus !== "free_plan"

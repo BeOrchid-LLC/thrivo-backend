@@ -33,6 +33,7 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       trialEndsAt: new Date("2026-06-25T00:00:00.000Z"),
       onboardingStep: 3,
       isOnboarded: true,
+      isOnboardingSkipped: false,
       createdAt: new Date("2026-06-18T00:00:00.000Z"),
     });
 

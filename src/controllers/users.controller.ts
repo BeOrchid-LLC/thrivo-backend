@@ -9,6 +9,7 @@ import { userRepo } from "../repositories";
 import {
   effectiveAccountStatus,
   isUserOnboarded,
+  isUserOnboardingSkipped,
   updateUserProfile,
 } from "../services/user.service";
 import type { AppEnv } from "../types/http";
@@ -40,6 +41,7 @@ function toProfile(u: User): UserProfile {
     trialEndsAt: u.trialEndsAt,
     onboardingStep: u.onboardingStep,
     isOnboarded: isUserOnboarded(u),
+    isOnboardingSkipped: isUserOnboardingSkipped(u),
     createdAt: u.createdAt,
   });
 }

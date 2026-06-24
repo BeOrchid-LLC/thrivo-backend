@@ -1,4 +1,4 @@
-import { integer, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { citext, idPk, timestamps } from "./_shared";
 import { goalEnum, sexEnum, userTierEnum } from "./_enums";
@@ -50,6 +50,7 @@ export const users = pgTable("users", {
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
 
   onboardingStep: integer("onboarding_step").notNull().default(1),
+  onboardingSkipped: boolean("onboarding_skipped").notNull().default(false),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   ...timestamps,
 });
