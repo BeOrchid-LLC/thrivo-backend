@@ -1,6 +1,7 @@
 import { and, count, eq, ilike, isNull, isNotNull, or, desc } from "drizzle-orm";
 import { db } from "../../db";
 import { users } from "../../db/schema";
+import * as authIdentityRepo from "./auth-identity.repository";
 import type { AdminUser, AdminUserDetail } from "../../contracts/src/admin";
 
 export type AdminListParams = {
@@ -99,11 +100,24 @@ export async function findById(id: string): Promise<AdminUserDetail | null> {
 }
 
 /**
- * Permanent hard delete — removes the row and all FK-cascaded data.
- * Intended for test cleanup only; production flows use soft delete (GDPR recovery).
- * Returns true if a row was deleted.
+ * Permanent hard delete — removes the `users` profile and its linked `auth_user`
+ * identity in one transaction. Deleting `auth_user` cascades to `session` and
+ * `account` via FK, which immediately invalidates any live refresh tokens.
+ * Returns true if the user existed and was deleted.
  */
 export async function hardDeleteUser(id: string): Promise<boolean> {
-  const result = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
-  return result.length > 0;
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ authSubjectId: users.authSubjectId })
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+    if (!row) return false;
+
+    if (row.authSubjectId) {
+      await authIdentityRepo.deleteById(row.authSubjectId, tx);
+    }
+    await tx.delete(users).where(eq(users.id, id));
+    return true;
+  });
 }
