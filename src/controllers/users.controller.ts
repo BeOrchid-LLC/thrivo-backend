@@ -63,5 +63,5 @@ export async function updateMeProfile(c: Context<AppEnv>) {
 export async function deleteMe(c: Context<AppEnv>) {
   const user = c.get("user")!;
   await userRepo.softDeleteUser(user.id);
-  return c.body(null, 204);
+  return respondOk(c, null, "Account deleted");
 }

@@ -57,7 +57,10 @@ describe.skipIf(!run)("integration: auth", () => {
       method: "DELETE",
       headers: authed(session),
     });
-    expect(del.status).toBe(204);
+    expect(del.status).toBe(200);
+    const body = (await del.json()) as { success: boolean; data: null };
+    expect(body.success).toBe(true);
+    expect(body.data).toBeNull();
     expect(await userRepo.findActiveByEmail(session.email)).toBeNull();
   });
 });

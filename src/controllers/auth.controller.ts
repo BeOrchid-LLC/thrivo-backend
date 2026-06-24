@@ -72,14 +72,14 @@ export async function postRefresh(c: Context<AppEnv>) {
 
 /**
  * POST /auth/logout — revoke the refresh session (this device). Idempotent:
- * an unknown token still returns 204 so logout never fails the client.
+ * an unknown token still returns a success envelope so logout never fails the client.
  */
 export async function postLogout(c: Context<AppEnv>) {
   const { refreshToken } = refreshRequestSchema.parse(
     (c.req.valid as (t: "json") => unknown)("json")
   );
   await revokeSession(refreshToken);
-  return c.body(null, 204);
+  return respondOk(c, null, "Logged out");
 }
 
 /**

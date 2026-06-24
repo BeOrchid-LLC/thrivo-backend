@@ -115,16 +115,22 @@ describe.skipIf(!run)("integration: magic link", () => {
       await post(app, "/api/v1/auth/magic-link/verify", { token: raw })
     ).json()) as JsonBody;
 
-    expect(
-      (await post(app, "/api/v1/auth/logout", { refreshToken: s.data.refreshToken })).status
-    ).toBe(204);
-    // Revoked → refresh now fails; a second logout is still a no-op 204.
+    const logout = await post(app, "/api/v1/auth/logout", { refreshToken: s.data.refreshToken });
+    expect(logout.status).toBe(200);
+    const logoutBody = (await logout.json()) as { success: boolean; data: null };
+    expect(logoutBody.success).toBe(true);
+    expect(logoutBody.data).toBeNull();
+    // Revoked → refresh now fails; a second logout is still a no-op success envelope.
     expect(
       (await post(app, "/api/v1/auth/refresh", { refreshToken: s.data.refreshToken })).status
     ).toBe(401);
-    expect(
-      (await post(app, "/api/v1/auth/logout", { refreshToken: s.data.refreshToken })).status
-    ).toBe(204);
+    const logoutAgain = await post(app, "/api/v1/auth/logout", {
+      refreshToken: s.data.refreshToken,
+    });
+    expect(logoutAgain.status).toBe(200);
+    const logoutAgainBody = (await logoutAgain.json()) as { success: boolean; data: null };
+    expect(logoutAgainBody.success).toBe(true);
+    expect(logoutAgainBody.data).toBeNull();
   });
 
   it("rejects a replayed token — one-time-use (no double redemption)", async () => {
