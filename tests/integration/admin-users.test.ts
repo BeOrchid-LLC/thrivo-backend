@@ -181,15 +181,6 @@ describe.skipIf(!run)("integration: admin users", () => {
     expect(body.message).toBe("User deleted permanently");
     expect(await userRepo.findActiveByEmail(session.email)).toBeNull();
   });
-});
-
-describe.skipIf(!run)("integration: admin dashboard metrics", () => {
-  beforeEach(async () => {
-    await resetDb();
-  });
-  afterAll(async () => {
-    await closeDb();
-  });
 
   it("returns dashboard metrics via GET /admin/metrics/dashboard", async () => {
     const app = buildApp();
