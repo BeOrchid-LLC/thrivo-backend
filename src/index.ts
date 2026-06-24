@@ -5,6 +5,7 @@ import { buildApp } from "./app";
 import { logger } from "./lib/logger";
 import { closeDb, pingDb } from "../db";
 import { closeRedis, pingRedis } from "./lib/redis";
+import { runMigrations } from "../db/migrate";
 
 // Process bootstrap: validate env (on import) → init Sentry → build app → serve →
 // register graceful shutdown so Coolify/Docker rolling redeploys don't drop requests.
@@ -61,6 +62,7 @@ async function verifyDependencies(): Promise<void> {
 }
 
 await verifyDependencies();
+await runMigrations();
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   logger.info({ port: info.port }, "thrivo-backend listening");
