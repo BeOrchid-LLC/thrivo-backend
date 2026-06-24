@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
-import { createSession, authed } from "../helpers/auth";
+import { createSession } from "../helpers/auth";
 import { buildApp } from "../../src/app";
 import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import { userRepo } from "../../src/repositories";
