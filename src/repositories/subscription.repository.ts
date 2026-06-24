@@ -1,4 +1,4 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { subscriptions, type NewSubscriptionRow, type SubscriptionRow } from "../../db/schema";
@@ -12,6 +12,12 @@ export async function getByUser(userId: string, tx: Executor = db): Promise<Subs
     .where(eq(subscriptions.userId, userId))
     .limit(1);
   return row ?? null;
+}
+
+/** Admin batch — one subscription row per user when present. */
+export async function getByUserIds(userIds: string[], tx: Executor = db): Promise<Subscription[]> {
+  if (userIds.length === 0) return [];
+  return tx.select().from(subscriptions).where(inArray(subscriptions.userId, userIds));
 }
 
 /** Webhook-driven projection: one row per user, upserted from RevenueCat/Stripe events. */
