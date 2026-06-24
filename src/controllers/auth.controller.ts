@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { respondOk } from "../lib/response";
 import { env } from "../env";
-import { ValidationError, UpstreamError, UnauthorizedError } from "../lib/errors";
+import { ValidationError, UpstreamError, UnauthorizedError, AppError } from "../lib/errors";
 import {
   magicLinkRequestSchema,
   magicLinkVerifySchema,
@@ -59,6 +59,31 @@ export async function postMagicLinkVerify(c: Context<AppEnv>) {
   const { token } = magicLinkVerifySchema.parse((c.req.valid as (t: "json") => unknown)("json"));
   const tokens = await verifyMagicLink(token, sessionContext(c));
   return respondOk(c, toAuthSession(tokens));
+}
+
+/**
+ * GET /auth/magic-link/callback — email CTA lands here (HTTPS). Verifies the
+ * one-time token server-side, then bounces to the app deep link with issued
+ * session tokens — same shape as the Google OAuth callback.
+ */
+export async function getMagicLinkCallback(c: Context<AppEnv>) {
+  const token = c.req.query("token")?.trim();
+  if (!token) return c.redirect(appRedirect({ error: "expired" }), 302);
+
+  try {
+    const tokens = await verifyMagicLink(token, sessionContext(c));
+    return c.redirect(
+      appRedirect({ token: tokens.accessToken, refresh: tokens.refreshToken }),
+      302
+    );
+  } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      return c.redirect(appRedirect({ error: "expired" }), 302);
+    }
+    if (err instanceof AppError) throw err;
+    c.var.logger.warn({ err }, "magic-link callback failed");
+    return c.redirect(appRedirect({ error: "auth_failed" }), 302);
+  }
 }
 
 /**
