@@ -16,6 +16,7 @@ import {
   startGoogleSignIn,
 } from "../auth/oauth/google.service";
 import { sessionContext } from "../auth/request-context";
+import { effectiveAccountStatus, isUserOnboarded } from "../services/user.service";
 import type { AppEnv } from "../types/http";
 
 function toAuthSession(tokens: IssuedTokens): AuthSession {
@@ -72,14 +73,29 @@ export async function postRefresh(c: Context<AppEnv>) {
 
 /**
  * POST /auth/logout — revoke the refresh session (this device). Idempotent:
- * an unknown token still returns 204 so logout never fails the client.
+ * an unknown token still returns a success envelope so logout never fails the client.
  */
 export async function postLogout(c: Context<AppEnv>) {
   const { refreshToken } = refreshRequestSchema.parse(
     (c.req.valid as (t: "json") => unknown)("json")
   );
   await revokeSession(refreshToken);
-  return c.body(null, 204);
+  return respondOk(c, null, "Logged out");
+}
+
+/**
+ * GET /auth/session — lightweight session facts for mobile cold-start restore.
+ * `requireAuth` guarantees the caller; returns navigation-guard fields only.
+ */
+export function getAuthSession(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  return respondOk(c, {
+    session: {
+      userId: user.id,
+      accountStatus: effectiveAccountStatus(user),
+      isOnboarded: isUserOnboarded(user),
+    },
+  });
 }
 
 /**

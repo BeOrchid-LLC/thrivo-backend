@@ -31,10 +31,10 @@ export async function getAdminUser(c: Context<AppEnv>) {
 /**
  * DELETE /admin/users/:id — permanent hard delete for test teardown.
  * Cascades FK-linked rows (food_logs, sessions, etc.) via the DB constraint.
- * Returns 204 whether or not the user existed (idempotent).
+ * Returns 200 with a null ack envelope whether or not the user existed (idempotent).
  */
 export async function hardDeleteAdminUser(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
   await adminUserRepo.hardDeleteUser(id);
-  return c.body(null, 204);
+  return respondOk(c, null, "User deleted permanently");
 }

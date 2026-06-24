@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { RouteContract } from "./common";
+import { accountStatusSchema } from "./users";
 
 /** Token pair returned to a client after a successful auth flow (magic-link or Google OAuth). */
 export const authSessionSchema = z.object({
@@ -27,6 +28,17 @@ export const refreshPayloadSchema = z.object({
 });
 export type RefreshPayload = z.infer<typeof refreshPayloadSchema>;
 
+/** Lightweight session facts for mobile cold-start restore (navigation guard). */
+export const userSessionSchema = z.object({
+  userId: z.string().uuid(),
+  accountStatus: accountStatusSchema,
+  isOnboarded: z.boolean(),
+});
+export type UserSession = z.infer<typeof userSessionSchema>;
+
+export const userSessionResponseSchema = z.object({ session: userSessionSchema });
+export type UserSessionResponse = z.infer<typeof userSessionResponseSchema>;
+
 export const authRoutes = {
   requestMagicLink: {
     method: "POST",
@@ -47,6 +59,11 @@ export const authRoutes = {
     method: "POST",
     path: "/api/v1/auth/logout",
     auth: "public",
+  },
+  getSession: {
+    method: "GET",
+    path: "/api/v1/auth/session",
+    auth: "user",
   },
   googleStart: {
     method: "GET",
