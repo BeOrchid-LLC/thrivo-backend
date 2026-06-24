@@ -156,7 +156,9 @@ describe.skipIf(!run)("integration: magic link", () => {
     const raw = "callback-raw-token";
     await seedToken(email, raw, new Date(Date.now() + 60_000));
 
-    const res = await app.request(`/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`);
+    const res = await app.request(
+      `/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`
+    );
     expect(res.status).toBe(302);
 
     const location = res.headers.get("location") ?? "";
@@ -185,7 +187,8 @@ describe.skipIf(!run)("integration: magic link", () => {
     await seedToken("callback-replay@test.thrivo.fit", raw, new Date(Date.now() + 60_000));
 
     expect(
-      (await app.request(`/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`)).status
+      (await app.request(`/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`))
+        .status
     ).toBe(302);
     const replay = await app.request(
       `/api/v1/auth/magic-link/callback?token=${encodeURIComponent(raw)}`
