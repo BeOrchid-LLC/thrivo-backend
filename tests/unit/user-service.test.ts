@@ -37,6 +37,7 @@ const baseUser = {
   subscriptionStatus: null,
   trialEndsAt: null,
   onboardingStep: 1,
+  onboardingSkipped: false,
   deletedAt: null,
   createdAt: new Date("2026-06-18T00:00:00.000Z"),
   updatedAt: new Date("2026-06-18T00:00:00.000Z"),
@@ -65,7 +66,7 @@ describe("user.service", () => {
     expect(updated.trialEndsAt).toEqual(new Date("2026-06-25T12:00:00.000Z"));
   });
 
-  it("skip marks onboarding done (jumps to COMPLETE step) without changing accountStatus", async () => {
+  it("skip sets onboardingSkipped and preserves the step count without changing accountStatus", async () => {
     const now = new Date("2026-06-18T12:00:00.000Z");
     repo.updateProfile.mockImplementation(async (_id, patch) => ({ ...baseUser, ...patch }));
 
@@ -77,11 +78,12 @@ describe("user.service", () => {
 
     expect(repo.updateProfile).toHaveBeenCalledWith(
       baseUser.id,
-      expect.objectContaining({ onboardingStep: 7 }) // jumps to COMPLETE_ONBOARDING_STEP
+      expect.objectContaining({ onboardingSkipped: true, onboardingStep: 2 })
     );
     expect(repo.updateProfile.mock.calls[0][1]).not.toHaveProperty("accountStatus");
     expect(repo.updateProfile.mock.calls[0][1]).not.toHaveProperty("trialEndsAt");
-    expect(updated.onboardingStep).toBe(7);
+    expect(updated.onboardingSkipped).toBe(true);
+    expect(updated.onboardingStep).toBe(2);
   });
 
   it("does not restart an existing trial", async () => {
