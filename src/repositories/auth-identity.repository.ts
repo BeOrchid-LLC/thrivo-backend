@@ -57,3 +57,8 @@ export async function upsertByEmail(
     .returning();
   return row;
 }
+
+/** Permanently remove an auth identity. Cascades to `session` and `account` via FK. */
+export async function deleteById(id: string, tx: Executor = db): Promise<void> {
+  await tx.delete(auth_user).where(eq(auth_user.id, id));
+}

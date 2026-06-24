@@ -13,6 +13,7 @@ import {
   type IssuedTokens,
   type SessionContext,
 } from "./session.service";
+import { resolveUser } from "../services/identity.service";
 
 const TTL_MIN = 15;
 const IDENTIFIER_PREFIX = "magic-link:";
@@ -81,6 +82,7 @@ export async function verifyMagicLink(
       { email, name: email.split("@")[0] ?? "Thrivo user", emailVerified: true },
       tx
     );
+    await resolveUser(principalOf(identity), tx);
     return issueSession(principalOf(identity), ctx, tx);
   });
 }

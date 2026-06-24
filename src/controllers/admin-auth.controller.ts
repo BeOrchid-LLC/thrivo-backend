@@ -72,7 +72,7 @@ export async function postAdminVerifyOtp(c: Context<AppEnv>) {
     // Wrong code — 401 with optional Retry-After hint for a UI countdown.
     const message = "Invalid or expired code";
     return c.json(
-      { success: false, error: { code: "UNAUTHORIZED", message }, responseCode: 401, message },
+      { success: false, error: { code: "UNAUTHENTICATED", message }, responseCode: 401, message },
       401
     );
   }

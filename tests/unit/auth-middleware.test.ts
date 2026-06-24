@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { verifyRequest } = vi.hoisted(() => ({ verifyRequest: vi.fn() }));
 vi.mock("../../src/auth", () => ({ verifyRequest }));
-const { resolveUser } = vi.hoisted(() => ({ resolveUser: vi.fn() }));
-vi.mock("../../src/services/identity.service", () => ({ resolveUser }));
+const { findByAuthSubjectId } = vi.hoisted(() => ({ findByAuthSubjectId: vi.fn() }));
+vi.mock("../../src/repositories", () => ({ userRepo: { findByAuthSubjectId } }));
 
 import { authMiddleware } from "../../src/middleware/auth";
 import type { AppEnv } from "../../src/types/http";
@@ -21,11 +21,19 @@ describe("auth middleware", () => {
 
   it("resolves a principal to c.var.user", async () => {
     verifyRequest.mockResolvedValue({ subjectId: "s1", email: "a@b.com", emailVerified: true });
-    resolveUser.mockResolvedValue({ id: "u1", email: "a@b.com" });
+    findByAuthSubjectId.mockResolvedValue({ id: "u1", email: "a@b.com" });
 
     const body = (await (await app().request("/")).json()) as { user: { id: string } | null };
     expect(body.user?.id).toBe("u1");
-    expect(resolveUser).toHaveBeenCalledOnce();
+    expect(findByAuthSubjectId).toHaveBeenCalledWith("s1");
+  });
+
+  it("leaves the request anonymous when the user row is missing", async () => {
+    verifyRequest.mockResolvedValue({ subjectId: "s1", email: "a@b.com", emailVerified: true });
+    findByAuthSubjectId.mockResolvedValue(null);
+
+    const body = (await (await app().request("/")).json()) as { user: unknown };
+    expect(body.user).toBeNull();
   });
 
   it("leaves the request anonymous when there is no session", async () => {
@@ -33,6 +41,6 @@ describe("auth middleware", () => {
 
     const body = (await (await app().request("/")).json()) as { user: unknown };
     expect(body.user).toBeNull();
-    expect(resolveUser).not.toHaveBeenCalled();
+    expect(findByAuthSubjectId).not.toHaveBeenCalled();
   });
 });

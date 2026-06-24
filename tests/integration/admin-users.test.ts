@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
-import { createSession, authed } from "../helpers/auth";
+import { createSession } from "../helpers/auth";
 import { buildApp } from "../../src/app";
 import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import { userRepo } from "../../src/repositories";
@@ -29,7 +29,6 @@ describe.skipIf(!run)("integration: admin users", () => {
     const app = buildApp();
     const session = await createSession();
 
-    await app.request("/api/v1/users/me", { headers: authed(session) });
     const user = await userRepo.findActiveByEmail(session.email);
     expect(user).not.toBeNull();
 
