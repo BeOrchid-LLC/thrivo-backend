@@ -13,7 +13,7 @@ describe("AppError hierarchy", () => {
   it("maps each subclass to its stable code + HTTP status", () => {
     const cases: Array<[AppError, string, number]> = [
       [new ValidationError("bad", { field: "x" }), "VALIDATION_ERROR", 422],
-      [new UnauthorizedError(), "UNAUTHORIZED", 401],
+      [new UnauthorizedError(), "UNAUTHENTICATED", 401],
       [new ForbiddenError(), "FORBIDDEN", 403],
       [new NotFoundError("missing"), "NOT_FOUND", 404],
       [new ConflictError("dupe"), "CONFLICT", 409],

@@ -4,7 +4,7 @@
 
 export type ErrorCode =
   | "VALIDATION_ERROR"
-  | "UNAUTHORIZED"
+  | "UNAUTHENTICATED"
   | "FORBIDDEN"
   | "PREMIUM_REQUIRED"
   | "NOT_FOUND"
@@ -35,7 +35,7 @@ export class ValidationError extends AppError {
 
 export class UnauthorizedError extends AppError {
   constructor(message = "Unauthorized") {
-    super("UNAUTHORIZED", message, 401);
+    super("UNAUTHENTICATED", message, 401);
   }
 }
 
