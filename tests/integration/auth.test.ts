@@ -30,7 +30,6 @@ describe.skipIf(!run)("integration: auth", () => {
     const app = buildApp();
     const session = await createSession();
 
-    await app.request("/api/v1/users/me", { headers: authed(session) });
     const user = await userRepo.findActiveByEmail(session.email);
     expect(user).not.toBeNull();
 
@@ -55,7 +54,7 @@ describe.skipIf(!run)("integration: auth", () => {
     const body = (await res.json()) as { data: { email: string } };
     expect(body.data.email).toBe(session.email);
 
-    // The reconcile created exactly one domain profile, linked to the auth subject.
+    // Login created exactly one domain profile, linked to the auth subject.
     const user = await userRepo.findActiveByEmail(session.email);
     expect(user?.authSubjectId).toBeTruthy();
   });
@@ -77,7 +76,6 @@ describe.skipIf(!run)("integration: auth", () => {
     const app = buildApp();
     const session = await createSession();
 
-    await app.request("/api/v1/users/me", { headers: authed(session) }); // reconcile the profile
     const del = await app.request("/api/v1/users/me", {
       method: "DELETE",
       headers: authed(session),

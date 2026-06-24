@@ -29,7 +29,6 @@ describe.skipIf(!run)("integration: admin users", () => {
     const app = buildApp();
     const session = await createSession();
 
-    await app.request("/api/v1/users/me", { headers: authed(session) });
     const user = await userRepo.findActiveByEmail(session.email);
     expect(user).not.toBeNull();
 
