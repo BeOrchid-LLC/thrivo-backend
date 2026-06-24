@@ -11,6 +11,7 @@ import {
   type IssuedTokens,
   type SessionContext,
 } from "../session.service";
+import { resolveUser } from "../../services/identity.service";
 import { exchangeCodeForIdToken, googleRedirectUri, verifyIdToken } from "./google.client";
 
 const PROVIDER = "google";
@@ -83,6 +84,7 @@ export async function completeGoogleSignIn(
       );
     }
 
+    await resolveUser(principalOf(identity), tx);
     return issueSession(principalOf(identity), ctx, tx);
   });
 }
