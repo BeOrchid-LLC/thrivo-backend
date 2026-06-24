@@ -21,6 +21,31 @@ describe.skipIf(!run)("integration: auth", () => {
     expect(res.status).toBe(401);
   });
 
+  it("rejects GET /auth/session without a bearer token", async () => {
+    const res = await buildApp().request("/api/v1/auth/session");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns session facts via GET /auth/session for an authenticated user", async () => {
+    const app = buildApp();
+    const session = await createSession();
+
+    await app.request("/api/v1/users/me", { headers: authed(session) });
+    const user = await userRepo.findActiveByEmail(session.email);
+    expect(user).not.toBeNull();
+
+    const res = await app.request("/api/v1/auth/session", { headers: authed(session) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      success: boolean;
+      data: { session: { userId: string; accountStatus: string; isOnboarded: boolean } };
+    };
+    expect(body.success).toBe(true);
+    expect(body.data.session.userId).toBe(user!.id);
+    expect(body.data.session.accountStatus).toBeTruthy();
+    expect(typeof body.data.session.isOnboarded).toBe("boolean");
+  });
+
   it("signs a user in and returns their own profile, reconciled to one users row", async () => {
     const app = buildApp();
     const session = await createSession();

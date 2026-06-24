@@ -6,6 +6,7 @@ import {
   refreshRequestSchema,
 } from "../auth/schemas";
 import {
+  getAuthSession,
   getGoogleCallback,
   getGoogleStart,
   postLogout,
@@ -13,6 +14,7 @@ import {
   postMagicLinkVerify,
   postRefresh,
 } from "../controllers/auth.controller";
+import { requireAuth } from "../middleware/require-auth";
 import type { AppEnv } from "../types/http";
 
 /**
@@ -31,6 +33,8 @@ authRouter.post("/magic-link/verify", validate("json", magicLinkVerifySchema), p
 // Token lifecycle.
 authRouter.post("/refresh", validate("json", refreshRequestSchema), postRefresh);
 authRouter.post("/logout", validate("json", refreshRequestSchema), postLogout);
+
+authRouter.get("/session", requireAuth, getAuthSession);
 
 // Google OAuth (system browser → consent → callback → app deep link).
 authRouter.get("/google/start", getGoogleStart);

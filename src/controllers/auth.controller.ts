@@ -16,6 +16,7 @@ import {
   startGoogleSignIn,
 } from "../auth/oauth/google.service";
 import { sessionContext } from "../auth/request-context";
+import { effectiveAccountStatus, isUserOnboarded } from "../services/user.service";
 import type { AppEnv } from "../types/http";
 
 function toAuthSession(tokens: IssuedTokens): AuthSession {
@@ -80,6 +81,21 @@ export async function postLogout(c: Context<AppEnv>) {
   );
   await revokeSession(refreshToken);
   return respondOk(c, null, "Logged out");
+}
+
+/**
+ * GET /auth/session — lightweight session facts for mobile cold-start restore.
+ * `requireAuth` guarantees the caller; returns navigation-guard fields only.
+ */
+export function getAuthSession(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  return respondOk(c, {
+    session: {
+      userId: user.id,
+      accountStatus: effectiveAccountStatus(user),
+      isOnboarded: isUserOnboarded(user),
+    },
+  });
 }
 
 /**
