@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { foodLogs, type FoodLogRow, type NewFoodLogRow } from "../../db/schema";
@@ -59,4 +59,20 @@ export async function updateLog(
 
 export async function deleteLog(id: string, loggedAt: Date, tx: Executor = db): Promise<void> {
   await tx.delete(foodLogs).where(and(eq(foodLogs.id, id), eq(foodLogs.loggedAt, loggedAt)));
+}
+
+/** Admin batch — food log counts keyed by user id. */
+export async function countByUserIds(
+  userIds: string[],
+  tx: Executor = db
+): Promise<Map<string, number>> {
+  if (userIds.length === 0) return new Map();
+
+  const rows = await tx
+    .select({ userId: foodLogs.userId, value: count() })
+    .from(foodLogs)
+    .where(inArray(foodLogs.userId, userIds))
+    .groupBy(foodLogs.userId);
+
+  return new Map(rows.map((row) => [row.userId, Number(row.value)]));
 }

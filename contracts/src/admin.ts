@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { RouteContract } from "./common";
+import { userProfileSchema } from "./users";
 
 // ---------------------------------------------------------------------------
 // Admin identity
@@ -71,32 +72,38 @@ export const adminSubscriptionStatusSchema = z.enum([
 ]);
 export type AdminSubscriptionStatus = z.infer<typeof adminSubscriptionStatusSchema>;
 
-export const adminUserSchema = z.object({
-  id: z.string(),
-  email: z.string().email(),
-  name: z.string().nullable(),
-  entitlement: adminEntitlementSchema,
-  status: adminUserStatusSchema,
-  createdAt: z.string(), // ISO-8601
-  lastActiveAt: z.string().nullable(),
+export const adminUserSubscriptionSchema = z.object({
+  status: adminSubscriptionStatusSchema,
+  priceLabel: z.string().nullable(),
+  renewsAt: z.string().nullable(),
+  cancelAtPeriodEnd: z.boolean(),
 });
-export type AdminUser = z.infer<typeof adminUserSchema>;
+export type AdminUserSubscription = z.infer<typeof adminUserSubscriptionSchema>;
 
-export const adminUserDetailSchema = adminUserSchema.extend({
-  goal: z.string().nullable(),
-  targetCalories: z.number().nullable(),
-  totalFoodLogs: z.number(),
-  currentStreakDays: z.number(),
-  subscription: z
-    .object({
-      status: adminSubscriptionStatusSchema,
-      priceLabel: z.string().nullable(),
-      renewsAt: z.string().nullable(),
-      cancelAtPeriodEnd: z.boolean(),
-    })
-    .nullable(),
-});
+/** Full user record for admin list + detail — every users column except authSubjectId. */
+export const adminUserDetailSchema = userProfileSchema
+  .extend({
+    name: z.string().nullable(),
+    onboardingSkipped: z.boolean(),
+    subscriptionStatus: z.string().nullable(),
+    deletedAt: z.coerce.date().nullable(),
+    updatedAt: z.coerce.date(),
+    status: adminUserStatusSchema,
+    lastActiveAt: z.string().nullable(),
+    totalFoodLogs: z.number().int(),
+    currentStreakDays: z.number().int(),
+    subscription: adminUserSubscriptionSchema.nullable(),
+  })
+  .omit({ createdAt: true })
+  .extend({
+    createdAt: z.coerce.date(),
+  });
+
 export type AdminUserDetail = z.infer<typeof adminUserDetailSchema>;
+
+/** List rows use the same full shape as detail. */
+export const adminUserSchema = adminUserDetailSchema;
+export type AdminUser = AdminUserDetail;
 
 export const adminUserDetailResponseSchema = z.object({ user: adminUserDetailSchema });
 export type AdminUserDetailResponse = z.infer<typeof adminUserDetailResponseSchema>;
@@ -155,6 +162,11 @@ export const adminRoutes = {
   hardDeleteUser: {
     method: "DELETE",
     path: "/api/v1/admin/users/:id",
+    auth: "admin",
+  },
+  getDashboardMetrics: {
+    method: "GET",
+    path: "/api/v1/admin/metrics/dashboard",
     auth: "admin",
   },
   cancelSubscription: {

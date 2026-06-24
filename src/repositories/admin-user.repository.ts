@@ -2,7 +2,15 @@ import { and, count, eq, ilike, isNull, isNotNull, or, desc } from "drizzle-orm"
 import { db } from "../../db";
 import { users } from "../../db/schema";
 import * as authIdentityRepo from "./auth-identity.repository";
+import * as foodLogRepo from "./food-log.repository";
+import * as streakRepo from "./streak.repository";
+import * as subscriptionRepo from "./subscription.repository";
 import type { AdminUser, AdminUserDetail } from "../../contracts/src/admin";
+import {
+  toAdminSubscription,
+  toAdminUserDetail,
+  type AdminUserAggregates,
+} from "../mappers/admin-user.mapper";
 
 export type AdminListParams = {
   page: number;
@@ -22,33 +30,35 @@ export type AdminListResult = {
   };
 };
 
-function resolveStatus(u: { deletedAt: Date | null; accountStatus: string }): AdminUser["status"] {
-  if (u.deletedAt !== null) return "deleted";
-  if (u.accountStatus === "dormant") return "suspended";
-  return "active";
+function emptyAggregates(): AdminUserAggregates {
+  return { totalFoodLogs: 0, currentStreakDays: 0, subscription: null };
 }
 
-function toAdminUser(u: typeof users.$inferSelect): AdminUser {
-  return {
-    id: u.id,
-    email: u.email,
-    name: u.name,
-    entitlement: u.tier === "premium" ? "premium" : "free",
-    status: resolveStatus(u),
-    createdAt: u.createdAt.toISOString(),
-    lastActiveAt: u.updatedAt ? u.updatedAt.toISOString() : null,
-  };
-}
+async function loadAggregatesForUsers(
+  userIds: string[]
+): Promise<Map<string, AdminUserAggregates>> {
+  const map = new Map<string, AdminUserAggregates>();
+  if (userIds.length === 0) return map;
 
-function toAdminUserDetail(u: typeof users.$inferSelect): AdminUserDetail {
-  return {
-    ...toAdminUser(u),
-    goal: u.goal ?? null,
-    targetCalories: u.dailyTargetKcal ?? null,
-    totalFoodLogs: 0, // populated from food-log repo when joins are added
-    currentStreakDays: 0,
-    subscription: null,
-  };
+  const [logCounts, streakRows, subscriptionRows] = await Promise.all([
+    foodLogRepo.countByUserIds(userIds),
+    streakRepo.getByUserIds(userIds),
+    subscriptionRepo.getByUserIds(userIds),
+  ]);
+
+  const streakByUser = new Map(streakRows.map((row) => [row.userId, row]));
+  const subscriptionByUser = new Map(subscriptionRows.map((row) => [row.userId, row]));
+
+  for (const userId of userIds) {
+    const subscriptionRow = subscriptionByUser.get(userId);
+    map.set(userId, {
+      totalFoodLogs: logCounts.get(userId) ?? 0,
+      currentStreakDays: streakByUser.get(userId)?.currentStreak ?? 0,
+      subscription: subscriptionRow ? toAdminSubscription(subscriptionRow) : null,
+    });
+  }
+
+  return map;
 }
 
 function buildStatusWhere(status: string | undefined) {
@@ -56,7 +66,6 @@ function buildStatusWhere(status: string | undefined) {
   if (status === "deleted") return isNotNull(users.deletedAt);
   if (status === "suspended")
     return and(isNull(users.deletedAt), eq(users.accountStatus, "dormant"));
-  // "active"
   return and(isNull(users.deletedAt), isNotNull(users.accountStatus));
 }
 
@@ -69,7 +78,6 @@ export async function listUsers(params: AdminListParams): Promise<AdminListResul
     : undefined;
 
   const statusWhere = buildStatusWhere(status);
-
   const where = and(searchWhere, statusWhere);
 
   const [rows, [{ value: total }]] = await Promise.all([
@@ -83,8 +91,13 @@ export async function listUsers(params: AdminListParams): Promise<AdminListResul
     db.select({ value: count() }).from(users).where(where),
   ]);
 
+  const userIds = rows.map((row) => row.id);
+  const aggregatesByUser = await loadAggregatesForUsers(userIds);
+
   return {
-    items: rows.map(toAdminUser),
+    items: rows.map((row) =>
+      toAdminUserDetail(row, aggregatesByUser.get(row.id) ?? emptyAggregates())
+    ),
     pagination: {
       page,
       pageSize,
@@ -96,7 +109,10 @@ export async function listUsers(params: AdminListParams): Promise<AdminListResul
 
 export async function findById(id: string): Promise<AdminUserDetail | null> {
   const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
-  return row ? toAdminUserDetail(row) : null;
+  if (!row) return null;
+
+  const aggregatesByUser = await loadAggregatesForUsers([row.id]);
+  return toAdminUserDetail(row, aggregatesByUser.get(row.id) ?? emptyAggregates());
 }
 
 /**

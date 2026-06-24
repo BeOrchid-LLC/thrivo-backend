@@ -1,55 +1,15 @@
 import type { Context } from "hono";
-import {
-  updateProfilePayloadSchema,
-  userProfileSchema,
-  type UserProfile,
-} from "../../contracts/src/users";
+import { updateProfilePayloadSchema } from "../../contracts/src/users";
 import { respondOk } from "../lib/response";
+import { toUserProfile } from "../mappers/user-profile.mapper";
 import { userRepo } from "../repositories";
-import {
-  effectiveAccountStatus,
-  isUserOnboarded,
-  isUserOnboardingSkipped,
-  updateUserProfile,
-} from "../services/user.service";
+import { updateUserProfile } from "../services/user.service";
 import type { AppEnv } from "../types/http";
-import type { User } from "../repositories/user.repository";
-
-// Public profile DTO — never leaks the auth link or soft-delete bookkeeping.
-function toProfile(u: User): UserProfile {
-  return userProfileSchema.parse({
-    id: u.id,
-    email: u.email,
-    name: u.name,
-    goal: u.goal,
-    sex: u.sex,
-    age: u.age,
-    heightCm: u.heightCm,
-    weightKg: u.weightKg,
-    targetWeightKg: u.targetWeightKg,
-    tdeeKcal: u.tdeeKcal,
-    dailyTargetKcal: u.dailyTargetKcal,
-    targetProteinG: u.targetProteinG,
-    targetCarbsG: u.targetCarbsG,
-    targetFatG: u.targetFatG,
-    activityLevel: u.activityLevel,
-    manualDailyTargetKcal: u.manualDailyTargetKcal,
-    notifyTimes: u.notifyTimes,
-    timezone: u.timezone,
-    tier: u.tier,
-    accountStatus: effectiveAccountStatus(u),
-    trialEndsAt: u.trialEndsAt,
-    onboardingStep: u.onboardingStep,
-    isOnboarded: isUserOnboarded(u),
-    isOnboardingSkipped: isUserOnboardingSkipped(u),
-    createdAt: u.createdAt,
-  });
-}
 
 /** GET /users/me — the caller's own profile. `requireAuth` guarantees the user. */
 export function getMe(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  return respondOk(c, toProfile(user));
+  return respondOk(c, toUserProfile(user));
 }
 
 /** PATCH /users/me/profile — persist onboarding/profile draft fields and targets. */
@@ -58,7 +18,7 @@ export async function updateMeProfile(c: Context<AppEnv>) {
   const validJson = c.req.valid as (target: "json") => unknown;
   const input = updateProfilePayloadSchema.parse(validJson("json"));
   const updated = await updateUserProfile(user, input);
-  return respondOk(c, toProfile(updated));
+  return respondOk(c, toUserProfile(updated));
 }
 
 /** DELETE /users/me — GDPR soft delete of the caller's own account. */

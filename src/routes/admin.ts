@@ -11,6 +11,7 @@ import {
   getAdminUser,
   hardDeleteAdminUser,
 } from "../controllers/admin-users.controller";
+import { getAdminDashboardMetrics } from "../controllers/admin-metrics.controller";
 import type { AppEnv } from "../types/http";
 
 /** `/api/v1/admin` — staff-only surface gated by the admin session cookie. */
@@ -28,3 +29,6 @@ adminRouter.post("/auth/logout", requireAdmin, postAdminLogout);
 adminRouter.get("/users", requireAdmin, listAdminUsers);
 adminRouter.get("/users/:id", requireAdmin, getAdminUser);
 adminRouter.delete("/users/:id", requireAdmin, hardDeleteAdminUser);
+
+// Metrics
+adminRouter.get("/metrics/dashboard", requireAdmin, getAdminDashboardMetrics);
