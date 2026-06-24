@@ -16,7 +16,11 @@ import {
   startGoogleSignIn,
 } from "../auth/oauth/google.service";
 import { sessionContext } from "../auth/request-context";
-import { effectiveAccountStatus, isUserOnboarded } from "../services/user.service";
+import {
+  effectiveAccountStatus,
+  isUserOnboarded,
+  isUserOnboardingSkipped,
+} from "../services/user.service";
 import type { AppEnv } from "../types/http";
 
 function toAuthSession(tokens: IssuedTokens): AuthSession {
@@ -94,6 +98,7 @@ export function getAuthSession(c: Context<AppEnv>) {
       userId: user.id,
       accountStatus: effectiveAccountStatus(user),
       isOnboarded: isUserOnboarded(user),
+      isOnboardingSkipped: isUserOnboardingSkipped(user),
     },
   });
 }

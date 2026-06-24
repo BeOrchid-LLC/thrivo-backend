@@ -33,6 +33,7 @@ export const userSessionSchema = z.object({
   userId: z.string().uuid(),
   accountStatus: accountStatusSchema,
   isOnboarded: z.boolean(),
+  isOnboardingSkipped: z.boolean(),
 });
 export type UserSession = z.infer<typeof userSessionSchema>;
 

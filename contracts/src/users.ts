@@ -38,6 +38,7 @@ export const userProfileSchema = z.object({
   trialEndsAt: z.coerce.date().nullable(),
   onboardingStep: z.number().int(),
   isOnboarded: z.boolean(),
+  isOnboardingSkipped: z.boolean(),
   createdAt: z.coerce.date(),
 });
 

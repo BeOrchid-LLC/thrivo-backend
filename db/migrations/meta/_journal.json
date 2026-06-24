@@ -50,6 +50,13 @@
       "when": 1782239035154,
       "tag": "0006_petite_lenny_balinger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782296790738,
+      "tag": "0007_yellow_loners",
+      "breakpoints": true
     }
   ]
 }
