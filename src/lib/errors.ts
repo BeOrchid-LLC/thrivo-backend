@@ -64,6 +64,12 @@ export class ConflictError extends AppError {
   }
 }
 
+export class RateLimitedError extends AppError {
+  constructor(message = "Too many requests", details?: unknown) {
+    super("RATE_LIMITED", message, 429, details);
+  }
+}
+
 export class InternalError extends AppError {
   constructor(message = "Internal server error", details?: unknown) {
     super("INTERNAL_ERROR", message, 500, details);

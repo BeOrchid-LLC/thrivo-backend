@@ -21,6 +21,25 @@ export const magicLinkVerifySchema = z.object({
 });
 export type MagicLinkVerify = z.infer<typeof magicLinkVerifySchema>;
 
+export const otpRequestSchema = z.object({
+  email: z
+    .string()
+    .email()
+    .max(254)
+    .transform((e) => e.toLowerCase()),
+});
+export type OtpRequest = z.infer<typeof otpRequestSchema>;
+
+export const otpVerifySchema = z.object({
+  email: z
+    .string()
+    .email()
+    .max(254)
+    .transform((e) => e.toLowerCase()),
+  code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code"),
+});
+export type OtpVerify = z.infer<typeof otpVerifySchema>;
+
 /** Refresh + logout both take the opaque refresh token in the body. */
 export const refreshRequestSchema = z.object({
   refreshToken: z.string().min(1).max(512),

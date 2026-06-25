@@ -1,14 +1,23 @@
 import type { Context } from "hono";
 import { respondOk } from "../lib/response";
 import { env } from "../env";
-import { ValidationError, UpstreamError, UnauthorizedError, AppError } from "../lib/errors";
+import {
+  ValidationError,
+  UpstreamError,
+  UnauthorizedError,
+  AppError,
+  RateLimitedError,
+} from "../lib/errors";
 import {
   magicLinkRequestSchema,
   magicLinkVerifySchema,
+  otpRequestSchema,
+  otpVerifySchema,
   refreshRequestSchema,
   type AuthSession,
 } from "../auth/schemas";
 import { requestMagicLink, verifyMagicLink } from "../auth/magic-link.service";
+import { issueAuthOtp, verifyAuthOtp } from "../auth/otp.service";
 import { rotateSession, revokeSession, type IssuedTokens } from "../auth/session.service";
 import {
   completeGoogleSignIn,
@@ -59,6 +68,39 @@ export async function postMagicLinkVerify(c: Context<AppEnv>) {
   const { token } = magicLinkVerifySchema.parse((c.req.valid as (t: "json") => unknown)("json"));
   const tokens = await verifyMagicLink(token, sessionContext(c));
   return respondOk(c, toAuthSession(tokens));
+}
+
+/**
+ * POST /auth/otp/request — email a one-time code. Always 202 with a generic
+ * body, so this does not reveal account existence.
+ */
+export async function postOtpRequest(c: Context<AppEnv>) {
+  const { email } = otpRequestSchema.parse((c.req.valid as (t: "json") => unknown)("json"));
+  await issueAuthOtp(email);
+  return respondOk(c, null, "OTP sent", 202);
+}
+
+/**
+ * POST /auth/otp/verify — redeem the one-time code and return an access +
+ * refresh pair. Wrong/expired codes use the standard error envelope.
+ */
+export async function postOtpVerify(c: Context<AppEnv>) {
+  const { email, code } = otpVerifySchema.parse((c.req.valid as (t: "json") => unknown)("json"));
+  const { result, tokens } = await verifyAuthOtp(email, code, sessionContext(c));
+
+  if (!result.ok) {
+    if (result.retryAfter !== undefined) c.header("Retry-After", String(result.retryAfter));
+    if (result.reason === "backoff" || result.reason === "locked") {
+      const message =
+        result.reason === "locked"
+          ? "Too many failed attempts — account locked for 24 hours."
+          : `Too many failed attempts — try again in ${result.retryAfter} seconds.`;
+      throw new RateLimitedError(message);
+    }
+    throw new UnauthorizedError("Invalid or expired code");
+  }
+
+  return respondOk(c, toAuthSession(tokens!));
 }
 
 /**
