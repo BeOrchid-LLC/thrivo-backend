@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { RouteContract } from "./common";
 import { accountStatusSchema } from "./users";
 
-/** Token pair returned to a client after a successful auth flow (magic-link or Google OAuth). */
+/** Token pair returned to a client after a successful auth flow (email OTP, magic-link, or Google OAuth). */
 export const authSessionSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
@@ -10,13 +10,32 @@ export const authSessionSchema = z.object({
 });
 export type AuthSession = z.infer<typeof authSessionSchema>;
 
-/** POST /auth/magic-link/request payload */
+/** POST /auth/otp/request payload */
+export const otpRequestPayloadSchema = z.object({
+  email: z.string().email(),
+});
+export type OtpRequestPayload = z.infer<typeof otpRequestPayloadSchema>;
+
+/** POST /auth/otp/verify payload */
+export const otpVerifyPayloadSchema = z.object({
+  email: z.string().email(),
+  code: z.string().regex(/^\d{6}$/),
+});
+export type OtpVerifyPayload = z.infer<typeof otpVerifyPayloadSchema>;
+
+/**
+ * POST /auth/magic-link/request payload
+ * @deprecated Magic-link auth remains API-supported but is hidden in mobile while the UX is revisited.
+ */
 export const magicLinkRequestPayloadSchema = z.object({
   email: z.string().email(),
 });
 export type MagicLinkRequestPayload = z.infer<typeof magicLinkRequestPayloadSchema>;
 
-/** POST /auth/magic-link/verify payload */
+/**
+ * POST /auth/magic-link/verify payload
+ * @deprecated Magic-link auth remains API-supported but is hidden in mobile while the UX is revisited.
+ */
 export const magicLinkVerifyPayloadSchema = z.object({
   token: z.string().min(1),
 });
@@ -41,11 +60,23 @@ export const userSessionResponseSchema = z.object({ session: userSessionSchema }
 export type UserSessionResponse = z.infer<typeof userSessionResponseSchema>;
 
 export const authRoutes = {
+  requestOtp: {
+    method: "POST",
+    path: "/api/v1/auth/otp/request",
+    auth: "public",
+  },
+  verifyOtp: {
+    method: "POST",
+    path: "/api/v1/auth/otp/verify",
+    auth: "public",
+  },
+  // Deprecated: API remains available, but mobile no longer exposes this flow.
   requestMagicLink: {
     method: "POST",
     path: "/api/v1/auth/magic-link/request",
     auth: "public",
   },
+  // Deprecated: API remains available, but mobile no longer exposes this flow.
   verifyMagicLink: {
     method: "POST",
     path: "/api/v1/auth/magic-link/verify",
