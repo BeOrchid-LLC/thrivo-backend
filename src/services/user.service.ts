@@ -2,13 +2,13 @@ import type { NewUserRow, UserTier } from "../../db/schema";
 import type { UpdateProfilePayload } from "../../contracts/src/users";
 import { userRepo } from "../repositories";
 import type { User } from "../repositories/user.repository";
-import { NotFoundError } from "../lib/errors";
+import { ForbiddenError, NotFoundError } from "../lib/errors";
 import { invalidateProfileTargetCache } from "./dashboard-cache.service";
+import { getEffectiveSettings } from "./settings.service";
 import { calculateTargets, deriveMacroTargets, type ActivityLevel } from "./tdee.service";
 
 export type AccountStatus = "dormant" | "free_trial" | "free_plan" | "paid";
 
-const TRIAL_DAYS = 7;
 const START_TRIAL_ONBOARDING_STEP = 6;
 const COMPLETE_ONBOARDING_STEP = 7;
 
@@ -110,6 +110,10 @@ export async function updateUserProfile(
   Object.assign(patch, buildTargetPatch(user, patch));
 
   if (input.activationIntent === "start_free_trial") {
+    const settings = await getEffectiveSettings(user.id);
+    if (!settings.effective.trialsEnabled) {
+      throw new ForbiddenError("Free trial is unavailable");
+    }
     patch.onboardingStep = Math.max(
       input.onboardingStep ?? user.onboardingStep,
       START_TRIAL_ONBOARDING_STEP
@@ -118,7 +122,7 @@ export async function updateUserProfile(
     // Only start a trial if user is on free plan (or legacy dormant) and hasn't had one before.
     if ((currentStatus === "free_plan" || currentStatus === "dormant") && !user.trialEndsAt) {
       patch.accountStatus = "free_trial";
-      patch.trialEndsAt = addDays(now, TRIAL_DAYS);
+      patch.trialEndsAt = addDays(now, settings.effective.trialDays);
     }
   } else if (input.activationIntent === "complete") {
     patch.onboardingStep = Math.max(

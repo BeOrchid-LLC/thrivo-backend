@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const repo = vi.hoisted(() => ({
   updateProfile: vi.fn(),
 }));
 vi.mock("../../src/repositories", () => ({ userRepo: repo }));
+const settings = vi.hoisted(() => ({
+  getEffectiveSettings: vi.fn(),
+}));
+vi.mock("../../src/services/settings.service", () => settings);
 
 import type { User } from "../../src/repositories/user.repository";
 import {
@@ -46,6 +50,15 @@ const baseUser = {
 describe("user.service", () => {
   afterEach(() => vi.clearAllMocks());
 
+  beforeEach(() => {
+    settings.getEffectiveSettings.mockResolvedValue({
+      effective: {
+        trialsEnabled: true,
+        trialDays: 14,
+      },
+    });
+  });
+
   it("activates a first-time dormant user into a 7-day free trial", async () => {
     const now = new Date("2026-06-18T12:00:00.000Z");
     repo.updateProfile.mockImplementation(async (_id, patch) => ({ ...baseUser, ...patch }));
@@ -63,7 +76,7 @@ describe("user.service", () => {
         onboardingStep: 6,
       })
     );
-    expect(updated.trialEndsAt).toEqual(new Date("2026-06-25T12:00:00.000Z"));
+    expect(updated.trialEndsAt).toEqual(new Date("2026-07-02T12:00:00.000Z"));
   });
 
   it("skip sets onboardingSkipped and preserves the step count without changing accountStatus", async () => {
@@ -101,7 +114,7 @@ describe("user.service", () => {
     expect(repo.updateProfile.mock.calls[0][1]).not.toHaveProperty("accountStatus");
   });
 
-  it("free_plan user starting trial gets free_trial and a trialEndsAt 7 days out", async () => {
+  it("free_plan user starting trial gets free_trial and a trialEndsAt 14 days out", async () => {
     const now = new Date("2026-06-18T12:00:00.000Z");
     const user = { ...baseUser, accountStatus: "free_plan" } as User;
     repo.updateProfile.mockImplementation(async (_id, patch) => ({ ...user, ...patch }));
@@ -116,7 +129,7 @@ describe("user.service", () => {
       user.id,
       expect.objectContaining({ accountStatus: "free_trial", onboardingStep: 6 })
     );
-    expect(updated.trialEndsAt).toEqual(new Date("2026-06-25T12:00:00.000Z"));
+    expect(updated.trialEndsAt).toEqual(new Date("2026-07-02T12:00:00.000Z"));
   });
 
   it("complete marks onboarding done without changing accountStatus", async () => {
