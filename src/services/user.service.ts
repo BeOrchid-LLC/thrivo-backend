@@ -3,6 +3,7 @@ import type { UpdateProfilePayload } from "../../contracts/src/users";
 import { userRepo } from "../repositories";
 import type { User } from "../repositories/user.repository";
 import { NotFoundError } from "../lib/errors";
+import { invalidateProfileTargetCache } from "./dashboard-cache.service";
 import { calculateTargets, deriveMacroTargets, type ActivityLevel } from "./tdee.service";
 
 export type AccountStatus = "dormant" | "free_trial" | "free_plan" | "paid";
@@ -82,6 +83,14 @@ export async function updateUserProfile(
   now = new Date()
 ): Promise<User> {
   const patch: Partial<NewUserRow> = {};
+  const targetInputChanged =
+    input.goal !== undefined ||
+    input.sex !== undefined ||
+    input.ageYears !== undefined ||
+    input.heightCm !== undefined ||
+    input.currentWeightKg !== undefined ||
+    input.activityLevel !== undefined ||
+    input.manualDailyTargetKcal !== undefined;
 
   if (input.firstName !== undefined) patch.name = firstNameOnly(input.firstName);
   if (input.goal !== undefined) patch.goal = input.goal;
@@ -131,5 +140,6 @@ export async function updateUserProfile(
 
   const updated = await userRepo.updateProfile(user.id, patch);
   if (!updated) throw new NotFoundError("User not found");
+  if (targetInputChanged) await invalidateProfileTargetCache(user.id);
   return updated;
 }

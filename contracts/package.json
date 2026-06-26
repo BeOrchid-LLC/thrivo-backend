@@ -27,6 +27,18 @@
     "./admin": {
       "types": "./dist/admin.d.ts",
       "import": "./dist/admin.js"
+    },
+    "./dashboard": {
+      "types": "./dist/dashboard.d.ts",
+      "import": "./dist/dashboard.js"
+    },
+    "./foods": {
+      "types": "./dist/foods.d.ts",
+      "import": "./dist/foods.js"
+    },
+    "./metrics": {
+      "types": "./dist/metrics.d.ts",
+      "import": "./dist/metrics.js"
     }
   },
   "files": [

@@ -6,6 +6,7 @@ import {
   makeWeightEntry,
   makeWaterEntry,
   makeCheckIn,
+  makeFoodLog,
 } from "../helpers/factories";
 import {
   weightEntryRepo,
@@ -17,6 +18,13 @@ import {
   subscriptionRepo,
   emailLogRepo,
 } from "../../src/repositories";
+import {
+  getDashboardCalories,
+  getDashboardMacros,
+  getHistoryDays,
+  getMealGroupsForDay,
+  getWaterState,
+} from "../../src/services/dashboard.service";
 
 // Highest-risk invariants that exist today: per-user data isolation (IDOR),
 // webhook idempotency, upsert idempotency, and the email-log lifecycle. Auth /
@@ -141,6 +149,76 @@ describe.skipIf(!run)("integration: safety invariants", () => {
       const [after] = await emailLogRepo.listForUser(user.id);
       expect(after.status).toBe("sent");
       expect(after.providerMessageId).toBe("msg_1");
+    });
+  });
+
+  describe("home dashboard section services", () => {
+    it("returns empty dashboard section states for a new user", async () => {
+      const user = await makeUser({
+        dailyTargetKcal: 1800,
+        targetProteinG: 120,
+        targetCarbsG: 200,
+        targetFatG: 60,
+      });
+
+      await expect(getDashboardCalories(user, "2026-06-10")).resolves.toMatchObject({
+        consumedCalories: 0,
+        targetCalories: 1800,
+        remainingCalories: 1800,
+      });
+      await expect(getDashboardMacros(user, "2026-06-10")).resolves.toMatchObject({
+        consumed: { proteinG: 0, carbsG: 0, fatG: 0 },
+        target: { proteinG: 120, carbsG: 200, fatG: 60 },
+      });
+      await expect(getWaterState(user, "2026-06-10")).resolves.toMatchObject({
+        totalMl: 0,
+        targetGlasses: 8,
+      });
+      await expect(getMealGroupsForDay(user, "2026-06-10")).resolves.toEqual([]);
+    });
+
+    it("aggregates populated day calories, macros, water and meal groups", async () => {
+      const user = await makeUser({ dailyTargetKcal: 1800 });
+      await makeFoodLog(user.id, {
+        localDate: "2026-06-10",
+        meal: "breakfast",
+        name: "Greek yogurt",
+        kcal: 130,
+        proteinG: "12",
+        carbsG: "14",
+        fatG: "4",
+      });
+      await makeWaterEntry(user.id, { localDate: "2026-06-10", amountMl: 500 });
+
+      const calories = await getDashboardCalories(user, "2026-06-10");
+      const macros = await getDashboardMacros(user, "2026-06-10");
+      const water = await getWaterState(user, "2026-06-10");
+      const groups = await getMealGroupsForDay(user, "2026-06-10");
+
+      expect(calories.consumedCalories).toBe(130);
+      expect(macros.consumed.proteinG).toBe(12);
+      expect(water.glasses).toBe(2);
+      expect(groups[0]?.entries[0]?.name).toBe("Greek yogurt");
+    });
+
+    it("redacts free history older than seven days but leaves premium history visible", async () => {
+      const freeUser = await makeUser({ tier: "free" });
+      const premiumUser = await makeUser({ tier: "premium" });
+      await makeFoodLog(freeUser.id, { localDate: "2026-05-01", name: "Private old meal" });
+      await makeFoodLog(premiumUser.id, { localDate: "2026-05-01", name: "Visible old meal" });
+
+      const freeHistory = await getHistoryDays(freeUser, {
+        from: "2026-05-01",
+        to: new Date().toISOString().slice(0, 10),
+      });
+      const premiumHistory = await getHistoryDays(premiumUser, {
+        from: "2026-05-01",
+        to: new Date().toISOString().slice(0, 10),
+      });
+
+      expect(freeHistory.days[0]).toMatchObject({ day: "2026-05-01", isLocked: true, groups: [] });
+      expect(JSON.stringify(freeHistory)).not.toContain("Private old meal");
+      expect(premiumHistory.days[0]?.groups[0]?.entries[0]?.name).toBe("Visible old meal");
     });
   });
 });

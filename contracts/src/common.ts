@@ -69,6 +69,7 @@ export const successEnvelope = apiSuccessSchema;
 /** Untyped primitive schemas for ID fields and ISO date strings. */
 export const idSchema = z.string().min(1);
 export const isoDateSchema = z.string();
+export const localDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 /** Named time-series point used in admin analytics charts. */
 export const timePointSchema = z.object({ date: z.string(), value: z.number() });
