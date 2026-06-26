@@ -3,6 +3,8 @@ import { validate } from "../middleware/validate";
 import {
   magicLinkRequestSchema,
   magicLinkVerifySchema,
+  otpRequestSchema,
+  otpVerifySchema,
   refreshRequestSchema,
 } from "../auth/schemas";
 import {
@@ -13,6 +15,8 @@ import {
   postLogout,
   postMagicLinkRequest,
   postMagicLinkVerify,
+  postOtpRequest,
+  postOtpVerify,
   postRefresh,
 } from "../controllers/auth.controller";
 import { requireAuth } from "../middleware/require-auth";
@@ -31,6 +35,9 @@ authRouter.post(
 );
 authRouter.post("/magic-link/verify", validate("json", magicLinkVerifySchema), postMagicLinkVerify);
 authRouter.get("/magic-link/callback", getMagicLinkCallback);
+
+authRouter.post("/otp/request", validate("json", otpRequestSchema), postOtpRequest);
+authRouter.post("/otp/verify", validate("json", otpVerifySchema), postOtpVerify);
 
 // Token lifecycle.
 authRouter.post("/refresh", validate("json", refreshRequestSchema), postRefresh);

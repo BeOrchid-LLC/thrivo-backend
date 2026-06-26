@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { foodLogs, type FoodLogRow, type NewFoodLogRow } from "../../db/schema";
@@ -21,6 +21,56 @@ export async function listLogsForDay(
     .from(foodLogs)
     .where(and(eq(foodLogs.userId, userId), eq(foodLogs.localDate, localDate)))
     .orderBy(asc(foodLogs.loggedAt));
+}
+
+export interface FoodLogTotals {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+}
+
+/** Aggregate snapshots for a user-day; used as a fallback when daily_summaries is empty. */
+export async function totalsForDay(
+  userId: string,
+  localDate: string,
+  tx: Executor = db
+): Promise<FoodLogTotals> {
+  const [row] = await tx
+    .select({
+      calories: sql<number>`coalesce(sum(${foodLogs.kcal}), 0)::int`,
+      proteinG: sql<string>`coalesce(sum(${foodLogs.proteinG}), 0)::text`,
+      carbsG: sql<string>`coalesce(sum(${foodLogs.carbsG}), 0)::text`,
+      fatG: sql<string>`coalesce(sum(${foodLogs.fatG}), 0)::text`,
+    })
+    .from(foodLogs)
+    .where(and(eq(foodLogs.userId, userId), eq(foodLogs.localDate, localDate)));
+
+  return {
+    calories: row?.calories ?? 0,
+    proteinG: Number(row?.proteinG ?? 0),
+    carbsG: Number(row?.carbsG ?? 0),
+    fatG: Number(row?.fatG ?? 0),
+  };
+}
+
+export async function listLogsByLocalDateRange(
+  userId: string,
+  fromDate: string,
+  toDate: string,
+  tx: Executor = db
+): Promise<FoodLog[]> {
+  return tx
+    .select()
+    .from(foodLogs)
+    .where(
+      and(
+        eq(foodLogs.userId, userId),
+        gte(foodLogs.localDate, fromDate),
+        lte(foodLogs.localDate, toDate)
+      )
+    )
+    .orderBy(desc(foodLogs.localDate), asc(foodLogs.loggedAt));
 }
 
 export async function listLogsByRange(

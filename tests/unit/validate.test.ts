@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { validate } from "../../src/middleware/validate";
+import { getValidatedInput, validate } from "../../src/middleware/validate";
 import { errorHandler } from "../../src/middleware/error";
 import type { AppEnv } from "../../src/types/http";
 
@@ -21,6 +21,21 @@ describe("validate middleware", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: "a@b.com", age: 30 }),
     });
+    expect(res.status).toBe(200);
+    expect((await res.json()).data).toEqual({ email: "a@b.com", age: 30 });
+  });
+
+  it("reads valid input through the bound helper", async () => {
+    const a = new Hono<AppEnv>();
+    a.onError(errorHandler);
+    a.post("/", validate("json", schema), (c) => c.json({ data: getValidatedInput(c, "json") }));
+
+    const res = await a.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "a@b.com", age: 30 }),
+    });
+
     expect(res.status).toBe(200);
     expect((await res.json()).data).toEqual({ email: "a@b.com", age: 30 });
   });

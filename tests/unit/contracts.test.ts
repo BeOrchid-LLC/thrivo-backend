@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   errorCodeSchema,
   getMeResponseSchema,
+  settingsRoutes,
+  subscriptionRoutes,
+  purchaseSubscriptionPayloadSchema,
   updateProfilePayloadSchema,
+  updateUserSettingsPayloadSchema,
   userProfileSchema,
   userRoutes,
 } from "../../contracts/src";
@@ -58,6 +62,16 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       path: "/api/v1/users/me/profile",
       auth: "user",
     });
+    expect(settingsRoutes.getUserSettings).toEqual({
+      method: "GET",
+      path: "/api/v1/users/me/settings",
+      auth: "user",
+    });
+    expect(subscriptionRoutes.getMine).toEqual({
+      method: "GET",
+      path: "/api/v1/subscriptions/me",
+      auth: "user",
+    });
     expect(errorCodeSchema.options).toContain("PREMIUM_REQUIRED");
   });
 
@@ -73,5 +87,30 @@ describe("@beorchid-llc/thrivo-contracts", () => {
     ).toBe("Ada");
 
     expect(updateProfilePayloadSchema.safeParse({ ageYears: 12 }).success).toBe(false);
+  });
+
+  it("validates user settings update payloads", () => {
+    expect(
+      updateUserSettingsPayloadSchema.parse({
+        unitSystem: "imperial",
+        dailyFoodLogReminderTime: "08:30",
+        hydrationReminderIntervalMinutes: 45,
+      })
+    ).toEqual({
+      unitSystem: "imperial",
+      dailyFoodLogReminderTime: "08:30",
+      hydrationReminderIntervalMinutes: 45,
+    });
+
+    expect(
+      updateUserSettingsPayloadSchema.safeParse({ hydrationReminderIntervalMinutes: 3 }).success
+    ).toBe(false);
+  });
+
+  it("validates subscription payloads", () => {
+    expect(purchaseSubscriptionPayloadSchema.parse({ plan: "annual" })).toEqual({
+      plan: "annual",
+    });
+    expect(purchaseSubscriptionPayloadSchema.safeParse({ plan: "weekly" }).success).toBe(false);
   });
 });
