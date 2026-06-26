@@ -41,8 +41,7 @@ export async function getEffectiveSettings(userId: string): Promise<EffectiveSet
     global,
     user,
     effective: {
-      pushNotificationsEnabled:
-        global.pushNotificationsEnabled && user.pushNotificationsEnabled,
+      pushNotificationsEnabled: global.pushNotificationsEnabled && user.pushNotificationsEnabled,
       dailyFoodLogReminderEnabled:
         global.pushNotificationsEnabled &&
         global.dailyFoodLogReminderEnabled &&

@@ -19,5 +19,9 @@ usersRouter.use(requireAuth);
 usersRouter.get("/me", getMe);
 usersRouter.patch("/me/profile", validate("json", updateProfilePayloadSchema), updateMeProfile);
 usersRouter.get("/me/settings", getMySettings);
-usersRouter.patch("/me/settings", validate("json", updateUserSettingsPayloadSchema), updateMySettings);
+usersRouter.patch(
+  "/me/settings",
+  validate("json", updateUserSettingsPayloadSchema),
+  updateMySettings
+);
 usersRouter.delete("/me", deleteMe);

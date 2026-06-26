@@ -150,7 +150,11 @@ describe("subscription.service", () => {
   it("purchases an annual subscription for a used-trial free user", async () => {
     repos.subscriptionRepo.getByUser.mockResolvedValue(activeSubscription({ status: "expired" }));
 
-    await purchaseSubscription({ ...user, trialEndsAt: new Date("2026-06-01T00:00:00.000Z") }, { plan: "annual" }, now);
+    await purchaseSubscription(
+      { ...user, trialEndsAt: new Date("2026-06-01T00:00:00.000Z") },
+      { plan: "annual" },
+      now
+    );
 
     expect(repos.subscriptionRepo.upsertFromWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -164,14 +168,12 @@ describe("subscription.service", () => {
 
   it("marks cancellation at period end while preserving current access", async () => {
     const active = activeSubscription();
-    repos.subscriptionRepo.getByUser
-      .mockResolvedValueOnce(active)
-      .mockResolvedValueOnce(
-        activeSubscription({
-          status: "canceled",
-          cancelAtPeriodEnd: true,
-        })
-      );
+    repos.subscriptionRepo.getByUser.mockResolvedValueOnce(active).mockResolvedValueOnce(
+      activeSubscription({
+        status: "canceled",
+        cancelAtPeriodEnd: true,
+      })
+    );
 
     const result = await cancelSubscription({ ...user, tier: "premium" }, {}, now);
 

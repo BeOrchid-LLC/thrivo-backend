@@ -85,14 +85,16 @@ describe("settings.service", () => {
     });
 
     await expect(canSendPushNotification(userSettings.userId, "hydration")).resolves.toBe(false);
-    await expect(canSendPushNotification(userSettings.userId, "daily_food_log")).resolves.toBe(true);
+    await expect(canSendPushNotification(userSettings.userId, "daily_food_log")).resolves.toBe(
+      true
+    );
   });
 
   it("persists partial user settings through the repository", async () => {
     repo.updateUserSettings.mockResolvedValue({ ...userSettings, unitSystem: "imperial" });
 
-    await expect(updateUserSettings(userSettings.userId, { unitSystem: "imperial" })).resolves.toEqual(
-      expect.objectContaining({ unitSystem: "imperial" })
-    );
+    await expect(
+      updateUserSettings(userSettings.userId, { unitSystem: "imperial" })
+    ).resolves.toEqual(expect.objectContaining({ unitSystem: "imperial" }));
   });
 });

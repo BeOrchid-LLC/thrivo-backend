@@ -61,7 +61,8 @@ function hasAccess(user: UserRow, row: Subscription | null, now: Date): boolean 
   if (user.tier !== "premium") return false;
   if (!row) return true;
   if (row.status === "expired") return false;
-  if (row.status === "canceled" && row.currentPeriodEnd && row.currentPeriodEnd <= now) return false;
+  if (row.status === "canceled" && row.currentPeriodEnd && row.currentPeriodEnd <= now)
+    return false;
   return true;
 }
 
@@ -108,7 +109,11 @@ export async function startTrial(
 
   const plan = input.plan;
   const product = PLANS[plan];
-  const billing = await billingAdapter.startTrial({ userId: user.id, plan, productId: product.productId });
+  const billing = await billingAdapter.startTrial({
+    userId: user.id,
+    plan,
+    productId: product.productId,
+  });
   if (!billing.confirmed) throw new UpstreamError("Billing provider did not confirm trial start");
 
   const trialEnd = addDays(now, settings.effective.trialDays);
@@ -145,7 +150,11 @@ export async function purchaseSubscription(
 
   const plan = input.plan;
   const product = PLANS[plan];
-  const billing = await billingAdapter.purchase({ userId: user.id, plan, productId: product.productId });
+  const billing = await billingAdapter.purchase({
+    userId: user.id,
+    plan,
+    productId: product.productId,
+  });
   if (!billing.confirmed) throw new UpstreamError("Billing provider did not confirm purchase");
 
   await persistSubscriptionAndMirror(user.id, {
@@ -178,7 +187,8 @@ export async function cancelSubscription(
 
   const existing = await subscriptionRepo.getByUser(user.id);
   if (!existing || existing.status === "expired") throw new ConflictError("No active subscription");
-  if (existing.cancelAtPeriodEnd && existing.status === "canceled") return getSubscriptionState(user, now);
+  if (existing.cancelAtPeriodEnd && existing.status === "canceled")
+    return getSubscriptionState(user, now);
 
   const plan = planFromProductId(existing.productId) ?? "monthly";
   const billing = await billingAdapter.cancel({

@@ -44,7 +44,9 @@ describe.skipIf(!run)("integration: settings", () => {
     );
 
     const other = await app.request("/api/v1/users/me/settings", { headers: authed(b) });
-    expect(((await other.json()) as { data: { unitSystem: string } }).data.unitSystem).toBe("metric");
+    expect(((await other.json()) as { data: { unitSystem: string } }).data.unitSystem).toBe(
+      "metric"
+    );
   });
 
   it("blocks notifications when global settings are disabled first", async () => {
