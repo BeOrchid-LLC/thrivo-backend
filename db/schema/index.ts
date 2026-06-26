@@ -13,6 +13,7 @@ export * from "./check-ins";
 export * from "./weight-entries";
 export * from "./water-intake";
 export * from "./subscriptions";
+export * from "./settings";
 export * from "./email-captures";
 export * from "./email-logs";
 export * from "./push-tokens";
