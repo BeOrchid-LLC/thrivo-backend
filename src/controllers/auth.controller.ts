@@ -31,6 +31,7 @@ import {
   isUserOnboardingSkipped,
 } from "../services/user.service";
 import type { AppEnv } from "../types/http";
+import { getValidatedInput } from "../middleware/validate";
 
 function toAuthSession(tokens: IssuedTokens): AuthSession {
   return {
@@ -55,7 +56,7 @@ function appRedirect(params: Record<string, string>): string {
  * (no user enumeration). `validate` has already parsed + lowercased the email.
  */
 export async function postMagicLinkRequest(c: Context<AppEnv>) {
-  const { email } = magicLinkRequestSchema.parse((c.req.valid as (t: "json") => unknown)("json"));
+  const { email } = magicLinkRequestSchema.parse(getValidatedInput(c, "json"));
   await requestMagicLink(email);
   return respondOk(c, null, "Magic link sent", 202);
 }
@@ -65,7 +66,7 @@ export async function postMagicLinkRequest(c: Context<AppEnv>) {
  * the access + refresh pair. 401 when the token is invalid/expired/used.
  */
 export async function postMagicLinkVerify(c: Context<AppEnv>) {
-  const { token } = magicLinkVerifySchema.parse((c.req.valid as (t: "json") => unknown)("json"));
+  const { token } = magicLinkVerifySchema.parse(getValidatedInput(c, "json"));
   const tokens = await verifyMagicLink(token, sessionContext(c));
   return respondOk(c, toAuthSession(tokens));
 }
@@ -75,7 +76,7 @@ export async function postMagicLinkVerify(c: Context<AppEnv>) {
  * body, so this does not reveal account existence.
  */
 export async function postOtpRequest(c: Context<AppEnv>) {
-  const { email } = otpRequestSchema.parse((c.req.valid as (t: "json") => unknown)("json"));
+  const { email } = otpRequestSchema.parse(getValidatedInput(c, "json"));
   await issueAuthOtp(email);
   return respondOk(c, null, "OTP sent", 202);
 }
@@ -85,7 +86,7 @@ export async function postOtpRequest(c: Context<AppEnv>) {
  * refresh pair. Wrong/expired codes use the standard error envelope.
  */
 export async function postOtpVerify(c: Context<AppEnv>) {
-  const { email, code } = otpVerifySchema.parse((c.req.valid as (t: "json") => unknown)("json"));
+  const { email, code } = otpVerifySchema.parse(getValidatedInput(c, "json"));
   const { result, tokens } = await verifyAuthOtp(email, code, sessionContext(c));
 
   if (!result.ok) {
@@ -134,9 +135,7 @@ export async function getMagicLinkCallback(c: Context<AppEnv>) {
  * a stolen-then-used token self-invalidating).
  */
 export async function postRefresh(c: Context<AppEnv>) {
-  const { refreshToken } = refreshRequestSchema.parse(
-    (c.req.valid as (t: "json") => unknown)("json")
-  );
+  const { refreshToken } = refreshRequestSchema.parse(getValidatedInput(c, "json"));
   const result = await rotateSession(refreshToken, sessionContext(c));
   if (!result) throw new UnauthorizedError("Your session has expired, please sign in again");
   return respondOk(c, toAuthSession(result.tokens));
@@ -147,9 +146,7 @@ export async function postRefresh(c: Context<AppEnv>) {
  * an unknown token still returns a success envelope so logout never fails the client.
  */
 export async function postLogout(c: Context<AppEnv>) {
-  const { refreshToken } = refreshRequestSchema.parse(
-    (c.req.valid as (t: "json") => unknown)("json")
-  );
+  const { refreshToken } = refreshRequestSchema.parse(getValidatedInput(c, "json"));
   await revokeSession(refreshToken);
   return respondOk(c, null, "Logged out");
 }

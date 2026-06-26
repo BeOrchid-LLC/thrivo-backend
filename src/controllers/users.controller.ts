@@ -3,6 +3,7 @@ import { updateProfilePayloadSchema } from "../../contracts/src/users";
 import { updateUserSettingsPayloadSchema } from "../../contracts/src/settings";
 import { respondOk } from "../lib/response";
 import { toUserProfile } from "../mappers/user-profile.mapper";
+import { getValidatedInput } from "../middleware/validate";
 import { userRepo } from "../repositories";
 import { updateUserProfile } from "../services/user.service";
 import { getUserSettings, updateUserSettings } from "../services/settings.service";
@@ -17,8 +18,7 @@ export function getMe(c: Context<AppEnv>) {
 /** PATCH /users/me/profile — persist onboarding/profile draft fields and targets. */
 export async function updateMeProfile(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  const validJson = c.req.valid as (target: "json") => unknown;
-  const input = updateProfilePayloadSchema.parse(validJson("json"));
+  const input = updateProfilePayloadSchema.parse(getValidatedInput(c, "json"));
   const updated = await updateUserProfile(user, input);
   return respondOk(c, toUserProfile(updated));
 }
@@ -33,8 +33,7 @@ export async function getMySettings(c: Context<AppEnv>) {
 /** PATCH /users/me/settings — persist synced app settings for the current user. */
 export async function updateMySettings(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  const validJson = c.req.valid as (target: "json") => unknown;
-  const input = updateUserSettingsPayloadSchema.parse(validJson("json"));
+  const input = updateUserSettingsPayloadSchema.parse(getValidatedInput(c, "json"));
   const settings = await updateUserSettings(user.id, input);
   return respondOk(c, settings);
 }

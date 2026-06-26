@@ -5,6 +5,7 @@ import {
   startTrialPayloadSchema,
 } from "../../contracts/src/subscriptions";
 import { respondOk } from "../lib/response";
+import { getValidatedInput } from "../middleware/validate";
 import {
   cancelSubscription,
   getSubscriptionState,
@@ -21,24 +22,21 @@ export async function getMySubscription(c: Context<AppEnv>) {
 
 export async function postStartTrial(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  const validJson = c.req.valid as (target: "json") => unknown;
-  const input = startTrialPayloadSchema.parse(validJson("json"));
+  const input = startTrialPayloadSchema.parse(getValidatedInput(c, "json"));
   const state = await startTrial(user, input);
   return respondOk(c, state, "Trial started", 201);
 }
 
 export async function postPurchaseSubscription(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  const validJson = c.req.valid as (target: "json") => unknown;
-  const input = purchaseSubscriptionPayloadSchema.parse(validJson("json"));
+  const input = purchaseSubscriptionPayloadSchema.parse(getValidatedInput(c, "json"));
   const state = await purchaseSubscription(user, input);
   return respondOk(c, state, "Subscription updated");
 }
 
 export async function postCancelSubscription(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  const validJson = c.req.valid as (target: "json") => unknown;
-  const input = cancelSubscriptionPayloadSchema.parse(validJson("json"));
+  const input = cancelSubscriptionPayloadSchema.parse(getValidatedInput(c, "json"));
   const state = await cancelSubscription(user, input);
   return respondOk(c, state, "Subscription cancelled");
 }
