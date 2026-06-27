@@ -20,7 +20,7 @@ export async function listLogsForDay(
     .select()
     .from(foodLogs)
     .where(and(eq(foodLogs.userId, userId), eq(foodLogs.localDate, localDate)))
-    .orderBy(asc(foodLogs.loggedAt));
+    .orderBy(desc(foodLogs.consumedAt), desc(foodLogs.loggedAt));
 }
 
 export interface FoodLogTotals {
@@ -70,7 +70,7 @@ export async function listLogsByLocalDateRange(
         lte(foodLogs.localDate, toDate)
       )
     )
-    .orderBy(desc(foodLogs.localDate), asc(foodLogs.loggedAt));
+    .orderBy(desc(foodLogs.localDate), desc(foodLogs.consumedAt), desc(foodLogs.loggedAt));
 }
 
 export async function listLogsByRange(

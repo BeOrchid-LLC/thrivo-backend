@@ -64,6 +64,13 @@
       "when": 1782464228477,
       "tag": "0008_awesome_jack_power",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782528000000,
+      "tag": "0009_food_logs_consumed_at",
+      "breakpoints": true
     }
   ]
 }

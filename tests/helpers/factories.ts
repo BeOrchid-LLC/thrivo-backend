@@ -34,8 +34,8 @@ export const makeFoodLog = (userId: string, overrides: Partial<NewFoodLogRow> = 
   foodLogRepo.createLog({
     userId,
     loggedAt: new Date(),
+    consumedAt: new Date(),
     localDate: "2026-06-10",
-    meal: "breakfast",
     source: "manual",
     name: "Test Food",
     servingQty: "1",

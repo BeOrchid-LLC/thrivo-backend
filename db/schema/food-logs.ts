@@ -12,7 +12,7 @@ import {
 import { relations } from "drizzle-orm";
 import { newId } from "../../src/lib/ids";
 import { timestamps } from "./_shared";
-import { logSourceEnum, mealEnum } from "./_enums";
+import { logSourceEnum } from "./_enums";
 import { users } from "./users";
 import { foodItems } from "./food-items";
 import { foodServings } from "./food-servings";
@@ -30,11 +30,11 @@ export const foodLogs = pgTable(
   {
     id: uuid("id").notNull().$defaultFn(newId),
     loggedAt: timestamp("logged_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }).notNull(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     localDate: date("local_date").notNull(),
-    meal: mealEnum("meal").notNull(),
     source: logSourceEnum("source").notNull(),
     barcode: text("barcode"), // snapshot, not a live FK
     foodItemId: uuid("food_item_id").references(() => foodItems.id, { onDelete: "set null" }),
@@ -54,6 +54,7 @@ export const foodLogs = pgTable(
     pk: primaryKey({ columns: [t.id, t.loggedAt] }),
     byUserLocalDate: index("food_logs_user_local_date_idx").on(t.userId, t.localDate),
     byUserLoggedAt: index("food_logs_user_logged_at_idx").on(t.userId, t.loggedAt),
+    byUserConsumedAt: index("food_logs_user_consumed_at_idx").on(t.userId, t.consumedAt),
   })
 );
 
