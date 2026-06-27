@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   errorCodeSchema,
+  estimateFoodPayloadSchema,
+  foodLogEntrySchema,
+  foodRoutes,
   getMeResponseSchema,
+  metricRoutes,
   settingsRoutes,
   subscriptionRoutes,
   purchaseSubscriptionPayloadSchema,
@@ -72,7 +76,49 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       path: "/api/v1/subscriptions/me",
       auth: "user",
     });
+    expect(foodRoutes.log).toEqual({
+      method: "POST",
+      path: "/api/v1/foods/log",
+      auth: "user",
+    });
+    expect(metricRoutes.waterDelete).toEqual({
+      method: "DELETE",
+      path: "/api/v1/metrics/water/:id",
+      auth: "user",
+    });
     expect(errorCodeSchema.options).toContain("PREMIUM_REQUIRED");
+  });
+
+  it("validates consumed-time food log entries without meal buckets", () => {
+    const entry = foodLogEntrySchema.parse({
+      id: "log_1",
+      foodItemId: null,
+      name: "Chicken suya",
+      day: "2026-06-27",
+      servings: 1,
+      servingUnit: "serving",
+      source: "manual",
+      barcode: null,
+      isEstimated: true,
+      nutrients: { calories: 270, proteinG: 28, carbsG: 4, fatG: 15 },
+      consumedAt: "2026-06-27T12:00:00.000Z",
+      loggedAt: "2026-06-27T12:05:00.000Z",
+    });
+
+    expect(entry.consumedAt).toBe("2026-06-27T12:00:00.000Z");
+    expect("meal" in entry).toBe(false);
+  });
+
+  it("validates describe-meal estimate payloads", () => {
+    expect(
+      estimateFoodPayloadSchema.parse({
+        name: "Chicken breast, grilled",
+        ingredients: "Chicken, pepper",
+        cookingMethod: "grilled",
+        portionMeasure: "weight",
+        quantity: 150,
+      }).portionMeasure
+    ).toBe("weight");
   });
 
   it("validates profile update payloads", () => {
