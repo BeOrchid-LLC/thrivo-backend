@@ -16,14 +16,17 @@ const AUDIENCE = "thrivo-admin-panel";
 export const ADMIN_COOKIE = "admin_session";
 
 /**
- * Cookie options shared by set and clear. The `path` is scoped to `/api/v1/admin`
- * so the cookie is only sent on admin requests, not all API calls.
+ * Cookie options shared by set and clear. The admin SPA (admin.thrivo.fit) and
+ * the API (api.thrivo.fit) share the registrable domain thrivo.fit, so they are
+ * same-site: SameSite=Strict still delivers the cookie on the SPA's fetches but
+ * makes the browser withhold it from any truly cross-site origin — closing CSRF
+ * without a token. httpOnly keeps it out of JS; Secure in production. The
+ * Origin check on mutations (admin-origin middleware) is the belt-and-suspenders.
  */
 export const ADMIN_COOKIE_OPTS = {
   httpOnly: true,
   secure: env.NODE_ENV === "production",
-  sameSite: "none" as const,
-  partitioned: true,
+  sameSite: "strict" as const,
   path: "/",
 } as const;
 

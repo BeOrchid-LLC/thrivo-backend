@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { requireAdmin } from "../middleware/require-admin";
+import { adminOriginGuard } from "../middleware/admin-origin";
 import {
   postAdminRequestOtp,
   postAdminVerifyOtp,
@@ -16,6 +17,10 @@ import type { AppEnv } from "../types/http";
 
 /** `/api/v1/admin` — staff-only surface gated by the admin session cookie. */
 export const adminRouter = new Hono<AppEnv>();
+
+// CSRF defense-in-depth: reject cross-origin state-changing requests (the admin
+// cookie is already SameSite=Strict). No-ops for GETs.
+adminRouter.use("*", adminOriginGuard);
 
 // Auth (public — no cookie required to log in)
 adminRouter.post("/auth/request-otp", postAdminRequestOtp);
