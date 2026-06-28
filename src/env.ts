@@ -58,6 +58,13 @@ const envSchema = z.object({
   // releases and is surfaced by /health. Absent in local dev → reported as "dev".
   GIT_SHA: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
 
+  // AI "describe it" food estimate (Claude). Optional here; the estimate endpoint
+  // fails fast without ANTHROPIC_API_KEY rather than guessing. Haiku is the
+  // cost/latency fit for a per-log structured extraction; override per env.
+  // Becomes required-in-prod in the env fail-fast sweep (Phase 8).
+  ANTHROPIC_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  ANTHROPIC_MODEL: z.string().default("claude-haiku-4-5"),
+
   // Transactional email (Resend). Optional this phase — the email infra is
   // scaffolded in A1-8 but sends go live in A2/A5, where RESEND_API_KEY becomes
   // required. Without a key the send path degrades (logs + marks email_logs).

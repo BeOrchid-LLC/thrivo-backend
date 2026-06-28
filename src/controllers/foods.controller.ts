@@ -19,11 +19,11 @@ import { readIdempotencyKey } from "../lib/idempotency";
 import { respondOk } from "../lib/response";
 import { getValidatedInput } from "../middleware/validate";
 import { getFoodEntriesForDay, getHistoryDays } from "../services/dashboard.service";
+import { estimateNutrition } from "../services/estimate.service";
 import {
   addFavorite,
   createPersonalFood,
   deleteFoodLog,
-  estimateFood,
   getFoodDetail,
   listFavorites,
   logEstimate,
@@ -144,7 +144,15 @@ export async function deleteFavorite(c: Context<AppEnv>) {
 }
 
 export async function estimateFoodEntry(c: Context<AppEnv>) {
+  const user = c.get("user")!;
   const input = estimateFoodPayloadSchema.parse(getValidatedInput(c, "json"));
-  const estimate = estimateFood(input);
+  const nutrients = await estimateNutrition(user.id, input);
+  const estimate = {
+    name: input.name,
+    servingUnit: input.portionMeasure,
+    quantity: input.quantity,
+    nutrients,
+    isEstimated: true as const,
+  };
   return respondOk(c, { estimate });
 }

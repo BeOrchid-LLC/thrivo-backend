@@ -3,12 +3,10 @@ import type { Executor } from "../../db/tx";
 import type {
   FoodItem,
   FoodLogEntry,
-  Nutrients,
   ServingOption,
   UpsertFoodPayload,
   LogFoodPayload,
   UpdateLogPayload,
-  EstimateFoodPayload,
   LogEstimatePayload,
 } from "../../contracts/src/foods";
 import { ConflictError, NotFoundError } from "../lib/errors";
@@ -203,22 +201,6 @@ export async function logFood(user: User, payload: LogFoodPayload, idempotencyKe
   });
   await invalidateFoodDashboardCache(user.id, payload.day);
   return mutationResult(log, totals);
-}
-
-export function estimateFood(payload: EstimateFoodPayload) {
-  const unit = payload.portionMeasure;
-  const quantity = payload.quantity;
-  const text =
-    `${payload.name} ${payload.ingredients ?? ""} ${payload.cookingMethod ?? ""}`.toLowerCase();
-  const baseCalories = estimateCalories(text, unit);
-  const nutrients = macroSplit(baseCalories * quantity, text);
-  return {
-    name: payload.name,
-    servingUnit: unit,
-    quantity,
-    nutrients,
-    isEstimated: true as const,
-  };
 }
 
 export async function logEstimate(
@@ -468,30 +450,4 @@ function toNumber(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
-}
-
-function estimateCalories(text: string, measure: EstimateFoodPayload["portionMeasure"]) {
-  let base = 180;
-  if (/rice|yam|pasta|noodle|bread|oat/.test(text)) base = 220;
-  if (/chicken|beef|fish|egg|turkey|suya/.test(text)) base = 260;
-  if (/soup|stew/.test(text)) base = 160;
-  if (/yoghurt|yogurt|milk/.test(text)) base = 120;
-  if (/oil|fried|butter|cream|palm/.test(text)) base += 90;
-  if (measure === "weight") return base / 100;
-  if (measure === "cup") return base * 1.2;
-  if (measure === "tbsp") return base / 8;
-  return base;
-}
-
-function macroSplit(calories: number, text: string): Nutrients {
-  const highProtein = /chicken|beef|fish|egg|turkey|suya|yoghurt|yogurt/.test(text);
-  const proteinCalories = highProtein ? calories * 0.38 : calories * 0.2;
-  const fatCalories = /oil|fried|butter|cream|palm/.test(text) ? calories * 0.35 : calories * 0.25;
-  const carbsCalories = Math.max(calories - proteinCalories - fatCalories, 0);
-  return {
-    calories: Math.round(calories),
-    proteinG: Math.round(proteinCalories / 4),
-    carbsG: Math.round(carbsCalories / 4),
-    fatG: Math.round(fatCalories / 9),
-  };
 }
