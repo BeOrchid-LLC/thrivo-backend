@@ -160,7 +160,7 @@ export async function removeFavorite(user: User, foodItemId: string): Promise<Fo
   return listFavorites(user);
 }
 
-export async function logFood(user: User, payload: LogFoodPayload) {
+export async function logFood(user: User, payload: LogFoodPayload, idempotencyKey?: string | null) {
   const item = await foodItemRepo.findById(payload.foodItemId);
   if (!item || !canSeeFood(user, item)) throw new NotFoundError("Food not found");
   const nutrient = await foodItemRepo.getNutrients(item.id);
@@ -179,6 +179,7 @@ export async function logFood(user: User, payload: LogFoodPayload) {
     const log = await foodLogRepo.createLog(
       {
         userId: user.id,
+        idempotencyKey: idempotencyKey ?? null,
         loggedAt: now,
         consumedAt,
         localDate: payload.day,
@@ -220,13 +221,18 @@ export function estimateFood(payload: EstimateFoodPayload) {
   };
 }
 
-export async function logEstimate(user: User, payload: LogEstimatePayload) {
+export async function logEstimate(
+  user: User,
+  payload: LogEstimatePayload,
+  idempotencyKey?: string | null
+) {
   const consumedAt = payload.consumedAt ? new Date(payload.consumedAt) : new Date();
   const now = new Date();
   const { log, totals } = await db.transaction(async (tx) => {
     const log = await foodLogRepo.createLog(
       {
         userId: user.id,
+        idempotencyKey: idempotencyKey ?? null,
         loggedAt: now,
         consumedAt,
         localDate: payload.day,

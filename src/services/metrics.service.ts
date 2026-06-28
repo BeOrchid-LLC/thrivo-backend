@@ -12,7 +12,10 @@ import {
 } from "../repositories";
 import type { User } from "../repositories/user.repository";
 import { isPremium } from "./entitlement.service";
-import { invalidateProfileTargetCache } from "./dashboard-cache.service";
+import {
+  invalidateProfileTargetCache,
+  invalidateWaterDashboardCache,
+} from "./dashboard-cache.service";
 import { updateUserProfile } from "./user.service";
 
 const LONG_PERIODS = new Set<ChartPeriod>(["1m", "1q", "6m", "1y", "all"]);
@@ -216,6 +219,27 @@ export async function deleteWeight(user: User, id: string) {
   await userRepo.updateProfile(user.id, { weightKg: latest?.weightKg ?? null });
   await invalidateProfileTargetCache(user.id);
   return deleted;
+}
+
+/**
+ * Log a glass of water. Idempotency-keyed so an offline-queue replay / retry
+ * doesn't double-count. (Weight needs no key — saveWeight upserts per day.)
+ */
+export async function saveWater(
+  user: User,
+  day: string,
+  amountMl: number,
+  idempotencyKey?: string | null
+) {
+  const entry = await waterIntakeRepo.addEntry({
+    userId: user.id,
+    localDate: day,
+    amountMl,
+    recordedAt: new Date(),
+    idempotencyKey: idempotencyKey ?? null,
+  });
+  await invalidateWaterDashboardCache(user.id, day);
+  return entry;
 }
 
 function toWeightEntry(entry: {

@@ -15,6 +15,7 @@ import {
   updateLogPayloadSchema,
   upsertFoodPayloadSchema,
 } from "../../contracts/src/foods";
+import { readIdempotencyKey } from "../lib/idempotency";
 import { respondOk } from "../lib/response";
 import { getValidatedInput } from "../middleware/validate";
 import { getFoodEntriesForDay, getHistoryDays } from "../services/dashboard.service";
@@ -75,14 +76,14 @@ export async function updateFoodItem(c: Context<AppEnv>) {
 export async function createFoodLog(c: Context<AppEnv>) {
   const user = c.get("user")!;
   const input = logFoodPayloadSchema.parse(getValidatedInput(c, "json"));
-  const result = await logFood(user, input);
+  const result = await logFood(user, input, readIdempotencyKey(c));
   return respondOk(c, result, "Created", 201);
 }
 
 export async function createEstimateLog(c: Context<AppEnv>) {
   const user = c.get("user")!;
   const input = logEstimatePayloadSchema.parse(getValidatedInput(c, "json"));
-  const result = await logEstimate(user, input);
+  const result = await logEstimate(user, input, readIdempotencyKey(c));
   return respondOk(c, result, "Created", 201);
 }
 

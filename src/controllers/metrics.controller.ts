@@ -9,6 +9,7 @@ import {
   waterQuerySchema,
   weightQuerySchema,
 } from "../../contracts/src/metrics";
+import { readIdempotencyKey } from "../lib/idempotency";
 import { NotFoundError } from "../lib/errors";
 import { respondOk } from "../lib/response";
 import { getValidatedInput } from "../middleware/validate";
@@ -20,6 +21,7 @@ import {
   getMetricChart,
   getProgress as getProgressState,
   getWeightContext as getWeightContextState,
+  saveWater,
   saveWeight,
 } from "../services/metrics.service";
 import type { AppEnv } from "../types/http";
@@ -69,13 +71,7 @@ export async function getWater(c: Context<AppEnv>) {
 export async function addWater(c: Context<AppEnv>) {
   const user = c.get("user")!;
   const input = addWaterPayloadSchema.parse(getValidatedInput(c, "json"));
-  await waterIntakeRepo.addEntry({
-    userId: user.id,
-    localDate: input.day,
-    amountMl: input.amountMl,
-    recordedAt: new Date(),
-  });
-  await invalidateWaterDashboardCache(user.id, input.day);
+  await saveWater(user, input.day, input.amountMl, readIdempotencyKey(c));
   const water = await getWaterState(user, input.day);
   return respondOk(c, { water });
 }
