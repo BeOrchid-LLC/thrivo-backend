@@ -1,6 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import { verifyRequest } from "../auth";
 import { userRepo } from "../repositories";
+import { recordActivity } from "../services/activity.service";
 import type { AppEnv } from "../types/http";
 
 /**
@@ -17,7 +18,11 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const principal = await verifyRequest(c.req.raw.headers);
   if (principal) {
     const user = await userRepo.findByAuthSubjectId(principal.subjectId);
-    if (user) c.set("user", user);
+    if (user) {
+      c.set("user", user);
+      // Fire-and-forget: throttled + self-contained, never gates the response.
+      void recordActivity(user.id);
+    }
   }
   await next();
 });

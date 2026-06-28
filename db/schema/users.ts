@@ -52,6 +52,9 @@ export const users = pgTable("users", {
   onboardingStep: integer("onboarding_step").notNull().default(1),
   onboardingSkipped: boolean("onboarding_skipped").notNull().default(false),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  // Throttled liveness stamp (auth middleware). Written via raw SQL so it never
+  // trips updated_at's $onUpdate. Powers last-active and DAU/MAU.
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   ...timestamps,
 });
 
