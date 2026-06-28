@@ -19,8 +19,25 @@ export async function getDayTotal(
 }
 
 export async function addEntry(input: NewWaterIntakeRow, tx: Executor = db): Promise<WaterIntake> {
-  const [row] = await tx.insert(waterIntake).values(input).returning();
-  return row;
+  const [row] = await tx
+    .insert(waterIntake)
+    .values(input)
+    // Dedupe at-least-once writes: a repeated (user, idempotency_key) conflicts
+    // and returns nothing, so we return the entry that already landed.
+    .onConflictDoNothing({ target: [waterIntake.userId, waterIntake.idempotencyKey] })
+    .returning();
+  if (row) return row;
+  const [existing] = await tx
+    .select()
+    .from(waterIntake)
+    .where(
+      and(
+        eq(waterIntake.userId, input.userId),
+        eq(waterIntake.idempotencyKey, input.idempotencyKey!)
+      )
+    )
+    .limit(1);
+  return existing;
 }
 
 export async function listEntriesForDay(

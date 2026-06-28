@@ -7,6 +7,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -48,6 +49,9 @@ export const foodLogs = pgTable(
     proteinG: numeric("protein_g").notNull(),
     carbsG: numeric("carbs_g").notNull(),
     fatG: numeric("fat_g").notNull(),
+    // Client-minted key for at-least-once writes (offline-queue replay / retry).
+    // NULLs are distinct in Postgres, so legacy key-less rows are unconstrained.
+    idempotencyKey: text("idempotency_key"),
     ...timestamps,
   },
   (t) => ({
@@ -55,6 +59,10 @@ export const foodLogs = pgTable(
     byUserLocalDate: index("food_logs_user_local_date_idx").on(t.userId, t.localDate),
     byUserLoggedAt: index("food_logs_user_logged_at_idx").on(t.userId, t.loggedAt),
     byUserConsumedAt: index("food_logs_user_consumed_at_idx").on(t.userId, t.consumedAt),
+    byUserIdempotency: uniqueIndex("food_logs_user_idempotency_uniq").on(
+      t.userId,
+      t.idempotencyKey
+    ),
   })
 );
 

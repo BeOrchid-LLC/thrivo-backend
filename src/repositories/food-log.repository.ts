@@ -6,8 +6,23 @@ import { foodLogs, type FoodLogRow, type NewFoodLogRow } from "../../db/schema";
 export type FoodLog = FoodLogRow;
 
 export async function createLog(input: NewFoodLogRow, tx: Executor = db): Promise<FoodLog> {
-  const [row] = await tx.insert(foodLogs).values(input).returning();
-  return row;
+  const [row] = await tx
+    .insert(foodLogs)
+    .values(input)
+    // NULL keys are distinct, so key-less logs always insert. A repeated
+    // (user, idempotency_key) — a retry or offline-queue replay — conflicts and
+    // returns nothing; we then return the row that already landed.
+    .onConflictDoNothing({ target: [foodLogs.userId, foodLogs.idempotencyKey] })
+    .returning();
+  if (row) return row;
+  const [existing] = await tx
+    .select()
+    .from(foodLogs)
+    .where(
+      and(eq(foodLogs.userId, input.userId), eq(foodLogs.idempotencyKey, input.idempotencyKey!))
+    )
+    .limit(1);
+  return existing;
 }
 
 /** The dominant diary query — served by the (user_id, local_date) index. */

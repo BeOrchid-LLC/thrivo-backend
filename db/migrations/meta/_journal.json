@@ -78,6 +78,13 @@
       "when": 1782600000000,
       "tag": "0010_weight_entries_local_date",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782677603909,
+      "tag": "0011_worthless_malice",
+      "breakpoints": true
     }
   ]
 }
