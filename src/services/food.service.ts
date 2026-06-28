@@ -1,4 +1,5 @@
 import { db } from "../../db";
+import type { Executor } from "../../db/tx";
 import type {
   FoodItem,
   FoodLogEntry,
@@ -174,27 +175,33 @@ export async function logFood(user: User, payload: LogFoodPayload) {
     servingGrams && baseGrams ? payload.servings * (servingGrams / baseGrams) : payload.servings;
   const consumedAt = payload.consumedAt ? new Date(payload.consumedAt) : new Date();
   const now = new Date();
-  const log = await foodLogRepo.createLog({
-    userId: user.id,
-    loggedAt: now,
-    consumedAt,
-    localDate: payload.day,
-    source: item.barcode ? "barcode" : "search",
-    barcode: item.barcode,
-    foodItemId: item.id,
-    servingId: serving?.id ?? payload.servingId ?? null,
-    name: item.name,
-    servingQty: String(payload.servings),
-    servingUnit: payload.servingUnit ?? serving?.label ?? nutrient.servingLabel,
-    kcal: Math.round(toNumber(nutrient.kcal) * multiplier),
-    proteinG: String(toNumber(nutrient.proteinG) * multiplier),
-    carbsG: String(toNumber(nutrient.carbsG) * multiplier),
-    fatG: String(toNumber(nutrient.fatG) * multiplier),
+  const { log, totals } = await db.transaction(async (tx) => {
+    const log = await foodLogRepo.createLog(
+      {
+        userId: user.id,
+        loggedAt: now,
+        consumedAt,
+        localDate: payload.day,
+        source: item.barcode ? "barcode" : "search",
+        barcode: item.barcode,
+        foodItemId: item.id,
+        servingId: serving?.id ?? payload.servingId ?? null,
+        name: item.name,
+        servingQty: String(payload.servings),
+        servingUnit: payload.servingUnit ?? serving?.label ?? nutrient.servingLabel,
+        kcal: Math.round(toNumber(nutrient.kcal) * multiplier),
+        proteinG: String(toNumber(nutrient.proteinG) * multiplier),
+        carbsG: String(toNumber(nutrient.carbsG) * multiplier),
+        fatG: String(toNumber(nutrient.fatG) * multiplier),
+      },
+      tx
+    );
+    await foodFavoriteRepo.bumpUseCount(user.id, item.id, tx);
+    const totals = await refreshDailySummary(user, payload.day, tx);
+    return { log, totals };
   });
-  await foodFavoriteRepo.bumpUseCount(user.id, item.id);
-  await refreshDailySummary(user, payload.day);
   await invalidateFoodDashboardCache(user.id, payload.day);
-  return mutationResult(user, log, payload.day);
+  return mutationResult(log, totals);
 }
 
 export function estimateFood(payload: EstimateFoodPayload) {
@@ -216,26 +223,32 @@ export function estimateFood(payload: EstimateFoodPayload) {
 export async function logEstimate(user: User, payload: LogEstimatePayload) {
   const consumedAt = payload.consumedAt ? new Date(payload.consumedAt) : new Date();
   const now = new Date();
-  const log = await foodLogRepo.createLog({
-    userId: user.id,
-    loggedAt: now,
-    consumedAt,
-    localDate: payload.day,
-    source: "manual",
-    foodItemId: null,
-    servingId: null,
-    barcode: null,
-    name: payload.name,
-    servingQty: String(payload.quantity),
-    servingUnit: payload.servingUnit ?? payload.portionMeasure,
-    kcal: Math.round(payload.nutrients.calories),
-    proteinG: String(payload.nutrients.proteinG),
-    carbsG: String(payload.nutrients.carbsG),
-    fatG: String(payload.nutrients.fatG),
+  const { log, totals } = await db.transaction(async (tx) => {
+    const log = await foodLogRepo.createLog(
+      {
+        userId: user.id,
+        loggedAt: now,
+        consumedAt,
+        localDate: payload.day,
+        source: "manual",
+        foodItemId: null,
+        servingId: null,
+        barcode: null,
+        name: payload.name,
+        servingQty: String(payload.quantity),
+        servingUnit: payload.servingUnit ?? payload.portionMeasure,
+        kcal: Math.round(payload.nutrients.calories),
+        proteinG: String(payload.nutrients.proteinG),
+        carbsG: String(payload.nutrients.carbsG),
+        fatG: String(payload.nutrients.fatG),
+      },
+      tx
+    );
+    const totals = await refreshDailySummary(user, payload.day, tx);
+    return { log, totals };
   });
-  await refreshDailySummary(user, payload.day);
   await invalidateFoodDashboardCache(user.id, payload.day);
-  return mutationResult(user, log, payload.day);
+  return mutationResult(log, totals);
 }
 
 export async function updateFoodLog(user: User, id: string, payload: UpdateLogPayload) {
@@ -255,17 +268,23 @@ export async function updateFoodLog(user: User, id: string, payload: UpdateLogPa
     fatG: String(toNumber(existing.fatG) * ratio),
     updatedAt: new Date(),
   };
-  const updated = await foodLogRepo.updateLogForUser(user.id, id, patch);
-  if (!updated) throw new NotFoundError("Food log not found");
-  await refreshDailySummary(user, updated.localDate);
+  const { updated, totals } = await db.transaction(async (tx) => {
+    const updated = await foodLogRepo.updateLogForUser(user.id, id, patch, tx);
+    if (!updated) throw new NotFoundError("Food log not found");
+    const totals = await refreshDailySummary(user, updated.localDate, tx);
+    return { updated, totals };
+  });
   await invalidateFoodDashboardCache(user.id, updated.localDate);
-  return mutationResult(user, updated, updated.localDate);
+  return mutationResult(updated, totals);
 }
 
 export async function deleteFoodLog(user: User, id: string) {
-  const deleted = await foodLogRepo.deleteLogForUser(user.id, id);
-  if (!deleted) throw new NotFoundError("Food log not found");
-  await refreshDailySummary(user, deleted.localDate);
+  const deleted = await db.transaction(async (tx) => {
+    const row = await foodLogRepo.deleteLogForUser(user.id, id, tx);
+    if (!row) throw new NotFoundError("Food log not found");
+    await refreshDailySummary(user, row.localDate, tx);
+    return row;
+  });
   await invalidateFoodDashboardCache(user.id, deleted.localDate);
 }
 
@@ -373,10 +392,12 @@ function inferMeasure(label: string): ServingOption["measure"] {
   return "serving";
 }
 
-async function mutationResult(user: User, log: FoodLog, day: string) {
+type DailyTotals = Awaited<ReturnType<typeof dailyTotals>>;
+
+function mutationResult(log: FoodLog, totals: DailyTotals) {
   return {
     entry: toFoodLogEntry(log),
-    totals: await dailyTotals(user, day),
+    totals,
   };
 }
 
@@ -402,21 +423,28 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
   };
 }
 
-async function refreshDailySummary(user: User, day: string) {
-  const totals = await dailyTotals(user, day);
-  await dailySummaryRepo.upsertForDay({
-    userId: user.id,
-    localDate: day,
-    totalCalories: totals.calories,
-    totalProteinG: String(totals.proteinG),
-    totalCarbsG: String(totals.carbsG),
-    totalFatG: String(totals.fatG),
-    calorieTarget: user.manualDailyTargetKcal ?? user.dailyTargetKcal ?? DEFAULT_TARGET_CALORIES,
-  });
+async function refreshDailySummary(user: User, day: string, tx: Executor): Promise<DailyTotals> {
+  // Serialize same-day writers before reading totals so the absolute recompute
+  // can't miss a concurrently-inserted row (see daily-summary.repository.lockForDay).
+  await dailySummaryRepo.lockForDay(user.id, day, tx);
+  const totals = await dailyTotals(user, day, tx);
+  await dailySummaryRepo.upsertForDay(
+    {
+      userId: user.id,
+      localDate: day,
+      totalCalories: totals.calories,
+      totalProteinG: String(totals.proteinG),
+      totalCarbsG: String(totals.carbsG),
+      totalFatG: String(totals.fatG),
+      calorieTarget: user.manualDailyTargetKcal ?? user.dailyTargetKcal ?? DEFAULT_TARGET_CALORIES,
+    },
+    tx
+  );
+  return totals;
 }
 
-async function dailyTotals(user: User, day: string) {
-  const totals = await foodLogRepo.totalsForDay(user.id, day);
+async function dailyTotals(user: User, day: string, tx: Executor = db) {
+  const totals = await foodLogRepo.totalsForDay(user.id, day, tx);
   return {
     day,
     calories: totals.calories,
