@@ -1,4 +1,4 @@
-import { index, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { date, index, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { idPk } from "./_shared";
 import { weightSourceEnum } from "./_enums";
@@ -13,6 +13,7 @@ export const weightEntries = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     weightKg: numeric("weight_kg", { precision: 5, scale: 1 }).notNull(),
+    localDate: date("local_date").notNull(),
     recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
     source: weightSourceEnum("source").notNull().default("manual"),
     note: text("note"),
@@ -20,6 +21,7 @@ export const weightEntries = pgTable(
   },
   (t) => ({
     byUserRecordedAt: index("weight_entries_user_recorded_at_idx").on(t.userId, t.recordedAt),
+    byUserLocalDate: index("weight_entries_user_local_date_idx").on(t.userId, t.localDate),
   })
 );
 

@@ -1,19 +1,36 @@
 import { Hono } from "hono";
 import {
+  addWeightPayloadSchema,
   addWaterPayloadSchema,
+  chartQuerySchema,
+  deleteWeightParamsSchema,
   deleteWaterParamsSchema,
+  progressQuerySchema,
   waterQuerySchema,
+  weightQuerySchema,
 } from "../../contracts/src/metrics";
-import { addWater, deleteWater, getWater } from "../controllers/metrics.controller";
+import {
+  addWater,
+  addWeight,
+  deleteWater,
+  deleteWeight,
+  getChart,
+  getProgress,
+  getWater,
+  getWeightContext,
+} from "../controllers/metrics.controller";
 import { requireAuth } from "../middleware/require-auth";
-import { requirePremium } from "../middleware/require-premium";
 import { validate } from "../middleware/validate";
 import type { AppEnv } from "../types/http";
 
 export const metricsRouter = new Hono<AppEnv>();
 
 metricsRouter.use(requireAuth);
-metricsRouter.use(requirePremium);
+metricsRouter.get("/progress", validate("query", progressQuerySchema), getProgress);
+metricsRouter.get("/chart", validate("query", chartQuerySchema), getChart);
+metricsRouter.get("/weight/context", validate("query", weightQuerySchema), getWeightContext);
+metricsRouter.post("/weight", validate("json", addWeightPayloadSchema), addWeight);
+metricsRouter.delete("/weight/:id", validate("param", deleteWeightParamsSchema), deleteWeight);
 metricsRouter.get("/water", validate("query", waterQuerySchema), getWater);
 metricsRouter.post("/water", validate("json", addWaterPayloadSchema), addWater);
 metricsRouter.delete("/water/:id", validate("param", deleteWaterParamsSchema), deleteWater);

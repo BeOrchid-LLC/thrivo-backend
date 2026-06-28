@@ -71,6 +71,13 @@
       "when": 1782528000000,
       "tag": "0009_food_logs_consumed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782600000000,
+      "tag": "0010_weight_entries_local_date",
+      "breakpoints": true
     }
   ]
 }

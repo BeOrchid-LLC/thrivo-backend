@@ -1,8 +1,13 @@
 import type { Context } from "hono";
 import {
+  addWeightPayloadSchema,
   addWaterPayloadSchema,
+  chartQuerySchema,
+  deleteWeightParamsSchema,
   deleteWaterParamsSchema,
+  progressQuerySchema,
   waterQuerySchema,
+  weightQuerySchema,
 } from "../../contracts/src/metrics";
 import { NotFoundError } from "../lib/errors";
 import { respondOk } from "../lib/response";
@@ -10,7 +15,49 @@ import { getValidatedInput } from "../middleware/validate";
 import { waterIntakeRepo } from "../repositories";
 import { invalidateWaterDashboardCache } from "../services/dashboard-cache.service";
 import { getWaterState } from "../services/dashboard.service";
+import {
+  deleteWeight as deleteWeightEntry,
+  getMetricChart,
+  getProgress as getProgressState,
+  getWeightContext as getWeightContextState,
+  saveWeight,
+} from "../services/metrics.service";
 import type { AppEnv } from "../types/http";
+
+export async function getProgress(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  const { date } = progressQuerySchema.parse(getValidatedInput(c, "query"));
+  const progress = await getProgressState(user, date);
+  return respondOk(c, { progress });
+}
+
+export async function getChart(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  const { date, metric, period } = chartQuerySchema.parse(getValidatedInput(c, "query"));
+  const chart = await getMetricChart(user, metric, period, date);
+  return respondOk(c, { chart });
+}
+
+export async function getWeightContext(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  const { date } = weightQuerySchema.parse(getValidatedInput(c, "query"));
+  const context = await getWeightContextState(user, date);
+  return respondOk(c, { context });
+}
+
+export async function addWeight(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  const input = addWeightPayloadSchema.parse(getValidatedInput(c, "json"));
+  const entry = await saveWeight(user, input.day, input.weightKg);
+  return respondOk(c, { entry });
+}
+
+export async function deleteWeight(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  const { id } = deleteWeightParamsSchema.parse(getValidatedInput(c, "param"));
+  await deleteWeightEntry(user, id);
+  return respondOk(c, { ok: true });
+}
 
 export async function getWater(c: Context<AppEnv>) {
   const user = c.get("user")!;

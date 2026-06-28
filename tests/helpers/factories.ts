@@ -47,7 +47,13 @@ export const makeFoodLog = (userId: string, overrides: Partial<NewFoodLogRow> = 
   });
 
 export const makeWeightEntry = (userId: string, overrides: Partial<NewWeightEntryRow> = {}) =>
-  weightEntryRepo.createEntry({ userId, weightKg: "80.0", recordedAt: new Date(), ...overrides });
+  weightEntryRepo.createEntry({
+    userId,
+    weightKg: "80.0",
+    localDate: "2026-06-10",
+    recordedAt: new Date(),
+    ...overrides,
+  });
 
 export const makeWaterEntry = (userId: string, overrides: Partial<NewWaterIntakeRow> = {}) =>
   waterIntakeRepo.addEntry({

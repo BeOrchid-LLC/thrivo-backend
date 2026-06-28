@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { waterIntake, type NewWaterIntakeRow, type WaterIntakeRow } from "../../db/schema";
@@ -33,6 +33,30 @@ export async function listEntriesForDay(
     .from(waterIntake)
     .where(and(eq(waterIntake.userId, userId), eq(waterIntake.localDate, localDate)))
     .orderBy(asc(waterIntake.recordedAt));
+}
+
+export async function listTotalsRange(
+  userId: string,
+  fromDate: string,
+  toDate: string,
+  tx: Executor = db
+): Promise<Array<{ day: string; totalMl: number }>> {
+  const rows = await tx
+    .select({
+      day: waterIntake.localDate,
+      totalMl: sql<number>`coalesce(sum(${waterIntake.amountMl}), 0)::int`,
+    })
+    .from(waterIntake)
+    .where(
+      and(
+        eq(waterIntake.userId, userId),
+        gte(waterIntake.localDate, fromDate),
+        lte(waterIntake.localDate, toDate)
+      )
+    )
+    .groupBy(waterIntake.localDate)
+    .orderBy(asc(waterIntake.localDate));
+  return rows.map((row) => ({ day: row.day, totalMl: row.totalMl }));
 }
 
 export async function deleteEntryForUser(
