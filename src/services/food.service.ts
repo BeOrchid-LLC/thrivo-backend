@@ -10,7 +10,7 @@ import type {
   EstimateFoodPayload,
   LogEstimatePayload,
 } from "../../contracts/src/foods";
-import { ConflictError, ForbiddenError, NotFoundError } from "../lib/errors";
+import { ConflictError, NotFoundError } from "../lib/errors";
 import { dailySummaryRepo, foodFavoriteRepo, foodItemRepo, foodLogRepo } from "../repositories";
 import type { FoodLog } from "../repositories/food-log.repository";
 import type { User } from "../repositories/user.repository";
@@ -87,7 +87,10 @@ export async function getFoodDetail(user: User, id: string): Promise<FoodItem> {
   return mapped;
 }
 
-export async function createPersonalFood(user: User, payload: UpsertFoodPayload): Promise<FoodItem> {
+export async function createPersonalFood(
+  user: User,
+  payload: UpsertFoodPayload
+): Promise<FoodItem> {
   const item = await db.transaction(async (tx) => {
     const created = await foodItemRepo.insertItem(
       {
@@ -197,7 +200,8 @@ export async function logFood(user: User, payload: LogFoodPayload) {
 export function estimateFood(payload: EstimateFoodPayload) {
   const unit = payload.portionMeasure;
   const quantity = payload.quantity;
-  const text = `${payload.name} ${payload.ingredients ?? ""} ${payload.cookingMethod ?? ""}`.toLowerCase();
+  const text =
+    `${payload.name} ${payload.ingredients ?? ""} ${payload.cookingMethod ?? ""}`.toLowerCase();
   const baseCalories = estimateCalories(text, unit);
   const nutrients = macroSplit(baseCalories * quantity, text);
   return {
@@ -270,7 +274,11 @@ export async function recentFoods(user: User, limit = 20): Promise<FoodLogEntry[
   return logs.map(toFoodLogEntry);
 }
 
-async function writeNutrition(foodItemId: string, payload: UpsertFoodPayload, tx: Parameters<typeof foodItemRepo.upsertNutrients>[1]) {
+async function writeNutrition(
+  foodItemId: string,
+  payload: UpsertFoodPayload,
+  tx: Parameters<typeof foodItemRepo.upsertNutrients>[1]
+) {
   await foodItemRepo.upsertNutrients(
     {
       foodItemId,
@@ -332,11 +340,18 @@ function buildServingOptions(
   servings: Awaited<ReturnType<typeof foodItemRepo.getServings>>
 ): ServingOption[] {
   const options: ServingOption[] = [
-    { id: null, measure: "serving", label: defaultLabel, grams: defaultGrams || null, isDefault: true },
+    {
+      id: null,
+      measure: "serving",
+      label: defaultLabel,
+      grams: defaultGrams || null,
+      isDefault: true,
+    },
     { id: null, measure: "weight", label: "grams", grams: 1, isDefault: false },
   ];
   for (const serving of servings) {
-    if (options.some((option) => option.id === serving.id || option.label === serving.label)) continue;
+    if (options.some((option) => option.id === serving.id || option.label === serving.label))
+      continue;
     options.push({
       id: serving.id,
       measure: inferMeasure(serving.label),

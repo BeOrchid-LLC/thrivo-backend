@@ -72,7 +72,10 @@ function normalizeProduct(
   };
 }
 
-function firstNumber(values: Record<string, string | number | undefined>, keys: string[]): number | null {
+function firstNumber(
+  values: Record<string, string | number | undefined>,
+  keys: string[]
+): number | null {
   for (const key of keys) {
     const value = toNumber(values[key]);
     if (value !== null) return value;

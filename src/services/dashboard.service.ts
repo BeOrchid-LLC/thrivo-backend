@@ -99,7 +99,8 @@ export async function getWaterState(user: User, day: string): Promise<Water> {
     const entries = await waterIntakeRepo.listEntriesForDay(user.id, day);
     const targetMl = GLASS_ML * TARGET_GLASSES;
     const remainingMl = Math.max(targetMl - totalMl, 0);
-    const progressPercent = targetMl > 0 ? Math.min(Math.round((totalMl / targetMl) * 100), 100) : 0;
+    const progressPercent =
+      targetMl > 0 ? Math.min(Math.round((totalMl / targetMl) * 100), 100) : 0;
     return {
       day,
       totalMl,

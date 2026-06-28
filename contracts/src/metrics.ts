@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { apiSuccessSchema, idSchema, isoDateSchema, localDaySchema, type RouteContract } from "./common";
+import {
+  apiSuccessSchema,
+  idSchema,
+  isoDateSchema,
+  localDaySchema,
+  type RouteContract,
+} from "./common";
 
 export const waterQuerySchema = z.object({ date: localDaySchema });
 
