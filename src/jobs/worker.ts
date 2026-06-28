@@ -1,15 +1,17 @@
 import { Worker, type Job } from "bullmq";
 import { redisConnectionOptions } from "../lib/queue/connection";
-import { QUEUE_NAMES, type QueueName } from "../lib/queue";
+import { QUEUE_NAMES, getQueue, type QueueName } from "../lib/queue";
 import { handleSendEmail } from "./handlers/send-email";
+import { handleReconcileSummaries } from "./handlers/reconcile-summaries";
 import { logger } from "../lib/logger";
 import { closeDb } from "../../db";
 import { closeRedis } from "../lib/redis";
 
 // Separate process (Coolify service `thrivo-worker`, count=1) so API replicas never
-// double-fire scheduled sends. The `emails` queue is live (A1-8); the rest stay
-// stubbed until their feature phase:
-//   emails    → send-email (renders + sends via Resend, records email_logs)  [A1-8]
+// double-fire scheduled sends. Live queues:
+//   emails      → send-email (renders + sends via Resend, records email_logs)  [A1-8]
+//   maintenance → reconcile-daily-summaries (nightly rollup heal)              [this phase]
+// Stubbed until their feature phase:
 //   nudges    → send-nudge (daily tip rotation → Expo Push)                  [A2]
 //   analytics → server-side product events                                  [A2]
 // Repeatable schedulers (trial-reminder, reconcile-subscriptions) are registered here in A2.
@@ -19,6 +21,7 @@ const workers: Worker[] = [];
 // Per-queue handlers. Queues without one fall back to a logging stub.
 const handlers: Partial<Record<QueueName, (job: Job) => Promise<void>>> = {
   [QUEUE_NAMES.emails]: handleSendEmail as (job: Job) => Promise<void>,
+  [QUEUE_NAMES.maintenance]: handleReconcileSummaries as (job: Job) => Promise<void>,
 };
 
 function startWorker(name: QueueName): void {
@@ -35,9 +38,20 @@ function startWorker(name: QueueName): void {
   workers.push(worker);
 }
 
-function main(): void {
+/** Idempotent repeatable jobs — upsertJobScheduler dedupes by scheduler id. */
+async function registerSchedulers(): Promise<void> {
+  await getQueue(QUEUE_NAMES.maintenance).upsertJobScheduler(
+    "reconcile-daily-summaries",
+    { pattern: "0 3 * * *", tz: "UTC" },
+    { name: "reconcile-daily-summaries", data: {} }
+  );
+  logger.info("schedulers registered");
+}
+
+async function main(): Promise<void> {
   logger.info("thrivo-worker starting");
   for (const name of Object.values(QUEUE_NAMES)) startWorker(name);
+  await registerSchedulers();
 }
 
 async function shutdown(signal: string): Promise<void> {
@@ -51,4 +65,7 @@ async function shutdown(signal: string): Promise<void> {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
-main();
+main().catch((err) => {
+  logger.fatal({ err }, "thrivo-worker failed to start");
+  process.exit(1);
+});
