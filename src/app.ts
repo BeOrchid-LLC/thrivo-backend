@@ -11,6 +11,7 @@ import { apiRateLimit, authRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
 import { authRouter } from "./routes/auth";
 import { usersRouter } from "./routes/users";
+import { uploadsRouter } from "./routes/uploads";
 import { dashboardRouter } from "./routes/dashboard";
 import { foodsRouter } from "./routes/foods";
 import { metricsRouter } from "./routes/metrics";
@@ -52,6 +53,7 @@ export function buildApp(): Hono<AppEnv> {
 
   // Feature routers (auth-gated). /users/me is the A1 reference route; A2 adds the rest.
   app.route("/api/v1/users", usersRouter);
+  app.route("/api/v1/uploads", uploadsRouter);
   app.route("/api/v1/dashboard", dashboardRouter);
   app.route("/api/v1/foods", foodsRouter);
   app.route("/api/v1/metrics", metricsRouter);
