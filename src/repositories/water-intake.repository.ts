@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { waterIntake, type NewWaterIntakeRow, type WaterIntakeRow } from "../../db/schema";
@@ -19,6 +19,71 @@ export async function getDayTotal(
 }
 
 export async function addEntry(input: NewWaterIntakeRow, tx: Executor = db): Promise<WaterIntake> {
-  const [row] = await tx.insert(waterIntake).values(input).returning();
-  return row;
+  const [row] = await tx
+    .insert(waterIntake)
+    .values(input)
+    // Dedupe at-least-once writes: a repeated (user, idempotency_key) conflicts
+    // and returns nothing, so we return the entry that already landed.
+    .onConflictDoNothing({ target: [waterIntake.userId, waterIntake.idempotencyKey] })
+    .returning();
+  if (row) return row;
+  const [existing] = await tx
+    .select()
+    .from(waterIntake)
+    .where(
+      and(
+        eq(waterIntake.userId, input.userId),
+        eq(waterIntake.idempotencyKey, input.idempotencyKey!)
+      )
+    )
+    .limit(1);
+  return existing;
+}
+
+export async function listEntriesForDay(
+  userId: string,
+  localDate: string,
+  tx: Executor = db
+): Promise<WaterIntake[]> {
+  return tx
+    .select()
+    .from(waterIntake)
+    .where(and(eq(waterIntake.userId, userId), eq(waterIntake.localDate, localDate)))
+    .orderBy(asc(waterIntake.recordedAt));
+}
+
+export async function listTotalsRange(
+  userId: string,
+  fromDate: string,
+  toDate: string,
+  tx: Executor = db
+): Promise<Array<{ day: string; totalMl: number }>> {
+  const rows = await tx
+    .select({
+      day: waterIntake.localDate,
+      totalMl: sql<number>`coalesce(sum(${waterIntake.amountMl}), 0)::int`,
+    })
+    .from(waterIntake)
+    .where(
+      and(
+        eq(waterIntake.userId, userId),
+        gte(waterIntake.localDate, fromDate),
+        lte(waterIntake.localDate, toDate)
+      )
+    )
+    .groupBy(waterIntake.localDate)
+    .orderBy(asc(waterIntake.localDate));
+  return rows.map((row) => ({ day: row.day, totalMl: row.totalMl }));
+}
+
+export async function deleteEntryForUser(
+  userId: string,
+  id: string,
+  tx: Executor = db
+): Promise<WaterIntake | null> {
+  const [row] = await tx
+    .delete(waterIntake)
+    .where(and(eq(waterIntake.userId, userId), eq(waterIntake.id, id)))
+    .returning();
+  return row ?? null;
 }

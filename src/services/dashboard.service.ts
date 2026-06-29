@@ -3,7 +3,7 @@ import {
   type MacroSummary,
   type StreakSummary,
 } from "../../contracts/src/dashboard";
-import { type MealGroup, type FoodLogEntry, type HistoryDay } from "../../contracts/src/foods";
+import { type FoodLogEntry, type HistoryDay } from "../../contracts/src/foods";
 import { type Water } from "../../contracts/src/metrics";
 import { cacheAside } from "../lib/cache";
 import { foodLogRepo, dailySummaryRepo, streakRepo, waterIntakeRepo } from "../repositories";
@@ -18,13 +18,6 @@ const DEFAULT_TARGET_CALORIES = 1800;
 const GLASS_ML = 250;
 const TARGET_GLASSES = 8;
 export const FREE_HISTORY_LIMIT_DAYS = 7;
-
-const MEAL_LABEL: Record<MealGroup["meal"], string> = {
-  breakfast: "Breakfast",
-  lunch: "Lunch",
-  dinner: "Dinner",
-  snack: "Snacks",
-};
 
 function toNumber(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -103,21 +96,35 @@ export async function getDashboardStreak(user: User): Promise<StreakSummary> {
 export async function getWaterState(user: User, day: string): Promise<Water> {
   return cacheAside(dashboardCacheKeys.water(user.id, day), CACHE_TTL_SECONDS, async () => {
     const totalMl = await waterIntakeRepo.getDayTotal(user.id, day);
+    const entries = await waterIntakeRepo.listEntriesForDay(user.id, day);
+    const targetMl = GLASS_ML * TARGET_GLASSES;
+    const remainingMl = Math.max(targetMl - totalMl, 0);
+    const progressPercent =
+      targetMl > 0 ? Math.min(Math.round((totalMl / targetMl) * 100), 100) : 0;
     return {
       day,
       totalMl,
-      targetMl: GLASS_ML * TARGET_GLASSES,
+      targetMl,
+      remainingMl,
+      progressPercent,
       glassMl: GLASS_ML,
       glasses: Math.floor(totalMl / GLASS_ML),
       targetGlasses: TARGET_GLASSES,
+      entries: entries.map((entry) => ({
+        id: entry.id,
+        amountMl: entry.amountMl,
+        day: entry.localDate,
+        recordedAt: entry.recordedAt.toISOString(),
+      })),
+      alert: buildHydrationAlert(totalMl, targetMl, new Date()),
     };
   });
 }
 
-export async function getMealGroupsForDay(user: User, day: string): Promise<MealGroup[]> {
+export async function getFoodEntriesForDay(user: User, day: string): Promise<FoodLogEntry[]> {
   return cacheAside(dashboardCacheKeys.meals(user.id, day), CACHE_TTL_SECONDS, async () => {
     const logs = await foodLogRepo.listLogsForDay(user.id, day);
-    return groupLogs(logs);
+    return logs.map(toFoodLogEntry);
   });
 }
 
@@ -149,7 +156,7 @@ export async function getHistoryDays(
           day,
           isLocked: locked,
           lockReason: locked ? "free_history_limit" : null,
-          groups: locked ? [] : groupLogs(dayLogs),
+          entries: locked ? [] : dayLogs.map(toFoodLogEntry),
         };
       });
 
@@ -157,41 +164,39 @@ export async function getHistoryDays(
   });
 }
 
-function groupLogs(logs: FoodLog[]): MealGroup[] {
-  const orderedMeals: MealGroup["meal"][] = ["breakfast", "lunch", "dinner", "snack"];
-  return orderedMeals
-    .map((meal) => {
-      const mealLogs = logs.filter((log) => log.meal === meal);
-      const entries = mealLogs.map(toFoodLogEntry);
-      return {
-        meal,
-        label: MEAL_LABEL[meal],
-        calories: entries.reduce(
-          (sum, entry) => sum + Math.round(entry.nutrients.calories * entry.servings),
-          0
-        ),
-        entries,
-      };
-    })
-    .filter((group) => group.entries.length > 0);
-}
-
 function toFoodLogEntry(log: FoodLog): FoodLogEntry {
   return {
     id: log.id,
     foodItemId: log.foodItemId,
     name: log.name,
-    meal: log.meal,
     day: log.localDate,
     servings: toNumber(log.servingQty) || 1,
     servingUnit: log.servingUnit,
+    source: log.source,
+    barcode: log.barcode,
+    isEstimated: log.foodItemId === null && log.source === "manual",
     nutrients: {
       calories: log.kcal,
       proteinG: toNumber(log.proteinG),
       carbsG: toNumber(log.carbsG),
       fatG: toNumber(log.fatG),
     },
+    consumedAt: log.consumedAt.toISOString(),
     loggedAt: log.loggedAt.toISOString(),
+  };
+}
+
+function buildHydrationAlert(totalMl: number, targetMl: number, now: Date): Water["alert"] {
+  if (targetMl <= 0 || totalMl >= targetMl) return null;
+  const hour = now.getHours();
+  const expectedProgress = Math.min(Math.max((hour - 6) / 14, 0), 1);
+  const expectedMl = Math.round(targetMl * expectedProgress);
+  if (hour < 12 || totalMl >= expectedMl || totalMl / targetMl >= 0.75) return null;
+  const remainingMl = Math.max(targetMl - totalMl, 0);
+  return {
+    title: "Drink up",
+    message: `You're behind your hydration pace. Try to drink ${remainingMl.toLocaleString()}ml more today.`,
+    severity: "warning",
   };
 }
 

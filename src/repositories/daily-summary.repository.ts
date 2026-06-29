@@ -1,9 +1,70 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
-import { dailySummaries, type DailySummaryRow, type NewDailySummaryRow } from "../../db/schema";
+import {
+  dailySummaries,
+  foodLogs,
+  type DailySummaryRow,
+  type NewDailySummaryRow,
+} from "../../db/schema";
 
 export type DailySummary = DailySummaryRow;
+
+/**
+ * Serialize concurrent recomputes for a single (user, day) rollup. Transaction-
+ * scoped advisory lock — it auto-releases on commit/rollback, so this MUST be
+ * called inside a `db.transaction` or it releases immediately and protects
+ * nothing. Without it, two same-day writers each read an absolute total that
+ * misses the other's uncommitted row and the rollup silently loses an entry.
+ */
+export async function lockForDay(
+  userId: string,
+  localDate: string,
+  tx: Executor = db
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${localDate}`}, 0))`
+  );
+}
+
+/**
+ * Backstop reconcile: recompute totals from the source `food_logs` for every
+ * existing summary touched since `sinceDate` and heal any that drifted. Missing
+ * summaries are intentionally left alone — the dashboard read falls back to a
+ * live `food_logs` sum when a summary row is absent, so only stale *existing*
+ * rows are a correctness bug. Returns the number of rows healed.
+ */
+export async function reconcileRecentSummaries(
+  sinceDate: string,
+  tx: Executor = db
+): Promise<number> {
+  const result = await tx.execute(sql`
+    UPDATE ${dailySummaries} AS ds
+    SET total_calories = agg.cal,
+        total_protein_g = agg.pro,
+        total_carbs_g = agg.carb,
+        total_fat_g = agg.fat,
+        updated_at = now()
+    FROM (
+      SELECT ${foodLogs.userId} AS user_id,
+             ${foodLogs.localDate} AS local_date,
+             coalesce(sum(${foodLogs.kcal}), 0)::int AS cal,
+             coalesce(sum(${foodLogs.proteinG}), 0)::numeric AS pro,
+             coalesce(sum(${foodLogs.carbsG}), 0)::numeric AS carb,
+             coalesce(sum(${foodLogs.fatG}), 0)::numeric AS fat
+      FROM ${foodLogs}
+      WHERE ${foodLogs.localDate} >= ${sinceDate}
+      GROUP BY ${foodLogs.userId}, ${foodLogs.localDate}
+    ) AS agg
+    WHERE ds.user_id = agg.user_id
+      AND ds.local_date = agg.local_date
+      AND (ds.total_calories <> agg.cal
+        OR ds.total_protein_g <> agg.pro
+        OR ds.total_carbs_g <> agg.carb
+        OR ds.total_fat_g <> agg.fat)
+  `);
+  return result.rowCount ?? 0;
+}
 
 export async function getForDay(
   userId: string,

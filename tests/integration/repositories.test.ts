@@ -34,8 +34,8 @@ describe.skipIf(!run)("integration: repositories", () => {
     const linked = await foodLogRepo.createLog({
       userId: user.id,
       loggedAt: new Date(),
+      consumedAt: new Date("2026-06-10T08:00:00.000Z"),
       localDate: "2026-06-10",
-      meal: "breakfast",
       source: "search",
       foodItemId: item.id,
       name: "Home Oatmeal",
@@ -51,8 +51,8 @@ describe.skipIf(!run)("integration: repositories", () => {
     const manual = await foodLogRepo.createLog({
       userId: user.id,
       loggedAt: new Date(),
+      consumedAt: new Date("2026-06-10T10:00:00.000Z"),
       localDate: "2026-06-10",
-      meal: "snack",
       source: "manual",
       name: "Quick add",
       servingQty: "1",
@@ -73,8 +73,8 @@ describe.skipIf(!run)("integration: repositories", () => {
     await foodLogRepo.createLog({
       userId: a.id,
       loggedAt: new Date(),
+      consumedAt: new Date("2026-06-09T12:00:00.000Z"),
       localDate: "2026-06-09",
-      meal: "lunch",
       source: "manual",
       name: "A's lunch",
       servingQty: "1",
@@ -91,8 +91,8 @@ describe.skipIf(!run)("integration: repositories", () => {
     const log = await foodLogRepo.createLog({
       userId: user.id,
       loggedAt: new Date(),
+      consumedAt: new Date("2026-06-08T19:00:00.000Z"),
       localDate: "2026-06-08",
-      meal: "dinner",
       source: "manual",
       name: "To delete",
       servingQty: "1",

@@ -21,8 +21,8 @@ import {
 import {
   getDashboardCalories,
   getDashboardMacros,
+  getFoodEntriesForDay,
   getHistoryDays,
-  getMealGroupsForDay,
   getWaterState,
 } from "../../src/services/dashboard.service";
 
@@ -174,14 +174,14 @@ describe.skipIf(!run)("integration: safety invariants", () => {
         totalMl: 0,
         targetGlasses: 8,
       });
-      await expect(getMealGroupsForDay(user, "2026-06-10")).resolves.toEqual([]);
+      await expect(getFoodEntriesForDay(user, "2026-06-10")).resolves.toEqual([]);
     });
 
-    it("aggregates populated day calories, macros, water and meal groups", async () => {
+    it("aggregates populated day calories, macros, water and food entries", async () => {
       const user = await makeUser({ dailyTargetKcal: 1800 });
       await makeFoodLog(user.id, {
         localDate: "2026-06-10",
-        meal: "breakfast",
+        consumedAt: new Date("2026-06-10T08:15:00.000Z"),
         name: "Greek yogurt",
         kcal: 130,
         proteinG: "12",
@@ -193,12 +193,12 @@ describe.skipIf(!run)("integration: safety invariants", () => {
       const calories = await getDashboardCalories(user, "2026-06-10");
       const macros = await getDashboardMacros(user, "2026-06-10");
       const water = await getWaterState(user, "2026-06-10");
-      const groups = await getMealGroupsForDay(user, "2026-06-10");
+      const entries = await getFoodEntriesForDay(user, "2026-06-10");
 
       expect(calories.consumedCalories).toBe(130);
       expect(macros.consumed.proteinG).toBe(12);
       expect(water.glasses).toBe(2);
-      expect(groups[0]?.entries[0]?.name).toBe("Greek yogurt");
+      expect(entries[0]?.name).toBe("Greek yogurt");
     });
 
     it("redacts free history older than seven days but leaves premium history visible", async () => {
@@ -216,9 +216,9 @@ describe.skipIf(!run)("integration: safety invariants", () => {
         to: new Date().toISOString().slice(0, 10),
       });
 
-      expect(freeHistory.days[0]).toMatchObject({ day: "2026-05-01", isLocked: true, groups: [] });
+      expect(freeHistory.days[0]).toMatchObject({ day: "2026-05-01", isLocked: true, entries: [] });
       expect(JSON.stringify(freeHistory)).not.toContain("Private old meal");
-      expect(premiumHistory.days[0]?.groups[0]?.entries[0]?.name).toBe("Visible old meal");
+      expect(premiumHistory.days[0]?.entries[0]?.name).toBe("Visible old meal");
     });
   });
 });

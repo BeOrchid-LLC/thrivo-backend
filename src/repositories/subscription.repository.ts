@@ -34,6 +34,24 @@ export async function upsertFromWebhook(
   return row;
 }
 
+/**
+ * Reconcile sweep: flip live subscriptions whose period has ended to `expired`
+ * and return the affected rows so the caller can mirror tier → free. Served by
+ * the (status) + (current_period_end) indexes.
+ */
+export async function expireOverdue(now: Date, tx: Executor = db): Promise<Subscription[]> {
+  return tx
+    .update(subscriptions)
+    .set({ status: "expired" })
+    .where(
+      and(
+        inArray(subscriptions.status, ["active", "in_grace", "past_due", "canceled"]),
+        lte(subscriptions.currentPeriodEnd, now)
+      )
+    )
+    .returning();
+}
+
 /** Trial-reminder sweep — served by the (current_period_end) / (status) indexes. */
 export async function listTrialsEndingWithin(
   from: Date,

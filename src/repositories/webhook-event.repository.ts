@@ -24,6 +24,20 @@ export async function existsByProviderEvent(
   return row != null;
 }
 
+/** Fetch the ledger row for a (provider, event_id), if one exists. */
+export async function findByProviderEvent(
+  provider: WebhookProvider,
+  eventId: string,
+  tx: Executor = db
+): Promise<WebhookEvent | null> {
+  const [row] = await tx
+    .select()
+    .from(webhookEvents)
+    .where(and(eq(webhookEvents.provider, provider), eq(webhookEvents.eventId, eventId)))
+    .limit(1);
+  return row ?? null;
+}
+
 /** Record an inbound event. onConflictDoNothing makes replays no-ops at the DB. */
 export async function recordReceived(
   input: NewWebhookEventRow,

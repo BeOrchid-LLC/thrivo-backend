@@ -47,7 +47,7 @@ export function toAdminUserDetail(row: UserRow, aggregates: AdminUserAggregates)
     deletedAt: row.deletedAt,
     updatedAt: row.updatedAt,
     status: resolveStatus(row),
-    lastActiveAt: row.updatedAt ? row.updatedAt.toISOString() : null,
+    lastActiveAt: row.lastActiveAt ? row.lastActiveAt.toISOString() : null,
     totalFoodLogs: aggregates.totalFoodLogs,
     currentStreakDays: aggregates.currentStreakDays,
     subscription: aggregates.subscription,

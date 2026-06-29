@@ -211,7 +211,12 @@ export async function cancelSubscription(
   return getSubscriptionState(updated, now);
 }
 
-async function persistSubscriptionAndMirror(
+/**
+ * The single writer of entitlement: upsert the subscription projection and mirror
+ * the derived tier/status onto the user row, atomically. Used by the in-app
+ * trial/purchase/cancel flows and by the RevenueCat webhook (the source of truth).
+ */
+export async function persistSubscriptionAndMirror(
   userId: string,
   subscription: NewSubscriptionRow
 ): Promise<void> {

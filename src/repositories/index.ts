@@ -10,6 +10,7 @@ export * as foodLogRepo from "./food-log.repository";
 export * as foodFavoriteRepo from "./food-favorite.repository";
 export * as dailySummaryRepo from "./daily-summary.repository";
 export * as streakRepo from "./streak.repository";
+export * as tipRepo from "./tip.repository";
 export * as checkInRepo from "./check-in.repository";
 export * as weightEntryRepo from "./weight-entry.repository";
 export * as waterIntakeRepo from "./water-intake.repository";

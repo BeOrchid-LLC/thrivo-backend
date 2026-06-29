@@ -31,6 +31,7 @@
     "checks": "npm run lint && npm run format:check && npm run typecheck && npm run contracts:typecheck"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.106.0",
     "@hono/node-server": "^1.13.0",
     "@hono/zod-validator": "^0.4.1",
     "@sentry/node": "^8.32.0",

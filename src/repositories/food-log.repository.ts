@@ -6,8 +6,23 @@ import { foodLogs, type FoodLogRow, type NewFoodLogRow } from "../../db/schema";
 export type FoodLog = FoodLogRow;
 
 export async function createLog(input: NewFoodLogRow, tx: Executor = db): Promise<FoodLog> {
-  const [row] = await tx.insert(foodLogs).values(input).returning();
-  return row;
+  const [row] = await tx
+    .insert(foodLogs)
+    .values(input)
+    // NULL keys are distinct, so key-less logs always insert. A repeated
+    // (user, idempotency_key) — a retry or offline-queue replay — conflicts and
+    // returns nothing; we then return the row that already landed.
+    .onConflictDoNothing({ target: [foodLogs.userId, foodLogs.idempotencyKey] })
+    .returning();
+  if (row) return row;
+  const [existing] = await tx
+    .select()
+    .from(foodLogs)
+    .where(
+      and(eq(foodLogs.userId, input.userId), eq(foodLogs.idempotencyKey, input.idempotencyKey!))
+    )
+    .limit(1);
+  return existing;
 }
 
 /** The dominant diary query — served by the (user_id, local_date) index. */
@@ -20,7 +35,7 @@ export async function listLogsForDay(
     .select()
     .from(foodLogs)
     .where(and(eq(foodLogs.userId, userId), eq(foodLogs.localDate, localDate)))
-    .orderBy(asc(foodLogs.loggedAt));
+    .orderBy(desc(foodLogs.consumedAt), desc(foodLogs.loggedAt));
 }
 
 export interface FoodLogTotals {
@@ -70,7 +85,7 @@ export async function listLogsByLocalDateRange(
         lte(foodLogs.localDate, toDate)
       )
     )
-    .orderBy(desc(foodLogs.localDate), asc(foodLogs.loggedAt));
+    .orderBy(desc(foodLogs.localDate), desc(foodLogs.consumedAt), desc(foodLogs.loggedAt));
 }
 
 export async function listLogsByRange(
@@ -92,6 +107,32 @@ export async function listLogsByRange(
     .orderBy(asc(foodLogs.loggedAt));
 }
 
+export async function listRecentLogs(
+  userId: string,
+  limit = 20,
+  tx: Executor = db
+): Promise<FoodLog[]> {
+  return tx
+    .select()
+    .from(foodLogs)
+    .where(eq(foodLogs.userId, userId))
+    .orderBy(desc(foodLogs.consumedAt), desc(foodLogs.loggedAt))
+    .limit(limit);
+}
+
+export async function findLogForUser(
+  userId: string,
+  id: string,
+  tx: Executor = db
+): Promise<FoodLog | null> {
+  const [row] = await tx
+    .select()
+    .from(foodLogs)
+    .where(and(eq(foodLogs.userId, userId), eq(foodLogs.id, id)))
+    .limit(1);
+  return row ?? null;
+}
+
 // Composite PK (id, logged_at): both parts are required to address a single row.
 export async function updateLog(
   id: string,
@@ -107,8 +148,34 @@ export async function updateLog(
   return row ?? null;
 }
 
+export async function updateLogForUser(
+  userId: string,
+  id: string,
+  patch: Partial<NewFoodLogRow>,
+  tx: Executor = db
+): Promise<FoodLog | null> {
+  const [row] = await tx
+    .update(foodLogs)
+    .set(patch)
+    .where(and(eq(foodLogs.userId, userId), eq(foodLogs.id, id)))
+    .returning();
+  return row ?? null;
+}
+
 export async function deleteLog(id: string, loggedAt: Date, tx: Executor = db): Promise<void> {
   await tx.delete(foodLogs).where(and(eq(foodLogs.id, id), eq(foodLogs.loggedAt, loggedAt)));
+}
+
+export async function deleteLogForUser(
+  userId: string,
+  id: string,
+  tx: Executor = db
+): Promise<FoodLog | null> {
+  const [row] = await tx
+    .delete(foodLogs)
+    .where(and(eq(foodLogs.userId, userId), eq(foodLogs.id, id)))
+    .returning();
+  return row ?? null;
 }
 
 /** Admin batch — food log counts keyed by user id. */

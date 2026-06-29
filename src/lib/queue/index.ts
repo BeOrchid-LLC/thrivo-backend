@@ -7,6 +7,7 @@ export const QUEUE_NAMES = {
   emails: "emails", // welcome / trial-ending / cancellation (A2/A5)
   nudges: "nudges", // daily psychology tip push (A2)
   analytics: "analytics", // server-side product events (A2)
+  maintenance: "maintenance", // repeatable system jobs (reconcile rollups, etc.)
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

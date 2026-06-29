@@ -1,9 +1,18 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { users, type NewUserRow, type UserRow } from "../../db/schema";
 
 export type User = UserRow;
+
+/**
+ * Stamp liveness. Raw SQL on purpose: a query-builder update would fire
+ * updated_at's $onUpdate, conflating "active" with "profile changed". Throttle
+ * upstream (activity.service) — this is an unconditional write.
+ */
+export async function touchLastActive(id: string, tx: Executor = db): Promise<void> {
+  await tx.execute(sql`update ${users} set last_active_at = now() where id = ${id}`);
+}
 
 /** Active = not soft-deleted. Every read excludes soft-deleted rows. */
 export async function findById(id: string, tx: Executor = db): Promise<User | null> {

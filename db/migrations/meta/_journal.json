@@ -64,6 +64,41 @@
       "when": 1782464228477,
       "tag": "0008_awesome_jack_power",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782528000000,
+      "tag": "0009_food_logs_consumed_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782600000000,
+      "tag": "0010_weight_entries_local_date",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782677603909,
+      "tag": "0011_worthless_malice",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782679886233,
+      "tag": "0012_stiff_groot",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782694282787,
+      "tag": "0013_daffy_quasar",
+      "breakpoints": true
     }
   ]
 }

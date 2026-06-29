@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   errorCodeSchema,
+  estimateFoodPayloadSchema,
+  foodLogEntrySchema,
+  foodRoutes,
   getMeResponseSchema,
+  chartResponseSchema,
+  metricRoutes,
+  progressResponseSchema,
   settingsRoutes,
   subscriptionRoutes,
+  weightContextResponseSchema,
+  weightEntryResponseSchema,
   purchaseSubscriptionPayloadSchema,
   updateProfilePayloadSchema,
   updateUserSettingsPayloadSchema,
@@ -72,7 +80,152 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       path: "/api/v1/subscriptions/me",
       auth: "user",
     });
+    expect(foodRoutes.log).toEqual({
+      method: "POST",
+      path: "/api/v1/foods/log",
+      auth: "user",
+    });
+    expect(metricRoutes.waterDelete).toEqual({
+      method: "DELETE",
+      path: "/api/v1/metrics/water/:id",
+      auth: "user",
+    });
+    expect(metricRoutes.chartGet).toEqual({
+      method: "GET",
+      path: "/api/v1/metrics/chart",
+      auth: "user",
+    });
     expect(errorCodeSchema.options).toContain("PREMIUM_REQUIRED");
+  });
+
+  it("validates progress, chart, and weight contracts", () => {
+    expect(
+      progressResponseSchema.parse({
+        success: true,
+        responseCode: 200,
+        message: "Success",
+        data: {
+          progress: {
+            day: "2026-06-28",
+            summary: {
+              currentWeightKg: 80.7,
+              targetWeightKg: 70.3,
+              goalGapKg: 10.4,
+              currentStreakDays: 14,
+              longestStreakDays: 21,
+              currentWeekAverageKcal: 1621,
+            },
+            projection: {
+              projectedDate: "2026-11-01",
+              projectedMonth: "Nov 2026",
+              weeklyRateKg: -0.4,
+              status: "on_track",
+            },
+            calendar: {
+              month: "June 2026",
+              days: [
+                {
+                  day: "2026-06-28",
+                  dayOfMonth: 28,
+                  logged: true,
+                  today: true,
+                  inMonth: true,
+                },
+              ],
+            },
+          },
+        },
+      }).data.progress.summary.currentStreakDays
+    ).toBe(14);
+
+    expect(
+      chartResponseSchema.parse({
+        success: true,
+        responseCode: 200,
+        message: "Success",
+        data: {
+          chart: {
+            metric: "weight",
+            period: "7d",
+            unit: "kg",
+            from: "2026-06-22",
+            to: "2026-06-28",
+            points: [{ date: "2026-06-28", value: 80.7 }],
+          },
+        },
+      }).data.chart.points[0]?.value
+    ).toBe(80.7);
+
+    expect(
+      weightContextResponseSchema.parse({
+        success: true,
+        responseCode: 200,
+        message: "Success",
+        data: {
+          context: {
+            day: "2026-06-28",
+            currentWeightKg: 80.7,
+            yesterdayWeightKg: 80.9,
+            sevenDayAverageKg: 81.2,
+            targetWeightKg: 70.3,
+            projection: {
+              projectedDate: null,
+              projectedMonth: null,
+              weeklyRateKg: null,
+              status: "not_enough_data",
+            },
+          },
+        },
+      }).data.context.day
+    ).toBe("2026-06-28");
+
+    expect(
+      weightEntryResponseSchema.parse({
+        success: true,
+        responseCode: 200,
+        message: "Success",
+        data: {
+          entry: {
+            id: "018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2",
+            day: "2026-06-28",
+            weightKg: 80.7,
+            recordedAt: "2026-06-28T08:00:00.000Z",
+          },
+        },
+      }).data.entry.weightKg
+    ).toBe(80.7);
+  });
+
+  it("validates consumed-time food log entries without meal buckets", () => {
+    const entry = foodLogEntrySchema.parse({
+      id: "log_1",
+      foodItemId: null,
+      name: "Chicken suya",
+      day: "2026-06-27",
+      servings: 1,
+      servingUnit: "serving",
+      source: "manual",
+      barcode: null,
+      isEstimated: true,
+      nutrients: { calories: 270, proteinG: 28, carbsG: 4, fatG: 15 },
+      consumedAt: "2026-06-27T12:00:00.000Z",
+      loggedAt: "2026-06-27T12:05:00.000Z",
+    });
+
+    expect(entry.consumedAt).toBe("2026-06-27T12:00:00.000Z");
+    expect("meal" in entry).toBe(false);
+  });
+
+  it("validates describe-meal estimate payloads", () => {
+    expect(
+      estimateFoodPayloadSchema.parse({
+        name: "Chicken breast, grilled",
+        ingredients: "Chicken, pepper",
+        cookingMethod: "grilled",
+        portionMeasure: "weight",
+        quantity: 150,
+      }).portionMeasure
+    ).toBe("weight");
   });
 
   it("validates profile update payloads", () => {
