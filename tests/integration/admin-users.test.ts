@@ -184,7 +184,10 @@ describe.skipIf(!run)("integration: admin users", () => {
 
   it("returns dashboard metrics via GET /admin/metrics/dashboard", async () => {
     const app = buildApp();
-    await createSession();
+    const session = await createSession();
+    // DAU/MAU read last_active_at, so mark the seeded user active for the metric.
+    const user = await userRepo.findActiveByEmail(session.email);
+    if (user) await userRepo.touchLastActive(user.id);
 
     const res = await app.request("/api/v1/admin/metrics/dashboard", {
       headers: { Cookie: await adminCookie() },
