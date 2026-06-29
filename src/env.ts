@@ -61,16 +61,16 @@ export const envSchema = z
     // releases and is surfaced by /health. Absent in local dev → reported as "dev".
     GIT_SHA: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
 
-    // AI "describe it" food estimate (Claude). Optional here; the estimate endpoint
-    // fails fast without ANTHROPIC_API_KEY rather than guessing. Haiku is the
-    // cost/latency fit for a per-log structured extraction; override per env.
-    // Becomes required-in-prod in the env fail-fast sweep (Phase 8).
+    // AI "describe it" food estimate (Claude). Optional; the estimate endpoint
+    // fails at use without ANTHROPIC_API_KEY (clear error + operator log) rather
+    // than guessing. Haiku is the cost/latency fit for a per-log structured
+    // extraction; override per env.
     ANTHROPIC_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
     ANTHROPIC_MODEL: z.string().default("claude-haiku-4-5"),
 
-    // Transactional email (Resend). Optional this phase — the email infra is
-    // scaffolded in A1-8 but sends go live in A2/A5, where RESEND_API_KEY becomes
-    // required. Without a key the send path degrades (logs + marks email_logs).
+    // Transactional email (Resend). Optional — without a key the send path fails
+    // at use: it logs that RESEND_API_KEY is missing and marks email_logs as
+    // failed rather than crashing the request (see integrations/resend.ts).
     RESEND_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
     EMAIL_FROM: z.string().min(1).default("Thrivo <noreply@thrivo.fit>"),
 
@@ -92,8 +92,8 @@ export const envSchema = z
 
     // RevenueCat webhook shared secret (the exact Authorization header value set in
     // the RevenueCat dashboard). The webhook is the entitlement source of truth;
-    // without this secret every inbound webhook is rejected (fail closed). Becomes
-    // required-in-prod in the env fail-fast sweep (Phase 8).
+    // without this secret every inbound webhook is rejected (fail closed) and an
+    // operator log flags the missing var (see billing-webhook.service.ts).
     REVENUECAT_WEBHOOK_AUTH: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
 
     // Expo push access token. Optional — Expo push sends work without it; a token
@@ -102,29 +102,17 @@ export const envSchema = z
     EXPO_ACCESS_TOKEN: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
   })
   /**
-   * Fail-fast hardening. Feature vars stay optional in dev/test so local + CI
-   * boot without secrets, but production refuses to start when a live feature is
-   * unconfigured — a missing key screams here, never silently no-ops at 3 AM.
+   * Env policy: the server always boots as long as the core infrastructure vars
+   * (DATABASE_URL, REDIS_URL, AUTH_SECRET) are present. Feature vars
+   * (ANTHROPIC_API_KEY, REVENUECAT_WEBHOOK_AUTH, RESEND_API_KEY, SENTRY_DSN,
+   * OAuth, Expo push) are intentionally optional even in production — a missing
+   * one does NOT crash the process. Instead, the specific action that needs it
+   * fails at point-of-use with an operator log naming the missing var and a clear
+   * error returned to the caller (see anthropic/client.ts, billing-webhook.service.ts,
+   * integrations/resend.ts). This keeps a partially-configured deploy running
+   * rather than refusing to start over a feature that may not be exercised yet.
    */
   .superRefine((parsed, ctx) => {
-    if (parsed.NODE_ENV === "production") {
-      const requiredInProd: Record<string, unknown> = {
-        RESEND_API_KEY: parsed.RESEND_API_KEY, // OTP + transactional email delivery
-        ANTHROPIC_API_KEY: parsed.ANTHROPIC_API_KEY, // AI "describe it" estimate
-        REVENUECAT_WEBHOOK_AUTH: parsed.REVENUECAT_WEBHOOK_AUTH, // entitlement source of truth
-        SENTRY_DSN: parsed.SENTRY_DSN, // crash/error visibility
-      };
-      for (const [key, value] of Object.entries(requiredInProd)) {
-        if (!value) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [key],
-            message: `${key} is required when NODE_ENV=production`,
-          });
-        }
-      }
-    }
-
     // OAuth credentials are all-or-nothing: a half-configured provider is a
     // misconfiguration that should fail loudly, not silently disable sign-in.
     const pairs: ReadonlyArray<readonly [string, unknown, string, unknown]> = [

@@ -82,6 +82,14 @@ export async function handleRevenueCatWebhook(
   authHeader: string | undefined,
   body: unknown
 ): Promise<RevenueCatWebhookOutcome> {
+  if (!env.REVENUECAT_WEBHOOK_AUTH) {
+    // Not the caller's fault — the server is unconfigured. Fail closed, but log
+    // the missing var so an operator knows why every webhook is being rejected.
+    logger.error(
+      "REVENUECAT_WEBHOOK_AUTH is not set; rejecting webhook (entitlements will not sync)"
+    );
+    throw new ForbiddenError("Webhook receiver is not configured");
+  }
   if (!isAuthorized(authHeader)) {
     throw new ForbiddenError("Invalid webhook signature");
   }
