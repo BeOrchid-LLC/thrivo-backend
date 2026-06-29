@@ -25,6 +25,7 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       id: "018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2",
       email: "test@example.com",
       name: "Test User",
+      image: null,
       goal: "lose",
       sex: "female",
       age: 32,

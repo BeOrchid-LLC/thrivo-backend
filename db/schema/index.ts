@@ -20,3 +20,4 @@ export * from "./email-logs";
 export * from "./push-tokens";
 export * from "./webhook-events";
 export * from "./admin-audit-log";
+export * from "./uploads";

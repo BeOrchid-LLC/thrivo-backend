@@ -12,6 +12,7 @@ export function toUserProfile(u: User): UserProfile {
     id: u.id,
     email: u.email,
     name: u.name,
+    image: u.image,
     goal: u.goal,
     sex: u.sex,
     age: u.age,

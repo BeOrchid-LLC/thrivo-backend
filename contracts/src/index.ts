@@ -13,3 +13,4 @@ export * from "./settings";
 export * from "./subscriptions";
 export * from "./checkins";
 export * from "./push";
+export * from "./uploads";

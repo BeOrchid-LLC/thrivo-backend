@@ -22,3 +22,4 @@ export * as pushTokenRepo from "./push-token.repository";
 export * as webhookEventRepo from "./webhook-event.repository";
 export * as adminAuditLogRepo from "./admin-audit-log.repository";
 export * as adminUserRepo from "./admin-user.repository";
+export * as uploadsRepo from "./uploads.repository";
