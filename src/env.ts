@@ -87,6 +87,12 @@ const envSchema = z.object({
   // session; re-login is low-friction. Expressed as a `jose` duration string.
   ADMIN_SESSION_TTL: z.string().default("8h"),
 
+  // RevenueCat webhook shared secret (the exact Authorization header value set in
+  // the RevenueCat dashboard). The webhook is the entitlement source of truth;
+  // without this secret every inbound webhook is rejected (fail closed). Becomes
+  // required-in-prod in the env fail-fast sweep (Phase 8).
+  REVENUECAT_WEBHOOK_AUTH: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+
   // Later-phase secrets become *required* in their own phase by extending this
   // schema, following the same fail-fast pattern, e.g.:
   //   REVENUECAT_WEBHOOK_SECRET: z.string(),      // A5  — subscription webhooks
