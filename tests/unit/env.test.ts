@@ -8,39 +8,26 @@ const base = {
   AUTH_SECRET: "x".repeat(32),
 };
 
-const prodSecrets = {
-  RESEND_API_KEY: "re_test",
-  ANTHROPIC_API_KEY: "sk-ant-test",
-  REVENUECAT_WEBHOOK_AUTH: "whsec_test",
-  SENTRY_DSN: "https://abc@o1.ingest.sentry.io/1",
-};
-
 function keysOf(result: ReturnType<typeof envSchema.safeParse>): string[] {
   return result.success ? [] : result.error.issues.map((i) => i.path.join("."));
 }
 
-describe("env fail-fast", () => {
+describe("env policy", () => {
   it("accepts a minimal dev config without feature secrets", () => {
     expect(envSchema.safeParse({ ...base, NODE_ENV: "development" }).success).toBe(true);
   });
 
-  it("rejects production missing required feature secrets, naming each", () => {
-    const result = envSchema.safeParse({ ...base, NODE_ENV: "production" });
-    expect(result.success).toBe(false);
-    expect(keysOf(result)).toEqual(
-      expect.arrayContaining([
-        "RESEND_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "REVENUECAT_WEBHOOK_AUTH",
-        "SENTRY_DSN",
-      ])
-    );
+  it("boots in production without feature secrets (they fail at point-of-use, not boot)", () => {
+    // Missing ANTHROPIC_API_KEY / REVENUECAT_WEBHOOK_AUTH / RESEND_API_KEY / SENTRY_DSN
+    // must NOT crash startup — only the action that needs one fails, with a log.
+    expect(envSchema.safeParse({ ...base, NODE_ENV: "production" }).success).toBe(true);
   });
 
-  it("accepts production when all required feature secrets are present", () => {
-    expect(envSchema.safeParse({ ...base, NODE_ENV: "production", ...prodSecrets }).success).toBe(
-      true
-    );
+  it("still refuses to boot without a core infrastructure var", () => {
+    const { DATABASE_URL: _omit, ...noDb } = base;
+    const result = envSchema.safeParse({ ...noDb, NODE_ENV: "production" });
+    expect(result.success).toBe(false);
+    expect(keysOf(result)).toContain("DATABASE_URL");
   });
 
   it("rejects a half-configured OAuth provider in any environment", () => {
