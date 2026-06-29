@@ -74,11 +74,13 @@ redis.call("DEL", KEYS[1], KEYS[2], KEYS[3])
 return {"ok", 0}
 `;
 
-/** Codes are stored hashed (never plaintext) and bound to AUTH_SECRET + namespace. */
-function hashCode(namespace: string, identifier: string, code: string): string {
-  return createHash("sha256")
-    .update(`${namespace}:${identifier}:${code}:${env.AUTH_SECRET}`)
-    .digest("hex");
+/**
+ * Codes are stored hashed (never plaintext), bound to the identifier + AUTH_SECRET.
+ * The namespace is NOT part of the hash — it already scopes the Redis key, so
+ * adding it here would be redundant and break compatibility with stored codes.
+ */
+function hashCode(identifier: string, code: string): string {
+  return createHash("sha256").update(`${identifier}:${code}:${env.AUTH_SECRET}`).digest("hex");
 }
 
 /**
@@ -110,12 +112,7 @@ export function createOtp(config: OtpConfig): Otp {
       if (await throttleExceeded(identifier)) return null;
       const code = String(randomInt(100000, 999999));
       const redis = getRedis();
-      await redis.set(
-        codeKey(identifier),
-        hashCode(config.namespace, identifier, code),
-        "EX",
-        config.ttlSec
-      );
+      await redis.set(codeKey(identifier), hashCode(identifier, code), "EX", config.ttlSec);
       return code;
     },
 
@@ -127,7 +124,7 @@ export function createOtp(config: OtpConfig): Otp {
         codeKey(identifier),
         attemptsKey(identifier),
         backoffKey(identifier),
-        hashCode(config.namespace, identifier, code),
+        hashCode(identifier, code),
         String(BACKOFF_SECONDS[0]),
         String(BACKOFF_SECONDS[1]),
         String(BACKOFF_SECONDS[2]),
