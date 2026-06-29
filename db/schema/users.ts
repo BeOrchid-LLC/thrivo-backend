@@ -20,6 +20,10 @@ export const users = pgTable("users", {
   // until reconciled on first sign-in; keeps the domain table auth-agnostic.
   authSubjectId: text("auth_subject_id").unique(),
 
+  // Profile avatar URL. Either an uploaded R2 object (set via the upload flow +
+  // PATCH /me/profile) or an external OAuth picture URL seeded at first sign-in.
+  image: text("image"),
+
   // Onboarding profile (canonical SI; UI converts units at the edge).
   goal: goalEnum("goal"),
   sex: sexEnum("sex"),

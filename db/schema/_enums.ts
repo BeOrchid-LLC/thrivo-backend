@@ -43,6 +43,17 @@ export const emailStatusEnum = pgEnum("email_status", [
 export const webhookProviderEnum = pgEnum("webhook_provider", ["revenuecat", "stripe"]);
 export const webhookStatusEnum = pgEnum("webhook_status", ["received", "processed", "failed"]);
 
+// Object-storage upload lifecycle: a row is `pending` once a presigned URL is
+// minted, `verified` after HeadObject confirms the client completed the PUT, or
+// `failed`/`expired` otherwise. `uploaded` is reserved for a future webhook path.
+export const uploadStatusEnum = pgEnum("upload_status", [
+  "pending",
+  "uploaded",
+  "verified",
+  "failed",
+  "expired",
+]);
+
 // Derived TS unions for services / Zod contracts.
 export type UserTier = (typeof userTierEnum.enumValues)[number];
 export type Goal = (typeof goalEnum.enumValues)[number];
@@ -61,3 +72,4 @@ export type SubStatus = (typeof subStatusEnum.enumValues)[number];
 export type EmailStatus = (typeof emailStatusEnum.enumValues)[number];
 export type WebhookProvider = (typeof webhookProviderEnum.enumValues)[number];
 export type WebhookStatus = (typeof webhookStatusEnum.enumValues)[number];
+export type UploadStatus = (typeof uploadStatusEnum.enumValues)[number];
