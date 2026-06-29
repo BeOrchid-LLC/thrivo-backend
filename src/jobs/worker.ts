@@ -2,26 +2,28 @@ import { Worker, type Job } from "bullmq";
 import { redisConnectionOptions } from "../lib/queue/connection";
 import { QUEUE_NAMES, getQueue, type QueueName } from "../lib/queue";
 import { handleSendEmail } from "./handlers/send-email";
-import { handleReconcileSummaries } from "./handlers/reconcile-summaries";
+import { handleMaintenance } from "./handlers/maintenance";
+import { handleSendNudge } from "./handlers/send-nudge";
+import { seedStarterTips } from "./seed-tips";
 import { logger } from "../lib/logger";
 import { closeDb } from "../../db";
 import { closeRedis } from "../lib/redis";
 
 // Separate process (Coolify service `thrivo-worker`, count=1) so API replicas never
 // double-fire scheduled sends. Live queues:
-//   emails      → send-email (renders + sends via Resend, records email_logs)  [A1-8]
-//   maintenance → reconcile-daily-summaries (nightly rollup heal)              [this phase]
-// Stubbed until their feature phase:
-//   nudges    → send-nudge (daily tip rotation → Expo Push)                  [A2]
-//   analytics → server-side product events                                  [A2]
-// Repeatable schedulers (trial-reminder, reconcile-subscriptions) are registered here in A2.
+//   emails      → send-email (renders + sends via Resend, records email_logs)
+//   nudges      → send-nudge (daily psychology tip → Expo Push)
+//   maintenance → reconcile-daily-summaries · trial-reminder · reconcile-subscriptions
+//   analytics   → server-side product events                                   [stub]
 
 const workers: Worker[] = [];
 
-// Per-queue handlers. Queues without one fall back to a logging stub.
+// Per-queue handlers. The maintenance queue routes by job name; queues without a
+// handler fall back to a logging stub.
 const handlers: Partial<Record<QueueName, (job: Job) => Promise<void>>> = {
   [QUEUE_NAMES.emails]: handleSendEmail as (job: Job) => Promise<void>,
-  [QUEUE_NAMES.maintenance]: handleReconcileSummaries as (job: Job) => Promise<void>,
+  [QUEUE_NAMES.nudges]: handleSendNudge,
+  [QUEUE_NAMES.maintenance]: handleMaintenance,
 };
 
 function startWorker(name: QueueName): void {
@@ -40,10 +42,26 @@ function startWorker(name: QueueName): void {
 
 /** Idempotent repeatable jobs — upsertJobScheduler dedupes by scheduler id. */
 async function registerSchedulers(): Promise<void> {
-  await getQueue(QUEUE_NAMES.maintenance).upsertJobScheduler(
+  const maintenance = getQueue(QUEUE_NAMES.maintenance);
+  await maintenance.upsertJobScheduler(
     "reconcile-daily-summaries",
     { pattern: "0 3 * * *", tz: "UTC" },
     { name: "reconcile-daily-summaries", data: {} }
+  );
+  await maintenance.upsertJobScheduler(
+    "reconcile-subscriptions",
+    { pattern: "30 3 * * *", tz: "UTC" },
+    { name: "reconcile-subscriptions", data: {} }
+  );
+  await maintenance.upsertJobScheduler(
+    "trial-reminder",
+    { pattern: "0 9 * * *", tz: "UTC" },
+    { name: "trial-reminder", data: {} }
+  );
+  await getQueue(QUEUE_NAMES.nudges).upsertJobScheduler(
+    "send-daily-nudges",
+    { pattern: "0 8 * * *", tz: "UTC" },
+    { name: "send-daily-nudges", data: {} }
   );
   logger.info("schedulers registered");
 }
@@ -51,6 +69,8 @@ async function registerSchedulers(): Promise<void> {
 async function main(): Promise<void> {
   logger.info("thrivo-worker starting");
   for (const name of Object.values(QUEUE_NAMES)) startWorker(name);
+  const seeded = await seedStarterTips();
+  if (seeded > 0) logger.info({ seeded }, "starter tips seeded");
   await registerSchedulers();
 }
 

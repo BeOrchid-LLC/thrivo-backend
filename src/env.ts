@@ -93,6 +93,11 @@ const envSchema = z.object({
   // required-in-prod in the env fail-fast sweep (Phase 8).
   REVENUECAT_WEBHOOK_AUTH: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
 
+  // Expo push access token. Optional — Expo push sends work without it; a token
+  // raises rate limits and enables enhanced push security. The daily nudge
+  // degrades to tokenless sends when absent.
+  EXPO_ACCESS_TOKEN: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+
   // Later-phase secrets become *required* in their own phase by extending this
   // schema, following the same fail-fast pattern, e.g.:
   //   REVENUECAT_WEBHOOK_SECRET: z.string(),      // A5  — subscription webhooks

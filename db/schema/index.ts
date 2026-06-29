@@ -9,6 +9,7 @@ export * from "./food-logs";
 export * from "./food-favorites";
 export * from "./daily-summaries";
 export * from "./streaks";
+export * from "./tips";
 export * from "./check-ins";
 export * from "./weight-entries";
 export * from "./water-intake";
