@@ -15,6 +15,7 @@ import { dashboardRouter } from "./routes/dashboard";
 import { foodsRouter } from "./routes/foods";
 import { metricsRouter } from "./routes/metrics";
 import { subscriptionsRouter } from "./routes/subscriptions";
+import { checkinsRouter } from "./routes/checkins";
 import { webhooksRouter } from "./routes/webhooks";
 import { adminRouter } from "./routes/admin";
 import { errorHandler } from "./middleware/error";
@@ -55,6 +56,7 @@ export function buildApp(): Hono<AppEnv> {
   app.route("/api/v1/foods", foodsRouter);
   app.route("/api/v1/metrics", metricsRouter);
   app.route("/api/v1/subscriptions", subscriptionsRouter);
+  app.route("/api/v1/checkins", checkinsRouter);
 
   // Provider webhooks — authenticated by a shared secret in the handler, not the
   // user session. RevenueCat entitlement events are the source of truth.
