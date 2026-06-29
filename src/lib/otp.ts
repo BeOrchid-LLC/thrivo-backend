@@ -3,7 +3,7 @@ import { getRedis } from "./redis";
 import { logger } from "./logger";
 import { env } from "../env";
 
-/** Wrong-attempt backoff ladder (seconds): 30s → 5m → 1h → 24h lockout. */
+/** Wrong-attempt backoff ladder (seconds): 30s -> 5m -> 1h -> 24h lockout. */
 const BACKOFF_SECONDS = [30, 300, 3_600, 86_400] as const;
 
 export type OtpConsumeResult =
@@ -22,7 +22,7 @@ export interface OtpConfig {
 export interface Otp {
   /**
    * Generate + store a hashed 6-digit code. Returns the plaintext to deliver,
-   * or null if the issue throttle is exceeded (caller stays silent — no
+   * or null if the issue throttle is exceeded (caller stays silent - no
    * enumeration). Does NOT reset an active lockout: a new code can't be used to
    * escape backoff.
    */
@@ -32,7 +32,7 @@ export interface Otp {
 }
 
 // Atomic check-and-consume so the GET (compare) and INCR (attempt count) can't
-// interleave between concurrent guesses — the gap a per-key TOCTOU would leave.
+// interleave between concurrent guesses - the gap a per-key TOCTOU would leave.
 const CONSUME_SCRIPT = `
 local backoffReason = redis.call("GET", KEYS[3])
 if backoffReason then
