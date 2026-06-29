@@ -7,3 +7,5 @@ export * from "./foods";
 export * from "./metrics";
 export * from "./settings";
 export * from "./subscriptions";
+export * from "./checkins";
+export * from "./push";
