@@ -14,6 +14,7 @@ export const checkIns = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     localDate: date("local_date").notNull(),
     mood: moodEnum("mood").notNull(),
+    note: text("note"),
     tipId: text("tip_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

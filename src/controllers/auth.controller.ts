@@ -9,6 +9,7 @@ import {
   RateLimitedError,
 } from "../lib/errors";
 import {
+  appleSignInSchema,
   magicLinkRequestSchema,
   magicLinkVerifySchema,
   otpRequestSchema,
@@ -24,6 +25,7 @@ import {
   isGoogleConfigured,
   startGoogleSignIn,
 } from "../auth/oauth/google.service";
+import { completeAppleSignIn, isAppleConfigured } from "../auth/oauth/apple.service";
 import { sessionContext } from "../auth/request-context";
 import {
   effectiveAccountStatus,
@@ -102,6 +104,20 @@ export async function postOtpVerify(c: Context<AppEnv>) {
   }
 
   return respondOk(c, toAuthSession(tokens!));
+}
+
+/**
+ * POST /auth/oauth/apple — native Sign in with Apple. The app posts the signed
+ * identity token (and the first-auth display name); we verify it against Apple's
+ * JWKS, provision/link the account, and return the token pair — same shape as
+ * OTP verify, so the mobile client funnels it through the same `applyTokens`.
+ * 502 when Apple isn't configured for this environment.
+ */
+export async function postAppleSignIn(c: Context<AppEnv>) {
+  if (!isAppleConfigured()) throw new UpstreamError("Apple sign-in is not configured");
+  const { identityToken, name } = appleSignInSchema.parse(getValidatedInput(c, "json"));
+  const tokens = await completeAppleSignIn(identityToken, name, sessionContext(c));
+  return respondOk(c, toAuthSession(tokens));
 }
 
 /**

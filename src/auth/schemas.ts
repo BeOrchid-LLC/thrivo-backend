@@ -46,6 +46,17 @@ export const refreshRequestSchema = z.object({
 });
 export type RefreshRequest = z.infer<typeof refreshRequestSchema>;
 
+/**
+ * Native Sign in with Apple: the app posts the signed `identityToken` it got from
+ * `expo-apple-authentication`, plus the display name Apple supplies only on the
+ * first authorization (never re-sent).
+ */
+export const appleSignInSchema = z.object({
+  identityToken: z.string().min(1).max(4096),
+  name: z.string().max(120).optional(),
+});
+export type AppleSignIn = z.infer<typeof appleSignInSchema>;
+
 /** Token pair returned to a client after a successful auth flow. */
 export const authSessionSchema = z.object({
   accessToken: z.string(),

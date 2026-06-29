@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { validate } from "../middleware/validate";
 import {
+  appleSignInSchema,
   magicLinkRequestSchema,
   magicLinkVerifySchema,
   otpRequestSchema,
@@ -12,6 +13,7 @@ import {
   getGoogleCallback,
   getGoogleStart,
   getMagicLinkCallback,
+  postAppleSignIn,
   postLogout,
   postMagicLinkRequest,
   postMagicLinkVerify,
@@ -48,3 +50,6 @@ authRouter.get("/session", requireAuth, getAuthSession);
 // Google OAuth (system browser → consent → callback → app deep link).
 authRouter.get("/google/start", getGoogleStart);
 authRouter.get("/google/callback", getGoogleCallback);
+
+// Apple OAuth (native Sign in with Apple → identity token → token pair).
+authRouter.post("/oauth/apple", validate("json", appleSignInSchema), postAppleSignIn);
