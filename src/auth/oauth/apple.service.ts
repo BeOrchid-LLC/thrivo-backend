@@ -60,7 +60,13 @@ export async function completeAppleSignIn(
     );
 
     await accountRepo.create(
-      { id: newId(), providerId: PROVIDER, accountId: claims.sub, userId: identity.id, idToken: identityToken },
+      {
+        id: newId(),
+        providerId: PROVIDER,
+        accountId: claims.sub,
+        userId: identity.id,
+        idToken: identityToken,
+      },
       tx
     );
 

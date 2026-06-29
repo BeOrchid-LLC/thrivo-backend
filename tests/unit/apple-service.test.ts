@@ -31,7 +31,11 @@ describe("completeAppleSignIn", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("resolves an existing linked account without creating a new one", async () => {
-    verifyAppleIdentityToken.mockResolvedValue({ sub: "apple-1", email: undefined, emailVerified: false });
+    verifyAppleIdentityToken.mockResolvedValue({
+      sub: "apple-1",
+      email: undefined,
+      emailVerified: false,
+    });
     accountRepo.findByProvider.mockResolvedValue({ userId: "u-existing" });
     authIdentityRepo.findById.mockResolvedValue({ id: "u-existing", email: "a@b.co" });
 
@@ -66,7 +70,11 @@ describe("completeAppleSignIn", () => {
   });
 
   it("rejects a first-time sign-in with no email to provision against", async () => {
-    verifyAppleIdentityToken.mockResolvedValue({ sub: "apple-3", email: undefined, emailVerified: false });
+    verifyAppleIdentityToken.mockResolvedValue({
+      sub: "apple-3",
+      email: undefined,
+      emailVerified: false,
+    });
     accountRepo.findByProvider.mockResolvedValue(null);
 
     await expect(completeAppleSignIn("tok", undefined)).rejects.toThrow(/email/i);
