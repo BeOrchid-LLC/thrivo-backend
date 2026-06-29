@@ -3,6 +3,8 @@ import type { UpdateProfilePayload } from "../../contracts/src/users";
 import { userRepo } from "../repositories";
 import type { User } from "../repositories/user.repository";
 import { ForbiddenError, NotFoundError } from "../lib/errors";
+import { logger } from "../lib/logger";
+import { deleteObject, extractKeyFromUrl } from "./r2.service";
 import { invalidateProfileTargetCache } from "./dashboard-cache.service";
 import { getEffectiveSettings } from "./settings.service";
 import { calculateTargets, deriveMacroTargets, type ActivityLevel } from "./tdee.service";
@@ -93,6 +95,7 @@ export async function updateUserProfile(
     input.manualDailyTargetKcal !== undefined;
 
   if (input.firstName !== undefined) patch.name = firstNameOnly(input.firstName);
+  if (input.image !== undefined) patch.image = input.image;
   if (input.goal !== undefined) patch.goal = input.goal;
   if (input.sex !== undefined) patch.sex = input.sex;
   if (input.ageYears !== undefined) patch.age = input.ageYears;
@@ -144,6 +147,19 @@ export async function updateUserProfile(
 
   const updated = await userRepo.updateProfile(user.id, patch);
   if (!updated) throw new NotFoundError("User not found");
+
+  // Best-effort cleanup: if the avatar changed and the old one was an R2 object
+  // (not an external OAuth picture URL, which extractKeyFromUrl returns null for),
+  // delete it so replaced uploads don't accumulate. Never fail the request on this.
+  if (input.image !== undefined && user.image && user.image !== input.image) {
+    const oldKey = extractKeyFromUrl(user.image);
+    if (oldKey) {
+      await deleteObject(oldKey).catch((error) =>
+        logger.error({ err: error, key: oldKey }, "Failed to delete replaced avatar from R2")
+      );
+    }
+  }
+
   if (targetInputChanged) await invalidateProfileTargetCache(user.id);
   return updated;
 }

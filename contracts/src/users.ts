@@ -18,6 +18,7 @@ export const userProfileSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
   name: z.string(),
+  image: z.string().url().nullable(),
   goal: goalSchema.nullable(),
   sex: sexSchema.nullable(),
   age: z.number().int().nullable(),
@@ -50,6 +51,9 @@ export type GetMeResponse = z.infer<typeof getMeResponseSchema>;
 
 export const updateProfilePayloadSchema = z.object({
   firstName: z.string().trim().min(1).optional(),
+  // Profile avatar URL — a verified R2 public URL from the upload flow, or null
+  // to clear it. Sending only `{ image }` is valid (every field is optional).
+  image: z.string().url().nullable().optional(),
   goal: goalSchema.optional(),
   currentWeightKg: z.number().positive().optional(),
   targetWeightKg: z.number().positive().optional(),
