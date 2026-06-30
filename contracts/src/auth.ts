@@ -10,15 +10,22 @@ export const authSessionSchema = z.object({
 });
 export type AuthSession = z.infer<typeof authSessionSchema>;
 
+/** Shared email primitive — RFC-validated, length-capped, case-normalized to match the backend. */
+export const emailSchema = z
+  .string()
+  .email()
+  .max(254)
+  .transform((e) => e.toLowerCase());
+
 /** POST /auth/otp/request payload */
 export const otpRequestPayloadSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
 });
 export type OtpRequestPayload = z.infer<typeof otpRequestPayloadSchema>;
 
 /** POST /auth/otp/verify payload */
 export const otpVerifyPayloadSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
   code: z.string().regex(/^\d{6}$/),
 });
 export type OtpVerifyPayload = z.infer<typeof otpVerifyPayloadSchema>;
@@ -28,7 +35,7 @@ export type OtpVerifyPayload = z.infer<typeof otpVerifyPayloadSchema>;
  * @deprecated Magic-link auth remains API-supported but is hidden in mobile while the UX is revisited.
  */
 export const magicLinkRequestPayloadSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
 });
 export type MagicLinkRequestPayload = z.infer<typeof magicLinkRequestPayloadSchema>;
 
@@ -46,6 +53,17 @@ export const refreshPayloadSchema = z.object({
   refreshToken: z.string().min(1),
 });
 export type RefreshPayload = z.infer<typeof refreshPayloadSchema>;
+
+/**
+ * POST /auth/oauth/apple payload — native Sign in with Apple. The app posts the
+ * signed `identityToken` from `expo-apple-authentication`, plus the display name
+ * Apple supplies only on the first authorization (never re-sent).
+ */
+export const appleSignInPayloadSchema = z.object({
+  identityToken: z.string().min(1).max(4096),
+  name: z.string().max(120).optional(),
+});
+export type AppleSignInPayload = z.infer<typeof appleSignInPayloadSchema>;
 
 /** Lightweight session facts for mobile cold-start restore (navigation guard). */
 export const userSessionSchema = z.object({
@@ -82,6 +100,12 @@ export const authRoutes = {
     path: "/api/v1/auth/magic-link/verify",
     auth: "public",
   },
+  // Email CTA lands here over HTTPS, then bounces to the app deep link.
+  magicLinkCallback: {
+    method: "GET",
+    path: "/api/v1/auth/magic-link/callback",
+    auth: "public",
+  },
   refresh: {
     method: "POST",
     path: "/api/v1/auth/refresh",
@@ -100,6 +124,18 @@ export const authRoutes = {
   googleStart: {
     method: "GET",
     path: "/api/v1/auth/google/start",
+    auth: "public",
+  },
+  // Google redirects here after consent; the server bounces back to the app deep link.
+  googleCallback: {
+    method: "GET",
+    path: "/api/v1/auth/google/callback",
+    auth: "public",
+  },
+  // Native Sign in with Apple → identity token → token pair.
+  oauthApple: {
+    method: "POST",
+    path: "/api/v1/auth/oauth/apple",
     auth: "public",
   },
 } satisfies Record<string, RouteContract>;
