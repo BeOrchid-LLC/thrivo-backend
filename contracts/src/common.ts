@@ -66,6 +66,14 @@ export type RouteContract = {
 /** Generic success envelope `{ data: T, meta? }` — admin-panel alias of apiSuccessSchema. */
 export const successEnvelope = apiSuccessSchema;
 
+/**
+ * Acknowledgement payload — the unwrapped `data` for endpoints that confirm an
+ * action without returning a body (e.g. `POST /auth/otp/request` 202, logout,
+ * push registration). The envelope still carries `responseCode`/`message`.
+ */
+export const ackSchema = z.null();
+export type Ack = z.infer<typeof ackSchema>;
+
 /** Untyped primitive schemas for ID fields and ISO date strings. */
 export const idSchema = z.string().min(1);
 export const isoDateSchema = z.string();
