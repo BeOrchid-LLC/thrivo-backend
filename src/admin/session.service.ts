@@ -26,7 +26,7 @@ export const ADMIN_COOKIE = "admin_session";
 export const ADMIN_COOKIE_OPTS = {
   httpOnly: true,
   secure: env.NODE_ENV === "production",
-  sameSite: "strict" as const,
+  sameSite: "none" as const,
   path: "/",
 } as const;
 
