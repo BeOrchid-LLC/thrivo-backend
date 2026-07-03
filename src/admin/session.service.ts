@@ -23,10 +23,15 @@ export const ADMIN_COOKIE = "admin_session";
  * without a token. httpOnly keeps it out of JS; Secure in production. The
  * Origin check on mutations (admin-origin middleware) is the belt-and-suspenders.
  */
+
+const secure = env.NODE_ENV === "production";
+const sameSite = secure ? ("none" as const) : ("lax" as const);
+
 export const ADMIN_COOKIE_OPTS = {
   httpOnly: true,
-  secure: env.NODE_ENV === "production",
-  sameSite: "none" as const,
+  secure,
+  sameSite,
+  partitioned: secure,
   path: "/",
 } as const;
 
