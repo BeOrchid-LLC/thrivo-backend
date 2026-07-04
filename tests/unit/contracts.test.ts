@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   errorCodeSchema,
   estimateFoodPayloadSchema,
+  foodSearchResponseSchema,
+  logFoodPayloadSchema,
   foodLogEntrySchema,
   foodRoutes,
   getMeResponseSchema,
@@ -227,6 +229,56 @@ describe("@beorchid-llc/thrivo-contracts", () => {
         quantity: 150,
       }).portionMeasure
     ).toBe("weight");
+
+    expect(
+      estimateFoodPayloadSchema.safeParse({
+        name: "x".repeat(121),
+        portionMeasure: "weight",
+        quantity: 150,
+      }).success
+    ).toBe(false);
+  });
+
+  it("validates transient search results and external snapshot log payloads", () => {
+    const search = foodSearchResponseSchema.parse({
+      success: true,
+      responseCode: 200,
+      message: "Success",
+      data: {
+        cached: false,
+        items: [
+          {
+            externalId: "off:1234567890123",
+            name: "Greek yoghurt",
+            brand: "Acme",
+            barcode: "1234567890123",
+            servingLabel: "100g",
+            servingGrams: 100,
+            nutrients: { calories: 90, proteinG: 9, carbsG: 4, fatG: 3 },
+            source: "openfoodfacts",
+          },
+        ],
+      },
+    });
+    expect(search.data.items[0]?.externalId).toBe("off:1234567890123");
+
+    expect(
+      logFoodPayloadSchema.parse({
+        externalFood: search.data.items[0],
+        day: "2026-06-28",
+        servings: 1,
+        servingUnit: "100g",
+      }).externalFood?.source
+    ).toBe("openfoodfacts");
+
+    expect(
+      logFoodPayloadSchema.safeParse({
+        foodItemId: "018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2",
+        externalFood: search.data.items[0],
+        day: "2026-06-28",
+        servings: 1,
+      }).success
+    ).toBe(false);
   });
 
   it("validates profile update payloads", () => {
