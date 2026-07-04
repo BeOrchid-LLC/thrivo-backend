@@ -24,6 +24,7 @@ describe("estimateNutritionViaModel", () => {
     expect(out.proteinG).toBe(0); // negative floored to 0
     expect(out.carbsG).toBe(51); // rounded
     expect(out.fatG).toBe(500); // clamped
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ max_tokens: 160 }));
   });
 
   it("rejects unparseable model output rather than trusting it", async () => {

@@ -10,10 +10,10 @@ import type { EstimateFoodPayload, Nutrients } from "../../../contracts/src/food
 const MAX = { calories: 5000, proteinG: 500, carbsG: 800, fatG: 500 } as const;
 
 const modelOutputSchema = z.object({
-  calories: z.number(),
-  proteinG: z.number(),
-  carbsG: z.number(),
-  fatG: z.number(),
+  calories: z.number().finite(),
+  proteinG: z.number().finite(),
+  carbsG: z.number().finite(),
+  fatG: z.number().finite(),
 });
 
 // Schema-constrained output so the model returns exactly these fields (no prose
@@ -46,9 +46,9 @@ function clamp(value: number, max: number): number {
 }
 
 function buildPrompt(payload: EstimateFoodPayload): string {
-  const lines = [`Food: ${payload.name}`];
-  if (payload.ingredients) lines.push(`Ingredients: ${payload.ingredients}`);
-  if (payload.cookingMethod) lines.push(`Cooking method: ${payload.cookingMethod}`);
+  const lines = [`Food: ${payload.name.trim()}`];
+  if (payload.ingredients) lines.push(`Ingredients: ${payload.ingredients.trim()}`);
+  if (payload.cookingMethod) lines.push(`Cooking method: ${payload.cookingMethod.trim()}`);
   lines.push(`Portion: ${payload.quantity} ${payload.portionMeasure}`);
   return lines.join("\n");
 }
@@ -59,7 +59,7 @@ export async function estimateNutritionViaModel(payload: EstimateFoodPayload): P
   try {
     const message = await getAnthropic().messages.create({
       model: env.ANTHROPIC_MODEL,
-      max_tokens: 256,
+      max_tokens: env.AI_ESTIMATE_MAX_TOKENS,
       system: SYSTEM,
       output_config: { format: NUTRITION_FORMAT },
       messages: [{ role: "user", content: buildPrompt(payload) }],

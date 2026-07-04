@@ -4,27 +4,29 @@ import { getRedis } from "../lib/redis";
 import { RateLimitedError } from "../lib/errors";
 import { estimateNutritionViaModel } from "../integrations/anthropic/estimate";
 import type { EstimateFoodPayload, Nutrients } from "../../contracts/src/foods";
-
-const RATE_LIMIT = { max: 30, windowSec: 60 * 60 }; // per user/hour — caps spend + abuse
-const CACHE_TTL_SECONDS = 60 * 60 * 24; // identical descriptions reuse one model call
+import { env } from "../env";
 
 function cacheKey(payload: EstimateFoodPayload): string {
   const normalized = JSON.stringify({
-    name: payload.name.trim().toLowerCase(),
-    ingredients: payload.ingredients?.trim().toLowerCase() ?? "",
-    cookingMethod: payload.cookingMethod?.trim().toLowerCase() ?? "",
+    name: canonicalText(payload.name),
+    ingredients: canonicalText(payload.ingredients ?? ""),
+    cookingMethod: canonicalText(payload.cookingMethod ?? ""),
     portionMeasure: payload.portionMeasure,
-    quantity: payload.quantity,
+    quantity: Number(payload.quantity.toFixed(3)),
   });
   return `estimate:${createHash("sha256").update(normalized).digest("hex")}`;
+}
+
+function canonicalText(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 async function enforceRateLimit(userId: string): Promise<void> {
   const redis = getRedis();
   const key = `estimate-rl:${userId}`;
   const n = await redis.incr(key);
-  if (n === 1) await redis.expire(key, RATE_LIMIT.windowSec);
-  if (n > RATE_LIMIT.max) {
+  if (n === 1) await redis.expire(key, env.AI_ESTIMATE_RATE_LIMIT_WINDOW_SECONDS);
+  if (n > env.AI_ESTIMATE_RATE_LIMIT_MAX) {
     throw new RateLimitedError("Estimate limit reached — try again later");
   }
 }
@@ -40,7 +42,7 @@ export async function estimateNutrition(
   userId: string,
   payload: EstimateFoodPayload
 ): Promise<Nutrients> {
-  return cacheAside(cacheKey(payload), CACHE_TTL_SECONDS, async () => {
+  return cacheAside(cacheKey(payload), env.AI_ESTIMATE_CACHE_TTL_SECONDS, async () => {
     await enforceRateLimit(userId);
     return estimateNutritionViaModel(payload);
   });
