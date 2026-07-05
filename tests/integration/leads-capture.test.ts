@@ -10,7 +10,11 @@ const run = process.env.RUN_DB_TESTS === "1";
 
 type JsonBody = { success: boolean; data: { captured: true } | null; message: string };
 
-function post(app: ReturnType<typeof buildApp>, body: unknown, headers: Record<string, string> = {}) {
+function post(
+  app: ReturnType<typeof buildApp>,
+  body: unknown,
+  headers: Record<string, string> = {}
+) {
   return app.request("/api/v1/leads/capture", {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
@@ -30,7 +34,10 @@ describe.skipIf(!run)("integration: leads capture", () => {
     const res = await post(
       buildApp(),
       { email: "New@Test.thrivo.fit", source: "cta" },
-      { "cf-ipcountry": "NG", "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)" }
+      {
+        "cf-ipcountry": "NG",
+        "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)",
+      }
     );
     expect(res.status).toBe(200);
 

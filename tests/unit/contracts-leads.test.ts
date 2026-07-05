@@ -28,9 +28,9 @@ describe("@beorchid-llc/thrivo-contracts -- leads", () => {
 
   it("keeps the capture response minimal (no enumeration signal)", () => {
     expect(leadCaptureResponseSchema.parse({ captured: true })).toEqual({ captured: true });
-    expect(leadCaptureResponseSchema.safeParse({ captured: true, alreadyRegistered: true }).data).toEqual(
-      { captured: true }
-    );
+    expect(
+      leadCaptureResponseSchema.safeParse({ captured: true, alreadyRegistered: true }).data
+    ).toEqual({ captured: true });
   });
 
   it("parses an admin lead row and its paginated list envelope", () => {
