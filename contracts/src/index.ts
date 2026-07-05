@@ -6,6 +6,7 @@ export * from "./admin-analytics";
 export * from "./admin-content";
 export * from "./admin-logs";
 export * from "./admin-subscriptions";
+export * from "./leads";
 export * from "./dashboard";
 export * from "./foods";
 export * from "./metrics";

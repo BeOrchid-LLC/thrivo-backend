@@ -13,6 +13,11 @@ import {
   hardDeleteAdminUser,
 } from "../controllers/admin-users.controller";
 import { getAdminDashboardMetrics } from "../controllers/admin-metrics.controller";
+import {
+  listAdminLeads,
+  hardDeleteAdminLead,
+  exportAdminLeads,
+} from "../controllers/admin-leads.controller";
 import type { AppEnv } from "../types/http";
 
 /** `/api/v1/admin` — staff-only surface gated by the admin session cookie. */
@@ -37,3 +42,9 @@ adminRouter.delete("/users/:id", requireAdmin, hardDeleteAdminUser);
 
 // Metrics
 adminRouter.get("/metrics/dashboard", requireAdmin, getAdminDashboardMetrics);
+
+// Leads (email captures) -- export route registered before /:id-shaped routes
+// so "export" is never matched as an :id param.
+adminRouter.get("/leads/export", requireAdmin, exportAdminLeads);
+adminRouter.get("/leads", requireAdmin, listAdminLeads);
+adminRouter.delete("/leads/:id", requireAdmin, hardDeleteAdminLead);
