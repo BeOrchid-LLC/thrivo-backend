@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { env } from "../env";
+import { logger } from "../lib/logger";
 
 export type AdminClaims = {
   id: string;
@@ -69,7 +70,15 @@ export async function verifyAdminSession(token: string): Promise<AdminClaims | n
       name: typeof payload.name === "string" ? payload.name : null,
       role: payload.role,
     };
-  } catch {
+  } catch (err) {
+    // jose folds every failure (bad signature, expired, iss/aud mismatch) into a
+    // thrown error; logging the code here is what lets us tell those apart in
+    // Coolify logs instead of only ever seeing "Session expired" at the client.
+    const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+    logger.warn(
+      { code, message: err instanceof Error ? err.message : String(err) },
+      "admin session verification failed"
+    );
     return null;
   }
 }
