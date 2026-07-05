@@ -22,7 +22,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       # Required by Zod env schema (min 32 chars); pulled from the 'production'
       # GitHub environment so the migrate + test steps don't fail validation.
-      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
       RUN_DB_TESTS: "1"
     services:
       postgres:

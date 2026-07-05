@@ -31,9 +31,8 @@ export const envSchema = z
     DATABASE_URL: z.string().url(),
     REDIS_URL: z.string().url(),
 
-    // Signs access JWTs (HS256); required, min 32 chars. Falls back to the legacy
-    // BETTER_AUTH_SECRET name so existing deploys keep booting without an env change.
-    AUTH_SECRET: z.preprocess((v) => v ?? process.env.BETTER_AUTH_SECRET, z.string().min(32)),
+    // Signs access JWTs (HS256); required, min 32 chars.
+    AUTH_SECRET: z.string().min(32),
     // Hand-rolled auth token lifetimes. Access is short (stateless, signature is
     // authority); refresh is DB-backed + rotating, so it can live longer safely.
     ACCESS_TOKEN_TTL: z.string().default("15m"),
