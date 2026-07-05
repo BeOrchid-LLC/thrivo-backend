@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idSchema, isoDateSchema, localDaySchema } from "./common";
+import { idSchema, isoDateSchema, localDaySchema, type RouteContract } from "./common";
 
 // Canonical mood values. These MUST match the `mood` Postgres enum
 // (db/schema/_enums.ts: great | good | ok | low | bad) — the value is stored
@@ -30,3 +30,20 @@ export type CheckinResponse = z.infer<typeof checkinResponse>;
 
 export const checkinListResponse = z.object({ checkins: z.array(checkinSchema) });
 export type CheckinListResponse = z.infer<typeof checkinListResponse>;
+
+// Both routes require a user session AND an active premium subscription
+// (`requireAuth` + `requirePremium` in src/routes/checkins.ts) — `auth: "user"`
+// is the closest fit in RouteContract's auth union, which has no "premium"
+// tier of its own; checkins is the only route pair that needs one.
+export const checkinRoutes = {
+  create: {
+    method: "POST",
+    path: "/api/v1/checkins",
+    auth: "user",
+  },
+  list: {
+    method: "GET",
+    path: "/api/v1/checkins",
+    auth: "user",
+  },
+} satisfies Record<string, RouteContract>;
