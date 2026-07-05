@@ -99,4 +99,17 @@ describe("food external search service", () => {
 
     await expect(enforceBarcodeLookupLimit("u1")).rejects.toThrow("Barcode lookup limit reached");
   });
+
+  it("does not cache empty search results, so a repeat search retries upstream", async () => {
+    searchOpenFoodFactsProducts.mockResolvedValueOnce([]);
+
+    const first = await searchExternalFoods("u1", "nonexistent food xyz", 20);
+    expect(first).toEqual({ items: [], cached: false });
+
+    searchOpenFoodFactsProducts.mockResolvedValueOnce([result]);
+    const repeat = await searchExternalFoods("u1", "nonexistent food xyz", 20);
+
+    expect(repeat).toEqual({ items: [result], cached: false });
+    expect(searchOpenFoodFactsProducts).toHaveBeenCalledTimes(2);
+  });
 });

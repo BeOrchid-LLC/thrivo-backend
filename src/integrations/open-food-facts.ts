@@ -43,6 +43,10 @@ interface OffSearchResponse {
 const OFF_ENDPOINT = "https://world.openfoodfacts.org/api/v3/product";
 const OFF_SEARCH_ENDPOINT = "https://world.openfoodfacts.org/cgi/search.pl";
 const OFF_TIMEOUT_MS = 4_000;
+// Open Food Facts asks integrators to send a descriptive User-Agent identifying
+// the app + a contact method; generic/default client UAs are known to get
+// throttled — often silently (200 OK, empty product list).
+export const OFF_USER_AGENT = "ThrivoApp/1.0 (+https://thrivo.fit; support@thrivo.fit)";
 const SEARCH_FIELDS = [
   "code",
   "product_name",
@@ -61,7 +65,7 @@ export async function fetchOpenFoodFactsProduct(
   try {
     const res = await fetch(`${OFF_ENDPOINT}/${encodeURIComponent(barcode)}.json`, {
       signal: controller.signal,
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "User-Agent": OFF_USER_AGENT },
     });
     if (!res.ok) throw new Error(`Open Food Facts lookup failed with ${res.status}`);
     const body = (await res.json()) as OffResponse;
@@ -94,7 +98,7 @@ export async function searchOpenFoodFactsProducts(
     });
     const res = await fetch(`${OFF_SEARCH_ENDPOINT}?${params.toString()}`, {
       signal: controller.signal,
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "User-Agent": OFF_USER_AGENT },
     });
     if (!res.ok) throw new Error(`Open Food Facts search failed with ${res.status}`);
     const body = (await res.json()) as OffSearchResponse;

@@ -92,7 +92,12 @@ export async function searchExternalFoods(
       "Food search limit reached - try again later"
     );
     const items = await searchOpenFoodFactsProducts(normalized, limit);
-    await writeSearchCache(key, items, normalized);
+    // Never cache an empty result — a transient upstream miss must not poison
+    // this query for the full TTL; the per-user rate limiter above already
+    // bounds the cost of a genuinely-no-match query being retried.
+    if (items.length > 0) {
+      await writeSearchCache(key, items, normalized);
+    }
     return { items, cached: false };
   } catch (err) {
     if (err instanceof RateLimitedError) throw err;
