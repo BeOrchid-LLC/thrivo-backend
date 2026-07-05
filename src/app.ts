@@ -17,6 +17,7 @@ import { foodsRouter } from "./routes/foods";
 import { metricsRouter } from "./routes/metrics";
 import { subscriptionsRouter } from "./routes/subscriptions";
 import { checkinsRouter } from "./routes/checkins";
+import { leadsRouter } from "./routes/leads";
 import { webhooksRouter } from "./routes/webhooks";
 import { adminRouter } from "./routes/admin";
 import { errorHandler } from "./middleware/error";
@@ -59,6 +60,12 @@ export function buildApp(): Hono<AppEnv> {
   app.route("/api/v1/metrics", metricsRouter);
   app.route("/api/v1/subscriptions", subscriptionsRouter);
   app.route("/api/v1/checkins", checkinsRouter);
+
+  // Public, unauthenticated email-capture surface (marketing site CTA form).
+  // Sits under the general authMiddleware above, which is non-fatal and never
+  // blocks anonymous requests — this route uses neither requireAuth nor
+  // requireAdmin, so it's reachable with no session at all.
+  app.route("/api/v1/leads", leadsRouter);
 
   // Provider webhooks — authenticated by a shared secret in the handler, not the
   // user session. RevenueCat entitlement events are the source of truth.
