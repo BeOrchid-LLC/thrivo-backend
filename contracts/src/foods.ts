@@ -21,6 +21,13 @@ export const nutrientsSchema = z.object({
 });
 export type Nutrients = z.infer<typeof nutrientsSchema>;
 
+export const boundedNutrientsSchema = z.object({
+  calories: z.number().min(0).max(5000),
+  proteinG: z.number().min(0).max(500),
+  carbsG: z.number().min(0).max(800),
+  fatG: z.number().min(0).max(500),
+});
+
 export const servingOptionSchema = z.object({
   id: idSchema.nullable(),
   measure: portionMeasureSchema,
@@ -101,18 +108,35 @@ export const foodLogHistoryResponseSchema = apiSuccessSchema(
 );
 
 export const foodLookupQuerySchema = z.object({
-  barcode: z.string().min(3),
+  barcode: z
+    .string()
+    .trim()
+    .transform((value) => value.replace(/[\s-]/g, ""))
+    .pipe(z.string().regex(/^\d{8,14}$/, "Barcode must be 8 to 14 digits")),
 });
 export const foodLookupResponseSchema = apiSuccessSchema(
   z.object({ food: foodItemSchema.nullable() })
 );
 
 export const foodSearchQuerySchema = z.object({
-  q: z.string().trim().min(1),
-  cursor: z.string().optional(),
+  q: z.string().trim().min(2).max(80),
+  limit: z.coerce.number().int().positive().max(25).optional(),
 });
+
+export const foodSearchResultSchema = z.object({
+  externalId: z.string(),
+  name: z.string(),
+  brand: z.string().nullable(),
+  barcode: z.string().nullable(),
+  servingLabel: z.string(),
+  servingGrams: z.number().nullable(),
+  nutrients: nutrientsSchema,
+  source: z.literal("openfoodfacts"),
+});
+export type FoodSearchResult = z.infer<typeof foodSearchResultSchema>;
+
 export const foodSearchResponseSchema = apiSuccessSchema(
-  z.object({ items: z.array(foodItemSchema) })
+  z.object({ items: z.array(foodSearchResultSchema), cached: z.boolean() })
 );
 
 export const foodDetailParamsSchema = z.object({ id: idSchema });
@@ -128,7 +152,40 @@ export const upsertFoodPayloadSchema = z.object({
 });
 export type UpsertFoodPayload = z.infer<typeof upsertFoodPayloadSchema>;
 
-export const logFoodPayloadSchema = z.object({
+export const externalFoodSnapshotSchema = z.object({
+  externalId: z.string().trim().min(1).max(128),
+  name: z.string().trim().min(1).max(160),
+  brand: z.string().trim().max(120).nullable().optional(),
+  barcode: z.string().trim().max(32).nullable().optional(),
+  servingLabel: z.string().trim().min(1).max(80),
+  servingGrams: z.number().positive().nullable().optional(),
+  nutrients: boundedNutrientsSchema,
+  source: z.literal("openfoodfacts"),
+});
+export type ExternalFoodSnapshot = z.infer<typeof externalFoodSnapshotSchema>;
+
+export const logFoodPayloadSchema = z
+  .object({
+    foodItemId: idSchema.optional(),
+    externalFood: externalFoodSnapshotSchema.optional(),
+    day: localDaySchema,
+    servings: z.number().positive().max(100),
+    servingId: idSchema.optional(),
+    servingUnit: z.string().trim().max(80).optional(),
+    consumedAt: isoDateSchema.optional(),
+  })
+  .superRefine((payload, ctx) => {
+    if (Boolean(payload.foodItemId) === Boolean(payload.externalFood)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["foodItemId"],
+        message: "Provide exactly one of foodItemId or externalFood",
+      });
+    }
+  });
+export type LogFoodPayload = z.infer<typeof logFoodPayloadSchema>;
+
+export const storedLogFoodPayloadSchema = z.object({
   foodItemId: idSchema,
   day: localDaySchema,
   servings: z.number().positive(),
@@ -136,7 +193,6 @@ export const logFoodPayloadSchema = z.object({
   servingUnit: z.string().trim().optional(),
   consumedAt: isoDateSchema.optional(),
 });
-export type LogFoodPayload = z.infer<typeof logFoodPayloadSchema>;
 
 export const updateLogPayloadSchema = z.object({
   servings: z.number().positive().optional(),
@@ -170,11 +226,11 @@ export const addFavoritePayloadSchema = z.object({ foodItemId: idSchema });
 export const favoriteParamsSchema = z.object({ id: idSchema });
 
 export const estimateFoodPayloadSchema = z.object({
-  name: z.string().trim().min(1),
-  ingredients: z.string().trim().optional(),
-  cookingMethod: z.string().trim().optional(),
+  name: z.string().trim().min(1).max(120),
+  ingredients: z.string().trim().max(600).optional(),
+  cookingMethod: z.string().trim().max(160).optional(),
   portionMeasure: portionMeasureSchema,
-  quantity: z.number().positive(),
+  quantity: z.number().positive().max(5000),
   consumedAt: isoDateSchema.optional(),
 });
 export type EstimateFoodPayload = z.infer<typeof estimateFoodPayloadSchema>;
@@ -193,8 +249,8 @@ export const estimateFoodResponseSchema = apiSuccessSchema(
 
 export const logEstimatePayloadSchema = estimateFoodPayloadSchema.extend({
   day: localDaySchema,
-  nutrients: nutrientsSchema,
-  servingUnit: z.string().trim().optional(),
+  nutrients: boundedNutrientsSchema,
+  servingUnit: z.string().trim().max(80).optional(),
 });
 export type LogEstimatePayload = z.infer<typeof logEstimatePayloadSchema>;
 
