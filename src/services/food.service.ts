@@ -3,18 +3,20 @@ import type { Executor } from "../../db/tx";
 import type {
   FoodItem,
   FoodLogEntry,
+  FoodSearchResult,
   ServingOption,
   UpsertFoodPayload,
   LogFoodPayload,
   UpdateLogPayload,
   LogEstimatePayload,
 } from "../../contracts/src/foods";
-import { ConflictError, NotFoundError } from "../lib/errors";
+import { ConflictError, NotFoundError, RateLimitedError, UpstreamError } from "../lib/errors";
 import { dailySummaryRepo, foodFavoriteRepo, foodItemRepo, foodLogRepo } from "../repositories";
 import type { FoodLog } from "../repositories/food-log.repository";
 import type { User } from "../repositories/user.repository";
 import { fetchOpenFoodFactsProduct } from "../integrations/open-food-facts";
 import { invalidateFoodDashboardCache } from "./dashboard-cache.service";
+import { enforceBarcodeLookupLimit, searchExternalFoods } from "./food-external.service";
 
 const DEFAULT_TARGET_CALORIES = 1800;
 
@@ -22,7 +24,14 @@ export async function lookupFood(user: User, barcode: string): Promise<FoodItem 
   const cached = await foodItemRepo.findActiveByBarcode(barcode);
   if (cached && canSeeFood(user, cached)) return toFoodItem(cached.id);
 
-  const upstream = await fetchOpenFoodFactsProduct(barcode);
+  let upstream;
+  try {
+    await enforceBarcodeLookupLimit(user.id);
+    upstream = await fetchOpenFoodFactsProduct(barcode);
+  } catch (err) {
+    if (err instanceof RateLimitedError) throw err;
+    throw new UpstreamError("Could not look up barcode right now", err);
+  }
   if (!upstream) return null;
 
   const created = await db.transaction(async (tx) => {
@@ -71,11 +80,12 @@ export async function lookupFood(user: User, barcode: string): Promise<FoodItem 
   return toFoodItem(created.id);
 }
 
-export async function searchFoods(user: User, query: string): Promise<FoodItem[]> {
-  const items = await foodItemRepo.searchVisibleByText(user.id, query);
-  return Promise.all(items.map((item) => toFoodItem(item.id))).then((results) =>
-    results.filter((item): item is FoodItem => item !== null)
-  );
+export async function searchFoods(
+  user: User,
+  query: string,
+  limit: number
+): Promise<{ items: FoodSearchResult[]; cached: boolean }> {
+  return searchExternalFoods(user.id, query, limit);
 }
 
 export async function getFoodDetail(user: User, id: string): Promise<FoodItem> {
@@ -159,6 +169,10 @@ export async function removeFavorite(user: User, foodItemId: string): Promise<Fo
 }
 
 export async function logFood(user: User, payload: LogFoodPayload, idempotencyKey?: string | null) {
+  if (payload.externalFood) {
+    return logExternalFood(user, payload, idempotencyKey);
+  }
+  if (!payload.foodItemId) throw new ConflictError("Food item is required");
   const item = await foodItemRepo.findById(payload.foodItemId);
   if (!item || !canSeeFood(user, item)) throw new NotFoundError("Food not found");
   const nutrient = await foodItemRepo.getNutrients(item.id);
@@ -196,6 +210,44 @@ export async function logFood(user: User, payload: LogFoodPayload, idempotencyKe
       tx
     );
     await foodFavoriteRepo.bumpUseCount(user.id, item.id, tx);
+    const totals = await refreshDailySummary(user, payload.day, tx);
+    return { log, totals };
+  });
+  await invalidateFoodDashboardCache(user.id, payload.day);
+  return mutationResult(log, totals);
+}
+
+async function logExternalFood(
+  user: User,
+  payload: LogFoodPayload,
+  idempotencyKey?: string | null
+) {
+  const snapshot = payload.externalFood;
+  if (!snapshot) throw new ConflictError("Food snapshot is required");
+  const consumedAt = payload.consumedAt ? new Date(payload.consumedAt) : new Date();
+  const now = new Date();
+  const { log, totals } = await db.transaction(async (tx) => {
+    const log = await foodLogRepo.createLog(
+      {
+        userId: user.id,
+        idempotencyKey: idempotencyKey ?? null,
+        loggedAt: now,
+        consumedAt,
+        localDate: payload.day,
+        source: "search",
+        barcode: snapshot.barcode ?? null,
+        foodItemId: null,
+        servingId: null,
+        name: snapshot.name,
+        servingQty: String(payload.servings),
+        servingUnit: payload.servingUnit ?? snapshot.servingLabel,
+        kcal: Math.round(snapshot.nutrients.calories * payload.servings),
+        proteinG: String(snapshot.nutrients.proteinG * payload.servings),
+        carbsG: String(snapshot.nutrients.carbsG * payload.servings),
+        fatG: String(snapshot.nutrients.fatG * payload.servings),
+      },
+      tx
+    );
     const totals = await refreshDailySummary(user, payload.day, tx);
     return { log, totals };
   });

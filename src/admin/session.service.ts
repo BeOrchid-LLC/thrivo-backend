@@ -16,12 +16,21 @@ const AUDIENCE = "thrivo-admin-panel";
 export const ADMIN_COOKIE = "admin_session";
 
 /**
- * Cookie options shared by set and clear. The admin SPA (admin.thrivo.fit) and
- * the API (api.thrivo.fit) share the registrable domain thrivo.fit, so they are
- * same-site: SameSite=Strict still delivers the cookie on the SPA's fetches but
- * makes the browser withhold it from any truly cross-site origin — closing CSRF
- * without a token. httpOnly keeps it out of JS; Secure in production. The
- * Origin check on mutations (admin-origin middleware) is the belt-and-suspenders.
+ * Cookie options shared by set and clear.
+ *
+ * Production admin auth depends on this exact browser storage shape:
+ *   Secure + SameSite=None + Partitioned
+ *
+ * The admin SPA lives on admin.thrivo.fit and calls the API on api.thrivo.fit
+ * with `credentials: "include"`. In production browsers, the session cookie was
+ * not reliably stored/sent after OTP verification until the cookie was issued as
+ * a partitioned, secure, SameSite=None cookie. Do not "simplify" this back to
+ * SameSite=Strict/Lax or remove Partitioned unless the admin auth flow is moved
+ * behind a same-origin BFF/proxy and verified in a real browser.
+ *
+ * Local/dev cannot use Partitioned without Secure, so non-production falls back
+ * to SameSite=Lax and no partitioning. httpOnly keeps the token out of JS; the
+ * Origin check on mutations (admin-origin middleware) is the CSRF backstop.
  */
 
 const secure = env.NODE_ENV === "production";

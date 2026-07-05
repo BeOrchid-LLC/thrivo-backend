@@ -56,4 +56,14 @@ describe("estimateNutrition service", () => {
     await expect(estimateNutrition("u1", { ...payload, name: "food-30" })).rejects.toThrow();
     expect(estimateNutritionViaModel).toHaveBeenCalledTimes(30);
   });
+
+  it("fails closed on cache miss when Redis cannot enforce the spend limit", async () => {
+    redis.instance.get.mockResolvedValueOnce(null);
+    redis.instance.incr.mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(estimateNutrition("u1", { ...payload, name: "uncached" })).rejects.toThrow(
+      "redis down"
+    );
+    expect(estimateNutritionViaModel).not.toHaveBeenCalled();
+  });
 });

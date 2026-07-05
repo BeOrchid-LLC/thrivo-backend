@@ -67,6 +67,39 @@ export const envSchema = z
     // extraction; override per env.
     ANTHROPIC_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
     ANTHROPIC_MODEL: z.string().default("claude-haiku-4-5"),
+    AI_ESTIMATE_CACHE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60 * 60 * 24),
+    AI_ESTIMATE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+    AI_ESTIMATE_RATE_LIMIT_WINDOW_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60 * 60),
+    AI_ESTIMATE_MAX_TOKENS: z.coerce.number().int().positive().max(256).default(160),
+
+    // Open Food Facts-backed text search. Results are transient and cached by
+    // normalized query so repeated popular searches do not keep hitting upstream.
+    FOOD_SEARCH_CACHE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60 * 60 * 24),
+    FOOD_SEARCH_CACHE_MAX_KEYS: z.coerce.number().int().positive().default(750),
+    FOOD_SEARCH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+    FOOD_SEARCH_RATE_LIMIT_WINDOW_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60 * 60),
+    BARCODE_LOOKUP_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+    BARCODE_LOOKUP_RATE_LIMIT_WINDOW_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60 * 60),
 
     // Transactional email (Resend). Optional — without a key the send path fails
     // at use: it logs that RESEND_API_KEY is missing and marks email_logs as
