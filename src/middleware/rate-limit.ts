@@ -54,3 +54,6 @@ export const apiRateLimit = rateLimit({ windowSec: 60, max: 120, keyPrefix: "api
 
 /** Tighter bucket for auth endpoints (credential stuffing / OTP abuse). */
 export const authRateLimit = rateLimit({ windowSec: 60, max: 10, keyPrefix: "auth" });
+
+/** Public unauthenticated write endpoint (email capture) — the classic spam-bot target. */
+export const leadsRateLimit = rateLimit({ windowSec: 600, max: 5, keyPrefix: "leads-capture" });
