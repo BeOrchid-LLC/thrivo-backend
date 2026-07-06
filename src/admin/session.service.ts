@@ -74,9 +74,23 @@ export async function verifyAdminSession(token: string): Promise<AdminClaims | n
     // jose folds every failure (bad signature, expired, iss/aud mismatch) into a
     // thrown error; logging the code here is what lets us tell those apart in
     // Coolify logs instead of only ever seeing "Session expired" at the client.
+    // JWTExpired/JWTClaimValidationFailed also carry the decoded (but rejected)
+    // payload — logging iat/exp against the server's own clock is what pins down
+    // whether ADMIN_SESSION_TTL is being parsed the way we expect.
     const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+    const payload =
+      err && typeof err === "object" && "payload" in err
+        ? (err as { payload?: { iat?: unknown; exp?: unknown } }).payload
+        : undefined;
     logger.warn(
-      { code, message: err instanceof Error ? err.message : String(err) },
+      {
+        code,
+        message: err instanceof Error ? err.message : String(err),
+        iat: payload?.iat,
+        exp: payload?.exp,
+        nowSeconds: Math.floor(Date.now() / 1000),
+        adminSessionTtl: env.ADMIN_SESSION_TTL,
+      },
       "admin session verification failed"
     );
     return null;
