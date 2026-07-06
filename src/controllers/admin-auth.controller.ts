@@ -4,7 +4,12 @@ import { z } from "zod";
 import { respondOk } from "../lib/response";
 import { ForbiddenError } from "../lib/errors";
 import { isAllowedAdminEmail, issueAdminOtp, consumeAdminOtp } from "../admin/otp.service";
-import { signAdminSession, ADMIN_COOKIE, ADMIN_COOKIE_OPTS } from "../admin/session.service";
+import {
+  signAdminSession,
+  ADMIN_COOKIE,
+  ADMIN_COOKIE_OPTS,
+  LEGACY_ADMIN_COOKIE_OPTS,
+} from "../admin/session.service";
 import { sendTemplatedEmail } from "../services/email.service";
 import type { AppEnv } from "../types/http";
 
@@ -80,6 +85,9 @@ export async function postAdminVerifyOtp(c: Context<AppEnv>) {
   const claims = { id: email, email, name: null, role: "admin" as const };
   const token = await signAdminSession(claims);
   setCookie(c, ADMIN_COOKIE, token, ADMIN_COOKIE_OPTS);
+  // Evict any stale pre-Partitioned cookie left over from before 2026-07-03 —
+  // see LEGACY_ADMIN_COOKIE_OPTS for why it can otherwise shadow the fresh one.
+  deleteCookie(c, ADMIN_COOKIE, LEGACY_ADMIN_COOKIE_OPTS);
 
   return respondOk(c, {
     admin: { id: claims.id, email: claims.email, name: claims.name, role: claims.role },
@@ -102,5 +110,6 @@ export function getAdminSession(c: Context<AppEnv>) {
  */
 export function postAdminLogout(c: Context<AppEnv>) {
   deleteCookie(c, ADMIN_COOKIE, { ...ADMIN_COOKIE_OPTS, maxAge: 0 });
+  deleteCookie(c, ADMIN_COOKIE, LEGACY_ADMIN_COOKIE_OPTS);
   return respondOk(c, null, "Logged out");
 }

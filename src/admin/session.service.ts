@@ -45,6 +45,22 @@ export const ADMIN_COOKIE_OPTS = {
   path: "/",
 } as const;
 
+/**
+ * Targets the pre-2026-07-03 cookie shape (same name/domain/path, no
+ * `Partitioned`). Chrome stores a Partitioned cookie in a separate jar from a
+ * non-partitioned one of the same name/domain/path, so anyone who logged in
+ * before Partitioned was added still carries both — and hono's getCookie()
+ * takes whichever one the browser lists first in the Cookie header, which is
+ * often the stale one. Issue a delete with this shape alongside every
+ * login/logout to evict it for good.
+ */
+export const LEGACY_ADMIN_COOKIE_OPTS = {
+  httpOnly: true,
+  secure,
+  sameSite,
+  path: "/",
+} as const;
+
 /** Sign a short-lived admin session JWT. */
 export async function signAdminSession(claims: AdminClaims): Promise<string> {
   return new SignJWT({ email: claims.email, name: claims.name, role: claims.role })
