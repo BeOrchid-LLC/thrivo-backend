@@ -6,6 +6,8 @@ import {
   deleteWeightParamsSchema,
   deleteWaterParamsSchema,
   progressQuerySchema,
+  updateWaterParamsSchema,
+  updateWaterPayloadSchema,
   waterQuerySchema,
   weightQuerySchema,
 } from "../../contracts/src/metrics";
@@ -18,6 +20,7 @@ import {
   getProgress,
   getWater,
   getWeightContext,
+  updateWater,
 } from "../controllers/metrics.controller";
 import { requireAuth } from "../middleware/require-auth";
 import { validate } from "../middleware/validate";
@@ -33,4 +36,10 @@ metricsRouter.post("/weight", validate("json", addWeightPayloadSchema), addWeigh
 metricsRouter.delete("/weight/:id", validate("param", deleteWeightParamsSchema), deleteWeight);
 metricsRouter.get("/water", validate("query", waterQuerySchema), getWater);
 metricsRouter.post("/water", validate("json", addWaterPayloadSchema), addWater);
+metricsRouter.patch(
+  "/water/:id",
+  validate("param", updateWaterParamsSchema),
+  validate("json", updateWaterPayloadSchema),
+  updateWater
+);
 metricsRouter.delete("/water/:id", validate("param", deleteWaterParamsSchema), deleteWater);

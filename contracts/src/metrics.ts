@@ -48,6 +48,13 @@ export type AddWaterPayload = z.infer<typeof addWaterPayloadSchema>;
 
 export const deleteWaterParamsSchema = z.object({ id: idSchema });
 
+export const updateWaterParamsSchema = z.object({ id: idSchema });
+export const updateWaterPayloadSchema = z.object({
+  amountMl: z.number().int().positive().optional(),
+  recordedAt: isoDateSchema.optional(),
+});
+export type UpdateWaterPayload = z.infer<typeof updateWaterPayloadSchema>;
+
 export const chartMetricSchema = z.enum(["calories", "water", "weight"]);
 export type ChartMetric = z.infer<typeof chartMetricSchema>;
 
@@ -190,6 +197,11 @@ export const metricRoutes = {
   },
   waterDelete: {
     method: "DELETE",
+    path: "/api/v1/metrics/water/:id",
+    auth: "user",
+  },
+  waterUpdate: {
+    method: "PATCH",
     path: "/api/v1/metrics/water/:id",
     auth: "user",
   },
