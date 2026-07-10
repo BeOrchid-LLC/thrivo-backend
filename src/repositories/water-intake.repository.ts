@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { waterIntake, type NewWaterIntakeRow, type WaterIntakeRow } from "../../db/schema";
@@ -49,7 +49,7 @@ export async function listEntriesForDay(
     .select()
     .from(waterIntake)
     .where(and(eq(waterIntake.userId, userId), eq(waterIntake.localDate, localDate)))
-    .orderBy(asc(waterIntake.recordedAt));
+    .orderBy(desc(waterIntake.recordedAt));
 }
 
 export async function listTotalsRange(
@@ -74,6 +74,20 @@ export async function listTotalsRange(
     .groupBy(waterIntake.localDate)
     .orderBy(asc(waterIntake.localDate));
   return rows.map((row) => ({ day: row.day, totalMl: row.totalMl }));
+}
+
+export async function updateEntryForUser(
+  userId: string,
+  id: string,
+  updates: Partial<Pick<NewWaterIntakeRow, "amountMl" | "recordedAt">>,
+  tx: Executor = db
+): Promise<WaterIntake | null> {
+  const [row] = await tx
+    .update(waterIntake)
+    .set(updates)
+    .where(and(eq(waterIntake.userId, userId), eq(waterIntake.id, id)))
+    .returning();
+  return row ?? null;
 }
 
 export async function deleteEntryForUser(

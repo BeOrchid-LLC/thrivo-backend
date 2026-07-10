@@ -6,6 +6,8 @@ import {
   deleteWeightParamsSchema,
   deleteWaterParamsSchema,
   progressQuerySchema,
+  updateWaterParamsSchema,
+  updateWaterPayloadSchema,
   waterQuerySchema,
   weightQuerySchema,
 } from "../../contracts/src/metrics";
@@ -73,6 +75,20 @@ export async function addWater(c: Context<AppEnv>) {
   const input = addWaterPayloadSchema.parse(getValidatedInput(c, "json"));
   await saveWater(user, input.day, input.amountMl, readIdempotencyKey(c));
   const water = await getWaterState(user, input.day);
+  return respondOk(c, { water });
+}
+
+export async function updateWater(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  const { id } = updateWaterParamsSchema.parse(getValidatedInput(c, "param"));
+  const input = updateWaterPayloadSchema.parse(getValidatedInput(c, "json"));
+  const updated = await waterIntakeRepo.updateEntryForUser(user.id, id, {
+    amountMl: input.amountMl,
+    recordedAt: input.recordedAt ? new Date(input.recordedAt) : undefined,
+  });
+  if (!updated) throw new NotFoundError("Water entry not found");
+  await invalidateWaterDashboardCache(user.id, updated.localDate);
+  const water = await getWaterState(user, updated.localDate);
   return respondOk(c, { water });
 }
 
