@@ -69,6 +69,30 @@ export async function totalsForDay(
   };
 }
 
+/**
+ * Distinct logged days in range, served by the (user_id, local_date) index —
+ * backs the progress calendar (R5-2/I14), which only needs a Set of days and
+ * previously loaded every full `food_logs` row in the grid to derive it.
+ */
+export async function listDistinctLocalDatesInRange(
+  userId: string,
+  fromDate: string,
+  toDate: string,
+  tx: Executor = db
+): Promise<string[]> {
+  const rows = await tx
+    .selectDistinct({ localDate: foodLogs.localDate })
+    .from(foodLogs)
+    .where(
+      and(
+        eq(foodLogs.userId, userId),
+        gte(foodLogs.localDate, fromDate),
+        lte(foodLogs.localDate, toDate)
+      )
+    );
+  return rows.map((row) => row.localDate);
+}
+
 export async function listLogsByLocalDateRange(
   userId: string,
   fromDate: string,
