@@ -1,4 +1,15 @@
-import { and, count, eq, ilike, isNull, isNotNull, or, desc, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  eq,
+  getTableColumns,
+  ilike,
+  isNull,
+  isNotNull,
+  or,
+  desc,
+  sql,
+} from "drizzle-orm";
 import { db } from "../../db";
 import { users } from "../../db/schema";
 import * as authIdentityRepo from "./auth-identity.repository";
@@ -76,13 +87,20 @@ function buildStatusWhere(status: string | undefined) {
 }
 
 /**
- * `(created_at, id) < cursor` as a row-value comparison — one indexed seek
- * (users_created_at_id_idx) per page, never an OFFSET scan-and-discard
- * (SYSTEM_DESIGN §373; R5-4/I16). The `id` tiebreak keeps the cursor stable
- * when two rows share a `created_at` (bulk imports, seed data).
+ * `created_at` is `timestamptz` (microsecond precision in Postgres). A cursor
+ * built from a JS `Date` (millisecond precision only, via `.toISOString()`)
+ * would be a strictly *smaller* bound than the row it came from whenever that
+ * row's true value has a sub-millisecond component — and since the cursor is
+ * a strict `<` upper bound, that silently skips any row whose true value
+ * falls in the truncated gap (most likely when two rows land in the same
+ * millisecond: concurrent signups, bulk imports). So the cursor carries the
+ * column's raw `::text` cast instead of a `Date` — full precision, no round
+ * trip through a lossy type — compared back against the bare `created_at`
+ * column so the `users_created_at_id_idx` index stays usable (only the cursor
+ * *value* is cast; the indexed column itself is never wrapped in a function).
  */
 function buildCursorWhere(cursor: UserCursor) {
-  return sql`(${users.createdAt}, ${users.id}) < (${new Date(cursor.createdAt)}, ${cursor.id})`;
+  return sql`(${users.createdAt}, ${users.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id})`;
 }
 
 export async function listUsers(params: AdminListParams): Promise<AdminListResult> {
@@ -100,7 +118,7 @@ export async function listUsers(params: AdminListParams): Promise<AdminListResul
 
   const [rows, [{ value: total }]] = await Promise.all([
     db
-      .select()
+      .select({ ...getTableColumns(users), createdAtCursor: sql<string>`${users.createdAt}::text` })
       .from(users)
       .where(and(filterWhere, cursorWhere))
       .orderBy(desc(users.createdAt), desc(users.id))
@@ -114,7 +132,7 @@ export async function listUsers(params: AdminListParams): Promise<AdminListResul
   const last = rows[rows.length - 1];
   const nextCursor =
     rows.length === limit && last
-      ? encodeCursor({ createdAt: last.createdAt.toISOString(), id: last.id } satisfies UserCursor)
+      ? encodeCursor({ createdAt: last.createdAtCursor, id: last.id } satisfies UserCursor)
       : null;
 
   return {
