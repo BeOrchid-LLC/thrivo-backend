@@ -31,7 +31,14 @@ export const ADMIN_COOKIE = "admin_session";
  *
  * Local/dev cannot use Partitioned without Secure, so non-production falls back
  * to SameSite=Lax and no partitioning. httpOnly keeps the token out of JS; the
- * Origin check on mutations (admin-origin middleware) is the CSRF backstop.
+ * Origin check on mutations (admin-origin middleware) is the CSRF guard.
+ *
+ * No server-side revocation (ADR-0024, Option A): logout only deletes the
+ * client cookie — the signed JWT stays valid until ADMIN_SESSION_TTL (8h)
+ * elapses even if "logged out." Accepted for launch because Cloudflare Access
+ * fronts admin.thrivo.fit (a stolen/leaked token still needs a valid Access
+ * identity to reach the app) and the TTL is short. A DB-backed, revocable
+ * session is the committed post-launch follow-up (R3-5, same-origin BFF).
  */
 
 const secure = env.NODE_ENV === "production";
