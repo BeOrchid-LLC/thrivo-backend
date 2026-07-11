@@ -333,6 +333,10 @@ async function run(): Promise<void> {
   }
 
   const reportPath = args.reportOut ?? CHECKPOINT_PATH.replace(/\.json$/, "-report.json");
+  // Covers the zero-batches case (e.g. an empty/already-clean catalog): the
+  // loop above breaks before saveCheckpoint ever runs, so this directory may
+  // not exist yet — and a custom --report-out could point elsewhere entirely.
+  await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, JSON.stringify(checkpoint, null, 2));
   logger.info({ reportPath, apply: args.apply }, "backfill: run complete");
 }
