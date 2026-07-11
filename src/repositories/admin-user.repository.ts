@@ -5,6 +5,8 @@ import * as authIdentityRepo from "./auth-identity.repository";
 import * as foodLogRepo from "./food-log.repository";
 import * as streakRepo from "./streak.repository";
 import * as subscriptionRepo from "./subscription.repository";
+import * as adminAuditLogRepo from "./admin-audit-log.repository";
+import type { AuditActor } from "./admin-audit-log.repository";
 import type { AdminUser, AdminUserDetail } from "../../contracts/src/admin";
 import {
   toAdminSubscription,
@@ -119,21 +121,32 @@ export async function findById(id: string): Promise<AdminUserDetail | null> {
  * Permanent hard delete — removes the `users` profile and its linked `auth_user`
  * identity in one transaction. Deleting `auth_user` cascades to `session` and
  * `account` via FK, which immediately invalidates any live refresh tokens.
- * Returns true if the user existed and was deleted.
+ * Writes the `admin_audit_log` row in the same transaction (before-snapshot of
+ * the full user row) so a rolled-back delete leaves no orphan audit entry and
+ * vice-versa. Returns true if the user existed and was deleted.
  */
-export async function hardDeleteUser(id: string): Promise<boolean> {
+export async function hardDeleteUser(id: string, audit: AuditActor): Promise<boolean> {
   return db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({ authSubjectId: users.authSubjectId })
-      .from(users)
-      .where(eq(users.id, id))
-      .limit(1);
+    const [row] = await tx.select().from(users).where(eq(users.id, id)).limit(1);
     if (!row) return false;
 
     if (row.authSubjectId) {
       await authIdentityRepo.deleteById(row.authSubjectId, tx);
     }
     await tx.delete(users).where(eq(users.id, id));
+
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: audit.actorAdminEmail,
+        action: "user.hard_delete",
+        targetType: "user",
+        targetId: id,
+        before: row,
+        requestId: audit.requestId,
+        ip: audit.ip,
+      },
+      tx
+    );
     return true;
   });
 }

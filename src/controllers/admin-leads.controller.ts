@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { z } from "zod";
 import { respondOk } from "../lib/response";
+import { getClientIp } from "../lib/request-ip";
 import { emailCaptureRepo } from "../repositories";
 import type { EmailCapture } from "../repositories/email-capture.repository";
 import type { AppEnv } from "../types/http";
@@ -22,7 +23,12 @@ export async function listAdminLeads(c: Context<AppEnv>) {
 /** DELETE /admin/leads/:id — hard delete (spam/bad-email cleanup). Idempotent. */
 export async function hardDeleteAdminLead(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
-  await emailCaptureRepo.hardDelete(id);
+  const admin = c.get("adminUser")!;
+  await emailCaptureRepo.hardDelete(id, {
+    actorAdminEmail: admin.email,
+    requestId: c.get("requestId") ?? null,
+    ip: getClientIp(c),
+  });
   return respondOk(c, null, "Lead deleted permanently");
 }
 

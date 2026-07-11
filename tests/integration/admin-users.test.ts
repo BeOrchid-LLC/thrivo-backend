@@ -1,8 +1,11 @@
+import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
 import { createSession } from "../helpers/auth";
 import { makeFoodLog } from "../helpers/factories";
 import { buildApp } from "../../src/app";
+import { db } from "../../db";
+import { adminAuditLog } from "../../db/schema";
 import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import { streakRepo, subscriptionRepo, userRepo } from "../../src/repositories";
 
@@ -162,7 +165,7 @@ describe.skipIf(!run)("integration: admin users", () => {
     });
   });
 
-  it("hard-deletes a user via DELETE /admin/users/:id with a JSON ack envelope", async () => {
+  it("hard-deletes a user via DELETE /admin/users/:id with a JSON ack envelope, and writes exactly one audit row (R3-1)", async () => {
     const app = buildApp();
     const session = await createSession();
 
@@ -180,6 +183,36 @@ describe.skipIf(!run)("integration: admin users", () => {
     expect(body.data).toBeNull();
     expect(body.message).toBe("User deleted permanently");
     expect(await userRepo.findActiveByEmail(session.email)).toBeNull();
+
+    const auditRows = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.targetId, user!.id));
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]).toMatchObject({
+      actorAdminEmail: "admin@test.thrivo.fit",
+      action: "user.hard_delete",
+      targetType: "user",
+      targetId: user!.id,
+    });
+    expect((auditRows[0]!.before as { email: string }).email).toBe(session.email);
+  });
+
+  it("deleting a nonexistent user is a no-op ack and writes no audit row (rollback-equivalent)", async () => {
+    const app = buildApp();
+    const missingId = "00000000-0000-0000-0000-000000000000";
+
+    const del = await app.request(`/api/v1/admin/users/${missingId}`, {
+      method: "DELETE",
+      headers: { Cookie: await adminCookie() },
+    });
+
+    expect(del.status).toBe(200);
+    const auditRows = await db
+      .select()
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.targetId, missingId));
+    expect(auditRows).toHaveLength(0);
   });
 
   it("returns dashboard metrics via GET /admin/metrics/dashboard", async () => {
