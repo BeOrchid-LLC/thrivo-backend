@@ -30,9 +30,13 @@ export const foodNutrients = pgTable(
     // ADR-0022 (D1/D2): the multiplier divides by servingG whenever basis is
     // per_serving — a null/zero value there is a divide-by-zero (I1's root
     // cause). Enforced in application code too, but the DB is the backstop.
+    // `serving_g > 0` alone evaluates to NULL (not FALSE) when serving_g IS
+    // NULL, and Postgres CHECK constraints only reject on FALSE — three-valued
+    // logic silently let a NULL serving_g through. The explicit IS NOT NULL
+    // forces that case to evaluate to FALSE.
     servingGRequiredForPerServing: check(
       "food_nutrients_serving_g_required_for_per_serving",
-      sql`${t.basis} <> 'per_serving' OR ${t.servingG} > 0`
+      sql`${t.basis} <> 'per_serving' OR (${t.servingG} IS NOT NULL AND ${t.servingG} > 0)`
     ),
   })
 );

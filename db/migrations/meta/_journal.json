@@ -127,6 +127,13 @@
       "when": 1783747715356,
       "tag": "0017_giant_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783750587166,
+      "tag": "0018_low_hobgoblin",
+      "breakpoints": true
     }
   ]
 }
