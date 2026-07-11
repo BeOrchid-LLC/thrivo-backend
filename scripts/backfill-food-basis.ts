@@ -15,14 +15,20 @@
  * Dry-run by default. Nothing is written unless --apply is passed. Checkpointed
  * by `food_items.id` so a crash/interrupt resumes instead of restarting.
  *
+ * Checkpoint/report files default to the OS temp dir, not next to the script —
+ * the deployed container runs as an unprivileged `node` user while `/app` (the
+ * bundled dist/ included) is root-owned from the Docker build, so writing
+ * beside the script itself is an EACCES waiting to happen. Override with
+ * --checkpoint-dir= to point at a mounted volume for cross-restart durability.
+ *
  * Usage:
  *   tsx scripts/backfill-food-basis.ts [--apply] [--batch-size=50]
  *                                       [--max-batches=N] [--reset]
- *                                       [--report-out=path.json]
+ *                                       [--checkpoint-dir=path] [--report-out=path.json]
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { closeDb, db } from "../db";
 import type { FoodItemRow, FoodLogRow, FoodServingRow } from "../db/schema";
 import { logger } from "../src/lib/logger";
@@ -31,8 +37,7 @@ import { fetchOpenFoodFactsProduct } from "../src/integrations/open-food-facts";
 import { foodItemRepo, foodLogRepo, userRepo } from "../src/repositories";
 import { refreshDailySummary } from "../src/services/food.service";
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const CHECKPOINT_PATH = path.join(SCRIPT_DIR, ".backfill-checkpoints", "food-basis-backfill.json");
+const DEFAULT_CHECKPOINT_DIR = path.join(os.tmpdir(), "thrivo-backfill-food-basis");
 // Conservative pacing against OFF's public, unauthenticated API — this is a
 // batch job, not a user-facing request, so there's no latency budget to spend.
 const OFF_REQUEST_DELAY_MS = 300;
@@ -62,10 +67,10 @@ function freshCheckpoint(): Checkpoint {
   };
 }
 
-async function loadCheckpoint(reset: boolean): Promise<Checkpoint> {
+async function loadCheckpoint(checkpointPath: string, reset: boolean): Promise<Checkpoint> {
   if (!reset) {
     try {
-      const raw = await readFile(CHECKPOINT_PATH, "utf8");
+      const raw = await readFile(checkpointPath, "utf8");
       return JSON.parse(raw) as Checkpoint;
     } catch {
       // No checkpoint yet — start fresh.
@@ -74,10 +79,10 @@ async function loadCheckpoint(reset: boolean): Promise<Checkpoint> {
   return freshCheckpoint();
 }
 
-async function saveCheckpoint(checkpoint: Checkpoint): Promise<void> {
+async function saveCheckpoint(checkpointPath: string, checkpoint: Checkpoint): Promise<void> {
   checkpoint.updatedAt = new Date().toISOString();
-  await mkdir(path.dirname(CHECKPOINT_PATH), { recursive: true });
-  await writeFile(CHECKPOINT_PATH, JSON.stringify(checkpoint, null, 2));
+  await mkdir(path.dirname(checkpointPath), { recursive: true });
+  await writeFile(checkpointPath, JSON.stringify(checkpoint, null, 2));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -90,6 +95,7 @@ interface Args {
   maxBatches: number | null;
   reset: boolean;
   reportOut: string | null;
+  checkpointDir: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -99,6 +105,7 @@ function parseArgs(argv: string[]): Args {
     maxBatches: null,
     reset: false,
     reportOut: null,
+    checkpointDir: null,
   };
   for (const raw of argv) {
     if (raw === "--apply") args.apply = true;
@@ -106,6 +113,7 @@ function parseArgs(argv: string[]): Args {
     else if (raw.startsWith("--batch-size=")) args.batchSize = Number(raw.split("=")[1]);
     else if (raw.startsWith("--max-batches=")) args.maxBatches = Number(raw.split("=")[1]);
     else if (raw.startsWith("--report-out=")) args.reportOut = raw.split("=")[1];
+    else if (raw.startsWith("--checkpoint-dir=")) args.checkpointDir = raw.split("=")[1];
   }
   return args;
 }
@@ -294,9 +302,16 @@ async function processItem(item: FoodItemRow, args: Args, checkpoint: Checkpoint
 
 async function run(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const checkpoint = await loadCheckpoint(args.reset);
+  const checkpointDir = args.checkpointDir ?? DEFAULT_CHECKPOINT_DIR;
+  const checkpointPath = path.join(checkpointDir, "food-basis-backfill.json");
+  const checkpoint = await loadCheckpoint(checkpointPath, args.reset);
   logger.info(
-    { apply: args.apply, batchSize: args.batchSize, resumingFrom: checkpoint.lastFoodItemId },
+    {
+      apply: args.apply,
+      batchSize: args.batchSize,
+      resumingFrom: checkpoint.lastFoodItemId,
+      checkpointDir,
+    },
     `backfill: starting (${args.apply ? "APPLY" : "DRY RUN"})`
   );
 
@@ -318,7 +333,7 @@ async function run(): Promise<void> {
       checkpoint.lastFoodItemId = item.id;
       await sleep(OFF_REQUEST_DELAY_MS);
     }
-    await saveCheckpoint(checkpoint);
+    await saveCheckpoint(checkpointPath, checkpoint);
     batches += 1;
     logger.info(
       {
@@ -332,7 +347,7 @@ async function run(): Promise<void> {
     );
   }
 
-  const reportPath = args.reportOut ?? CHECKPOINT_PATH.replace(/\.json$/, "-report.json");
+  const reportPath = args.reportOut ?? path.join(checkpointDir, "food-basis-backfill-report.json");
   // Covers the zero-batches case (e.g. an empty/already-clean catalog): the
   // loop above breaks before saveCheckpoint ever runs, so this directory may
   // not exist yet — and a custom --report-out could point elsewhere entirely.
