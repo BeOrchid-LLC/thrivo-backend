@@ -38,6 +38,14 @@ export async function upsertFromWebhook(
  * Reconcile sweep: flip live subscriptions whose period has ended to `expired`
  * and return the affected rows so the caller can mirror tier → free. Served by
  * the (status) + (current_period_end) indexes.
+ *
+ * Includes `trialing`: a trial whose EXPIRATION webhook is dropped must still be
+ * caught by this backstop. RevenueCat trial events set `current_period_end` equal
+ * to the trial end (see billing-webhook.service's `trialEnd: periodEnd` mapping
+ * and subscription.service's `startTrial`, which both write the same value to
+ * `currentPeriodEnd` and `trialEnd`), so the existing `currentPeriodEnd ≤ now`
+ * predicate already covers trials once the status is included — no separate
+ * `trialEnd` predicate needed.
  */
 export async function expireOverdue(now: Date, tx: Executor = db): Promise<Subscription[]> {
   return tx
@@ -45,7 +53,7 @@ export async function expireOverdue(now: Date, tx: Executor = db): Promise<Subsc
     .set({ status: "expired" })
     .where(
       and(
-        inArray(subscriptions.status, ["active", "in_grace", "past_due", "canceled"]),
+        inArray(subscriptions.status, ["trialing", "active", "in_grace", "past_due", "canceled"]),
         lte(subscriptions.currentPeriodEnd, now)
       )
     )
