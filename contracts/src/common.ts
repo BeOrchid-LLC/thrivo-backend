@@ -8,6 +8,7 @@ export const errorCodeSchema = z.enum([
   "NOT_FOUND",
   "CONFLICT",
   "RATE_LIMITED",
+  "PAYLOAD_TOO_LARGE",
   "UPSTREAM_ERROR",
   "INTERNAL_ERROR",
 ]);

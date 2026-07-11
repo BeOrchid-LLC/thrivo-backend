@@ -2,6 +2,7 @@ import { createMiddleware } from "hono/factory";
 import type { Context } from "hono";
 import { getRedis } from "../lib/redis";
 import { logger } from "../lib/logger";
+import { RateLimitedError } from "../lib/errors";
 import type { AppEnv } from "../types/http";
 
 export type RateLimitOptions = {
@@ -32,18 +33,26 @@ function clientIp(c: Context): string {
 export function rateLimit(opts: RateLimitOptions) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const key = `rl:${opts.keyPrefix}:${clientIp(c)}`;
+    // Decide inside the try (Redis-only errors fail open here); throw the
+    // AppError outside it, or the fail-open catch below would swallow a
+    // legitimate 429 and serve the request anyway.
+    let retryAfter: number | null = null;
     try {
       const redis = getRedis();
       const count = await redis.incr(key);
       if (count === 1) await redis.expire(key, opts.windowSec);
       if (count > opts.max) {
         const ttl = await redis.ttl(key);
-        const retryAfter = ttl > 0 ? ttl : opts.windowSec;
-        c.header("Retry-After", String(retryAfter));
-        return c.json({ error: { code: "RATE_LIMITED", message: "Too many requests" } }, 429);
+        retryAfter = ttl > 0 ? ttl : opts.windowSec;
       }
     } catch (err) {
       logger.warn({ err, keyPrefix: opts.keyPrefix }, "rate limiter unavailable; failing open");
+    }
+    if (retryAfter !== null) {
+      // Set on `c` before throwing — the central errorHandler builds the JSON
+      // body from this same context, so the header rides along on the 429.
+      c.header("Retry-After", String(retryAfter));
+      throw new RateLimitedError("Too many requests");
     }
     await next();
   });
