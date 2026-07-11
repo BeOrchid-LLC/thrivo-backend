@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { securityHeaders } from "../../src/middleware/security-headers";
 import { corsMiddleware } from "../../src/middleware/cors";
 import { bodyLimitMiddleware } from "../../src/middleware/body-limit";
+import { errorHandler } from "../../src/middleware/error";
+import { apiErrorSchema } from "../../contracts/src/common";
 import type { AppEnv } from "../../src/types/http";
 
 function app() {
@@ -12,6 +14,7 @@ function app() {
   a.use(bodyLimitMiddleware);
   a.get("/", (c) => c.json({ ok: true }));
   a.post("/", (c) => c.json({ ok: true }));
+  a.onError(errorHandler);
   return a;
 }
 
@@ -36,7 +39,7 @@ describe("baseline http middleware", () => {
       body: JSON.stringify({ blob: "x".repeat(200 * 1024) }),
     });
     expect(res.status).toBe(413);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("PAYLOAD_TOO_LARGE");
+    const parsed = apiErrorSchema.parse(await res.json());
+    expect(parsed.error.code).toBe("PAYLOAD_TOO_LARGE");
   });
 });

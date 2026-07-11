@@ -24,6 +24,7 @@ import {
   scaleNutrients,
 } from "../lib/nutrition";
 import { dailySummaryRepo, foodFavoriteRepo, foodItemRepo, foodLogRepo } from "../repositories";
+import { recordQualifyingDay } from "./streak.service";
 import type { FoodLog } from "../repositories/food-log.repository";
 import type { FoodServingRow } from "../../db/schema";
 import type { User } from "../repositories/user.repository";
@@ -244,6 +245,7 @@ export async function logFood(user: User, payload: LogFoodPayload, idempotencyKe
     );
     await foodFavoriteRepo.bumpUseCount(user.id, item.id, tx);
     const totals = await refreshDailySummary(user, payload.day, tx);
+    await recordQualifyingDay(user.id, payload.day, tx);
     return { log, totals };
   });
   await invalidateFoodDashboardCache(user.id, payload.day);
@@ -282,6 +284,7 @@ async function logExternalFood(
       tx
     );
     const totals = await refreshDailySummary(user, payload.day, tx);
+    await recordQualifyingDay(user.id, payload.day, tx);
     return { log, totals };
   });
   await invalidateFoodDashboardCache(user.id, payload.day);
@@ -318,6 +321,7 @@ export async function logEstimate(
       tx
     );
     const totals = await refreshDailySummary(user, payload.day, tx);
+    await recordQualifyingDay(user.id, payload.day, tx);
     return { log, totals };
   });
   await invalidateFoodDashboardCache(user.id, payload.day);

@@ -1,9 +1,20 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { streaks, type NewStreakRow, type StreakRow } from "../../db/schema";
 
 export type Streak = StreakRow;
+
+/**
+ * Serialize concurrent streak recomputes for one user. Transaction-scoped
+ * advisory lock — MUST be called inside a `db.transaction` (it auto-releases
+ * on commit/rollback) or it releases immediately and protects nothing. Salt
+ * `1` (vs daily-summary's `0`, see daily-summary.repository.lockForDay) keeps
+ * the two lock domains from colliding on the same hash space.
+ */
+export async function lockForUser(userId: string, tx: Executor = db): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 1))`);
+}
 
 export async function getByUser(userId: string, tx: Executor = db): Promise<Streak | null> {
   const [row] = await tx.select().from(streaks).where(eq(streaks.userId, userId)).limit(1);

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { env } from "../env";
 import { logger } from "../lib/logger";
 import { ForbiddenError } from "../lib/errors";
-import { subscriptionRepo, userRepo, webhookEventRepo } from "../repositories";
+import { userRepo, webhookEventRepo } from "../repositories";
 import type { SubProvider, SubStatus } from "../../db/schema";
 import { persistSubscriptionAndMirror } from "./subscription.service";
 
@@ -71,9 +71,10 @@ export function mapStatus(type: string, periodType: string | null | undefined): 
 
 /**
  * Process an inbound RevenueCat webhook. Idempotent and ordering-safe:
- * - the (provider, event_id) ledger dedupes retries;
- * - an event older than the subscription's `last_event_at` is dropped, so a
- *   replayed or out-of-order event can never revert a newer entitlement state;
+ * - the (provider, event_id) ledger dedupes retries (same event applied twice);
+ * - the monotonic-by-event-time guard lives inside `persistSubscriptionAndMirror`'s
+ *   conditional write, not a pre-check here, so a replayed or out-of-order event
+ *   can never revert a newer entitlement state — even under concurrent delivery;
  * - entitlement is written through the one subscription writer.
  *
  * Throws ForbiddenError on a bad/absent signature (caller maps to 401/403).
@@ -126,16 +127,9 @@ export async function handleRevenueCatWebhook(
       return "ignored";
     }
 
-    // Ordering guard: drop stale/out-of-order events against the current state.
     const eventAt = event.event_timestamp_ms ? new Date(event.event_timestamp_ms) : new Date();
-    const current = await subscriptionRepo.getByUser(user.id);
-    if (current?.lastEventAt && current.lastEventAt >= eventAt) {
-      await webhookEventRepo.markProcessed(ledger.id, "processed");
-      return "ignored";
-    }
-
     const periodEnd = event.expiration_at_ms ? new Date(event.expiration_at_ms) : null;
-    await persistSubscriptionAndMirror(user.id, {
+    const applied = await persistSubscriptionAndMirror(user.id, {
       userId: user.id,
       rcAppUserId: event.app_user_id,
       provider: mapStore(event.store),
@@ -148,8 +142,11 @@ export async function handleRevenueCatWebhook(
       lastEventAt: eventAt,
     });
 
+    // `applied === null` ⇒ the atomic write's monotonic guard dropped this event
+    // as stale/out-of-order — same externally-visible outcome as an ignored event
+    // type, just decided by the DB instead of the mapping above.
     await webhookEventRepo.markProcessed(ledger.id, "processed");
-    return "processed";
+    return applied ? "processed" : "ignored";
   } catch (err) {
     logger.error({ err, eventId: event.id, type: event.type }, "revenuecat webhook failed");
     await webhookEventRepo.markProcessed(ledger.id, "failed");

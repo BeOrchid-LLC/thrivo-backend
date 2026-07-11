@@ -31,18 +31,21 @@ const verifyOtpSchema = z.object({
 /**
  * POST /admin/auth/request-otp — send a 6-digit OTP to the staff email.
  * Always responds 202 with the same body regardless of whether the address is
- * on the allowlist (no enumeration of valid admin emails).
+ * on the allowlist or throttled (no enumeration of valid admin emails, no
+ * signal that reveals the per-email issue throttle to a caller).
  */
 export async function postAdminRequestOtp(c: Context<AppEnv>) {
   const { email } = requestOtpSchema.parse(await c.req.json());
 
   if (isAllowedAdminEmail(email)) {
     const code = await issueAdminOtp(email);
-    await sendTemplatedEmail({
-      to: email,
-      template: "otp",
-      props: { code, purpose: "sign-in" },
-    });
+    if (code) {
+      await sendTemplatedEmail({
+        to: email,
+        template: "otp",
+        props: { code, purpose: "sign-in" },
+      });
+    }
   }
 
   return respondOk(c, null, "OTP sent", 202);

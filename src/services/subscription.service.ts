@@ -215,13 +215,19 @@ export async function cancelSubscription(
  * The single writer of entitlement: upsert the subscription projection and mirror
  * the derived tier/status onto the user row, atomically. Used by the in-app
  * trial/purchase/cancel flows and by the RevenueCat webhook (the source of truth).
+ *
+ * `subscriptionRepo.upsertFromWebhook` enforces monotonicity by event time inside
+ * the write itself; a `null` return means the incoming event was stale/out-of-order
+ * and was dropped, so the user mirror is left untouched — the subscription row and
+ * `users.tier` never move independently.
  */
 export async function persistSubscriptionAndMirror(
   userId: string,
   subscription: NewSubscriptionRow
-): Promise<void> {
-  await db.transaction(async (tx) => {
+): Promise<Subscription | null> {
+  return db.transaction(async (tx) => {
     const row = await subscriptionRepo.upsertFromWebhook(subscription, tx);
+    if (!row) return null;
     await userRepo.updateProfile(
       userId,
       {
@@ -232,6 +238,7 @@ export async function persistSubscriptionAndMirror(
       },
       tx
     );
+    return row;
   });
 }
 

@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { respondOk } from "../lib/response";
 import { NotFoundError } from "../lib/errors";
+import { getClientIp } from "../lib/request-ip";
 import { adminUserRepo } from "../repositories";
 import type { AppEnv } from "../types/http";
 
@@ -35,6 +36,11 @@ export async function getAdminUser(c: Context<AppEnv>) {
  */
 export async function hardDeleteAdminUser(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
-  await adminUserRepo.hardDeleteUser(id);
+  const admin = c.get("adminUser")!;
+  await adminUserRepo.hardDeleteUser(id, {
+    actorAdminEmail: admin.email,
+    requestId: c.get("requestId") ?? null,
+    ip: getClientIp(c),
+  });
   return respondOk(c, null, "User deleted permanently");
 }

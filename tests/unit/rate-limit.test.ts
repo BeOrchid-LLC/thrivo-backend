@@ -5,12 +5,15 @@ const { getRedis } = vi.hoisted(() => ({ getRedis: vi.fn() }));
 vi.mock("../../src/lib/redis", () => ({ getRedis }));
 
 import { rateLimit } from "../../src/middleware/rate-limit";
+import { errorHandler } from "../../src/middleware/error";
+import { apiErrorSchema } from "../../contracts/src/common";
 import type { AppEnv } from "../../src/types/http";
 
 function app() {
   const a = new Hono<AppEnv>();
   a.use(rateLimit({ windowSec: 60, max: 2, keyPrefix: "test" }));
   a.get("/", (c) => c.json({ ok: true }));
+  a.onError(errorHandler);
   return a;
 }
 
@@ -36,8 +39,11 @@ describe("rate limiter", () => {
     const blocked = await a.request("/");
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get("retry-after")).toBe("42");
-    const body = (await blocked.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("RATE_LIMITED");
+    const body = await blocked.json();
+    const parsed = apiErrorSchema.parse(body); // I12: must validate against the published contract
+    expect(parsed.success).toBe(false);
+    expect(parsed.responseCode).toBe(429);
+    expect(parsed.error.code).toBe("RATE_LIMITED");
   });
 
   it("fails open (serves the request) when Redis is unreachable", async () => {

@@ -4,6 +4,13 @@ import { adminAuditLog, type AdminAuditLogRow, type NewAdminAuditLogRow } from "
 
 export type AdminAuditLog = AdminAuditLogRow;
 
+/** Who/where a mutation came from — threaded from the request into the audit row. */
+export type AuditActor = {
+  actorAdminEmail: string;
+  requestId: string | null;
+  ip: string | null;
+};
+
 /** Append-only — the only write this table ever takes. */
 export async function append(
   input: NewAdminAuditLogRow,

@@ -3,6 +3,8 @@ import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { emailCaptures, type EmailCaptureRow } from "../../db/schema";
 import type { AdminLead } from "../../contracts/src/leads";
+import * as adminAuditLogRepo from "./admin-audit-log.repository";
+import type { AuditActor } from "./admin-audit-log.repository";
 
 export type EmailCapture = EmailCaptureRow;
 
@@ -131,11 +133,31 @@ export async function listAll(): Promise<EmailCapture[]> {
   return db.select().from(emailCaptures).orderBy(desc(emailCaptures.capturedAt));
 }
 
-/** Hard delete for admin spam/bad-email cleanup. Returns true if a row existed and was deleted. */
-export async function hardDelete(id: string): Promise<boolean> {
-  const [row] = await db
-    .delete(emailCaptures)
-    .where(eq(emailCaptures.id, id))
-    .returning({ id: emailCaptures.id });
-  return Boolean(row);
+/**
+ * Hard delete for admin spam/bad-email cleanup. Writes the `admin_audit_log` row
+ * in the same transaction (before-snapshot of the full row) so a rolled-back
+ * delete leaves no orphan audit entry and vice-versa. Returns true if a row
+ * existed and was deleted.
+ */
+export async function hardDelete(id: string, audit: AuditActor): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(emailCaptures).where(eq(emailCaptures.id, id)).limit(1);
+    if (!row) return false;
+
+    await tx.delete(emailCaptures).where(eq(emailCaptures.id, id));
+
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: audit.actorAdminEmail,
+        action: "lead.hard_delete",
+        targetType: "lead",
+        targetId: id,
+        before: row,
+        requestId: audit.requestId,
+        ip: audit.ip,
+      },
+      tx
+    );
+    return true;
+  });
 }

@@ -105,4 +105,33 @@ describe.skipIf(!run)("integration: revenuecat webhook", () => {
     const after = await userRepo.findById(user!.id);
     expect(after!.tier).toBe("premium"); // not reverted to free
   });
+
+  it("never lets a stale EXPIRATION win a true race against a fresh RENEWAL (I5)", async () => {
+    const app = buildApp();
+    const session = await createSession();
+    const user = await userRepo.findActiveByEmail(session.email);
+    const now = Date.now();
+
+    // Baseline row so both concurrent events hit the ON CONFLICT DO UPDATE path,
+    // not the initial insert.
+    await post(
+      app,
+      rcEvent({ app_user_id: user!.id, type: "INITIAL_PURCHASE", event_timestamp_ms: now - 60_000 })
+    );
+
+    const [renewal, staleExpiration] = await Promise.all([
+      post(app, rcEvent({ app_user_id: user!.id, type: "RENEWAL", event_timestamp_ms: now })),
+      post(
+        app,
+        rcEvent({ app_user_id: user!.id, type: "EXPIRATION", event_timestamp_ms: now - 10_000 })
+      ),
+    ]);
+    expect(renewal.status).toBe(200);
+    expect(staleExpiration.status).toBe(200);
+
+    const after = await userRepo.findById(user!.id);
+    expect(after!.tier).toBe("premium");
+    const sub = await subscriptionRepo.getByUser(user!.id);
+    expect(sub!.status).toBe("active");
+  });
 });
