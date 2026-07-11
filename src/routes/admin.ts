@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { requireAdmin } from "../middleware/require-admin";
 import { adminOriginGuard } from "../middleware/admin-origin";
+import { adminAuthRateLimit } from "../middleware/rate-limit";
 import {
   postAdminRequestOtp,
   postAdminVerifyOtp,
@@ -23,9 +24,15 @@ import type { AppEnv } from "../types/http";
 /** `/api/v1/admin` — staff-only surface gated by the admin session cookie. */
 export const adminRouter = new Hono<AppEnv>();
 
-// CSRF defense-in-depth: reject cross-origin state-changing requests (the admin
-// cookie is already SameSite=Strict). No-ops for GETs.
+// CSRF defense-in-depth: reject cross-origin state-changing requests. No-ops
+// for GETs. See admin-origin.ts for the full cookie/Origin threat model.
 adminRouter.use("*", adminOriginGuard);
+
+// Publicly reachable and previously unthrottled at the IP layer — the general
+// apiRateLimit (120/min/IP) applies to all of /api/v1 already, but auth needs
+// its own tighter bucket (matches the user /auth/* pattern in app.ts). The
+// per-email issue throttle in admin/otp.service.ts is the primary guard.
+adminRouter.use("/auth/*", adminAuthRateLimit);
 
 // Auth (public — no cookie required to log in)
 adminRouter.post("/auth/request-otp", postAdminRequestOtp);

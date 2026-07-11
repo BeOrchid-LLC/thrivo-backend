@@ -55,5 +55,13 @@ export const apiRateLimit = rateLimit({ windowSec: 60, max: 120, keyPrefix: "api
 /** Tighter bucket for auth endpoints (credential stuffing / OTP abuse). */
 export const authRateLimit = rateLimit({ windowSec: 60, max: 10, keyPrefix: "auth" });
 
+/**
+ * Same shape as `authRateLimit`, distinct bucket for `/admin/auth/*`. Publicly
+ * reachable and previously unthrottled — an IP-only cap is evadable, so this is
+ * a first layer; the per-email issue throttle in `admin/otp.service.ts` is the
+ * load-bearing guard against inbox-bombing + shared Resend quota exhaustion.
+ */
+export const adminAuthRateLimit = rateLimit({ windowSec: 60, max: 10, keyPrefix: "admin-auth" });
+
 /** Public unauthenticated write endpoint (email capture) — the classic spam-bot target. */
 export const leadsRateLimit = rateLimit({ windowSec: 600, max: 5, keyPrefix: "leads-capture" });
