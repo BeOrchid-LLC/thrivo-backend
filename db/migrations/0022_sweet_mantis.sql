@@ -1,0 +1,2 @@
+CREATE INDEX "users_created_at_id_idx" ON "users" USING btree ("created_at","id");--> statement-breakpoint
+CREATE INDEX "email_captures_captured_at_id_idx" ON "email_captures" USING btree ("captured_at","id");

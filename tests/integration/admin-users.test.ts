@@ -128,7 +128,7 @@ describe.skipIf(!run)("integration: admin users", () => {
     });
 
     const cookie = await adminCookie();
-    const listRes = await app.request("/api/v1/admin/users?page=1&pageSize=20", {
+    const listRes = await app.request("/api/v1/admin/users?limit=20", {
       headers: { Cookie: cookie },
     });
     expect(listRes.status).toBe(200);

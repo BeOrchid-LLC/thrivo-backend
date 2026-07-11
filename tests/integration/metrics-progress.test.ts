@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { authed, createSession } from "../helpers/auth";
 import { closeDb, resetDb } from "../helpers/db";
 import { makeTestApp } from "../helpers/app";
-import { makeWaterEntry, makeWeightEntry } from "../helpers/factories";
+import { makeFoodLog, makeWaterEntry, makeWeightEntry } from "../helpers/factories";
 import { userRepo } from "../../src/repositories";
 
 const run = process.env.RUN_DB_TESTS === "1";
@@ -104,5 +104,28 @@ describe.skipIf(!run)("integration: progress metrics", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.data.progress.summary.currentWeightKg).toBe(80.7);
+  });
+
+  it("marks a day logged exactly once even with multiple food logs that day (R5-2 / I14)", async () => {
+    const app = makeTestApp();
+    const session = await createSession();
+    const user = await userRepo.findActiveByEmail(session.email);
+    expect(user).not.toBeNull();
+
+    // Three logs on the same day must still surface as one "logged" calendar cell —
+    // the old full-row load and the new SELECT DISTINCT must agree on this.
+    await makeFoodLog(user!.id, { localDate: "2026-06-05" });
+    await makeFoodLog(user!.id, { localDate: "2026-06-05" });
+    await makeFoodLog(user!.id, { localDate: "2026-06-05" });
+    await makeFoodLog(user!.id, { localDate: "2026-06-12" });
+
+    const response = await app.request("/api/v1/metrics/progress?date=2026-06-15", {
+      headers: authed(session),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const days = body.data.progress.calendar.days as Array<{ day: string; logged: boolean }>;
+    const logged = days.filter((d) => d.logged).map((d) => d.day);
+    expect(logged.sort()).toEqual(["2026-06-05", "2026-06-12"]);
   });
 });

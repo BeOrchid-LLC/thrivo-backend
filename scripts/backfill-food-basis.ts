@@ -303,7 +303,14 @@ async function processItem(item: FoodItemRow, args: Args, checkpoint: Checkpoint
 async function run(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const checkpointDir = args.checkpointDir ?? DEFAULT_CHECKPOINT_DIR;
-  const checkpointPath = path.join(checkpointDir, "food-basis-backfill.json");
+  // Separate files per mode: a dry run and an --apply run must never share a
+  // cursor. A completed dry run otherwise leaves lastFoodItemId at the end of
+  // the table, so the very next --apply "resumes" from there and finds
+  // nothing — a silent no-op that looks identical to "already backfilled."
+  const checkpointPath = path.join(
+    checkpointDir,
+    `food-basis-backfill-${args.apply ? "apply" : "dryrun"}.json`
+  );
   const checkpoint = await loadCheckpoint(checkpointPath, args.reset);
   logger.info(
     {
@@ -347,7 +354,9 @@ async function run(): Promise<void> {
     );
   }
 
-  const reportPath = args.reportOut ?? path.join(checkpointDir, "food-basis-backfill-report.json");
+  const reportPath =
+    args.reportOut ??
+    path.join(checkpointDir, `food-basis-backfill-report-${args.apply ? "apply" : "dryrun"}.json`);
   // Covers the zero-batches case (e.g. an empty/already-clean catalog): the
   // loop above breaks before saveCheckpoint ever runs, so this directory may
   // not exist yet — and a custom --report-out could point elsewhere entirely.

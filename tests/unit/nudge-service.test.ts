@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { tipRepo, pushTokenRepo } = vi.hoisted(() => ({
+const { tipRepo, pushTokenRepo, enqueue } = vi.hoisted(() => ({
   tipRepo: { getPinnedForDate: vi.fn(), listActive: vi.fn() },
-  pushTokenRepo: { listActiveForNudges: vi.fn(), pruneInvalid: vi.fn() },
+  pushTokenRepo: { listActiveForNudgesPage: vi.fn(), pruneInvalid: vi.fn() },
+  enqueue: vi.fn(),
 }));
 vi.mock("../../src/repositories", () => ({ tipRepo, pushTokenRepo }));
+vi.mock("../../src/lib/queue", () => ({
+  enqueue,
+  QUEUE_NAMES: { nudges: "nudges", emails: "emails", maintenance: "maintenance" },
+}));
 
-import { selectDailyTip } from "../../src/services/nudge.service";
+import { selectDailyTip, sendDailyNudges } from "../../src/services/nudge.service";
 
 function tip(id: string) {
   return {
@@ -48,5 +53,65 @@ describe("selectDailyTip", () => {
   it("returns null when the bank is empty", async () => {
     tipRepo.listActive.mockResolvedValue([]);
     expect(await selectDailyTip("2026-06-28")).toBeNull();
+  });
+});
+
+function pushToken(id: string) {
+  return { id, expoPushToken: `token-${id}` };
+}
+
+describe("sendDailyNudges dispatcher (R5-3 / I15)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tipRepo.getPinnedForDate.mockResolvedValue(null);
+    tipRepo.listActive.mockResolvedValue([tip("t1")]);
+  });
+
+  it("skips dispatch entirely when there is no active tip", async () => {
+    tipRepo.listActive.mockResolvedValue([]);
+
+    const result = await sendDailyNudges("2026-06-28");
+
+    expect(result).toEqual({ tipId: null, chunksEnqueued: 0, tokensQueued: 0 });
+    expect(pushTokenRepo.listActiveForNudgesPage).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("enqueues one chunk job per Expo-sized (100) batch, paging by keyset cursor", async () => {
+    const page1 = Array.from({ length: 500 }, (_, i) => pushToken(String(i + 1).padStart(4, "0")));
+    const page2 = Array.from({ length: 120 }, (_, i) =>
+      pushToken(String(i + 501).padStart(4, "0"))
+    );
+    pushTokenRepo.listActiveForNudgesPage
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce(page2)
+      .mockResolvedValueOnce([]);
+
+    const result = await sendDailyNudges("2026-06-28");
+
+    // 500 + 120 = 620 tokens -> 7 chunks of 100 (last one partial, 20 tokens).
+    expect(result.chunksEnqueued).toBe(7);
+    expect(result.tokensQueued).toBe(620);
+    expect(
+      enqueue.mock.calls.every(
+        ([queue, jobName]) => queue === "nudges" && jobName === "send-nudge-chunk"
+      )
+    ).toBe(true);
+    const lastChunk = enqueue.mock.calls[enqueue.mock.calls.length - 1]![2] as { tokens: string[] };
+    expect(lastChunk.tokens).toHaveLength(20);
+
+    // Cursor passed to the second page fetch is the last id of the first page.
+    expect(pushTokenRepo.listActiveForNudgesPage).toHaveBeenNthCalledWith(2, "0500", 500);
+    // Loop stops once a page comes back shorter than the page size.
+    expect(pushTokenRepo.listActiveForNudgesPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns zero chunks when no tokens are eligible", async () => {
+    pushTokenRepo.listActiveForNudgesPage.mockResolvedValueOnce([]);
+
+    const result = await sendDailyNudges("2026-06-28");
+
+    expect(result).toEqual({ tipId: "t1", chunksEnqueued: 0, tokensQueued: 0 });
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });

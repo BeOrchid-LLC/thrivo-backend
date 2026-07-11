@@ -132,15 +132,15 @@ export async function getFavorites(c: Context<AppEnv>) {
 export async function createFavorite(c: Context<AppEnv>) {
   const user = c.get("user")!;
   const { foodItemId } = addFavoritePayloadSchema.parse(getValidatedInput(c, "json"));
-  const items = await addFavorite(user, foodItemId);
-  return respondOk(c, { items }, "Created", 201);
+  const item = await addFavorite(user, foodItemId);
+  return respondOk(c, { item }, "Created", 201);
 }
 
 export async function deleteFavorite(c: Context<AppEnv>) {
   const user = c.get("user")!;
   const { id } = favoriteParamsSchema.parse(getValidatedInput(c, "param"));
-  const items = await removeFavorite(user, id);
-  return respondOk(c, { items });
+  const item = await removeFavorite(user, id);
+  return respondOk(c, { item });
 }
 
 export async function estimateFoodEntry(c: Context<AppEnv>) {

@@ -100,15 +100,18 @@ export function assertChartAccess(user: User, period: ChartPeriod): void {
 }
 
 export async function getProgress(user: User, day: string) {
-  const current = await currentWeightKg(user);
-  const targetWeightKg = numberFromDb(user.targetWeightKg);
-  const streak = await streakRepo.getByUser(user.id);
   const weekStart = formatDay(startOfWeek(parseDay(day)));
-  const weekSummaries = await dailySummaryRepo.listRange(user.id, weekStart, day);
+  // Five independent reads (R5-2/I14) — sequential awaits here just stack latency.
+  const [current, streak, weekSummaries, calendar, projection] = await Promise.all([
+    currentWeightKg(user),
+    streakRepo.getByUser(user.id),
+    dailySummaryRepo.listRange(user.id, weekStart, day),
+    buildFoodCalendar(user.id, day),
+    buildGoalProjection(user, day),
+  ]);
+  const targetWeightKg = numberFromDb(user.targetWeightKg);
   const weekCalories = weekSummaries.reduce((sum, row) => sum + row.totalCalories, 0);
   const currentWeekAverageKcal = Math.round(weekCalories / 7);
-  const calendar = await buildFoodCalendar(user.id, day);
-  const projection = await buildGoalProjection(user, day);
 
   return {
     day,
@@ -301,12 +304,12 @@ async function buildFoodCalendar(userId: string, day: string) {
   const monthEnd = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + 1, 0));
   const gridStart = startOfWeek(monthStart);
   const gridEnd = addDays(startOfWeek(monthEnd), 6);
-  const logs = await foodLogRepo.listLogsByLocalDateRange(
+  const loggedDates = await foodLogRepo.listDistinctLocalDatesInRange(
     userId,
     formatDay(gridStart),
     formatDay(gridEnd)
   );
-  const loggedDays = new Set(logs.map((log) => log.localDate));
+  const loggedDays = new Set(loggedDates);
   const days = daysBetween(formatDay(gridStart), formatDay(gridEnd)).map((date) => {
     const parsed = parseDay(date);
     return {

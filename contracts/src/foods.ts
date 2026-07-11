@@ -224,8 +224,16 @@ export const recentFoodsResponseSchema = apiSuccessSchema(
   z.object({ items: z.array(foodLogEntrySchema) })
 );
 
-export const favoritesResponseSchema = apiSuccessSchema(
+export const favoritesListResponseSchema = apiSuccessSchema(
   z.object({ items: z.array(foodItemSchema) })
+);
+/**
+ * R5-1: add/remove return the single mutated item (nullable — a remove can
+ * target a favorite whose underlying food item was since hard-deleted), not
+ * a full re-list, so the client can patch in place instead of re-fetching.
+ */
+export const favoriteMutationResponseSchema = apiSuccessSchema(
+  z.object({ item: foodItemSchema.nullable() })
 );
 export const addFavoritePayloadSchema = z.object({ foodItemId: idSchema });
 export const favoriteParamsSchema = z.object({ id: idSchema });

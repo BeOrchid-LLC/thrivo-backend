@@ -26,6 +26,13 @@ const handlers: Partial<Record<QueueName, (job: Job) => Promise<void>>> = {
   [QUEUE_NAMES.maintenance]: handleMaintenance,
 };
 
+// Bounded fan-out per queue (default 1 — BullMQ's own default). The nudges
+// queue now carries one job per Expo-sized chunk (R5-3/I15); a small cap lets
+// those drain faster than strictly sequential without thundering-herding Expo.
+const WORKER_CONCURRENCY: Partial<Record<QueueName, number>> = {
+  [QUEUE_NAMES.nudges]: 5,
+};
+
 function startWorker(name: QueueName): void {
   const handler = handlers[name];
   const worker = new Worker(
@@ -34,7 +41,7 @@ function startWorker(name: QueueName): void {
       if (handler) return handler(job);
       logger.info({ queue: name, jobId: job.id, jobName: job.name }, "job received (stub handler)");
     },
-    { connection: redisConnectionOptions }
+    { connection: redisConnectionOptions, concurrency: WORKER_CONCURRENCY[name] ?? 1 }
   );
   worker.on("failed", (job, err) => logger.error({ err, jobId: job?.id }, "job failed"));
   workers.push(worker);

@@ -139,7 +139,14 @@ async function processUser(userId: string, args: Args, checkpoint: Checkpoint): 
 async function run(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const checkpointDir = args.checkpointDir ?? DEFAULT_CHECKPOINT_DIR;
-  const checkpointPath = path.join(checkpointDir, "streaks-backfill.json");
+  // Separate files per mode: a dry run and an --apply run must never share a
+  // cursor. A completed dry run otherwise leaves lastUserId at the end of the
+  // table, so the very next --apply "resumes" from there and finds nothing —
+  // a silent no-op that looks identical to "already backfilled."
+  const checkpointPath = path.join(
+    checkpointDir,
+    `streaks-backfill-${args.apply ? "apply" : "dryrun"}.json`
+  );
   const checkpoint = await loadCheckpoint(checkpointPath, args.reset);
   logger.info(
     {
@@ -176,7 +183,9 @@ async function run(): Promise<void> {
     );
   }
 
-  const reportPath = args.reportOut ?? path.join(checkpointDir, "streaks-backfill-report.json");
+  const reportPath =
+    args.reportOut ??
+    path.join(checkpointDir, `streaks-backfill-report-${args.apply ? "apply" : "dryrun"}.json`);
   await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, JSON.stringify(checkpoint, null, 2));
   logger.info({ reportPath, apply: args.apply }, "backfill: run complete");

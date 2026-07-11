@@ -1,4 +1,4 @@
-import { and, eq, getTableColumns, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gt, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { pushTokens, userSettings, type NewPushTokenRow, type PushTokenRow } from "../../db/schema";
@@ -6,11 +6,18 @@ import { pushTokens, userSettings, type NewPushTokenRow, type PushTokenRow } fro
 export type PushToken = PushTokenRow;
 
 /**
- * Active tokens eligible for the daily nudge: the owner has not switched off push
- * notifications. A missing settings row counts as enabled (the column defaults to
- * true), so users are never silently dropped from nudges by a left join.
+ * Keyset page of tokens eligible for the daily nudge: the owner has not switched
+ * off push notifications. A missing settings row counts as enabled (the column
+ * defaults to true), so users are never silently dropped from nudges by a left
+ * join. Ordered by `id` (the PK, already indexed) so `gt(id, afterId)` is a
+ * stable cursor — replaces the old unbounded `listActiveForNudges` (R5-3/I15),
+ * which loaded every active token into memory in one round-trip.
  */
-export async function listActiveForNudges(tx: Executor = db): Promise<PushToken[]> {
+export async function listActiveForNudgesPage(
+  afterId: string | null,
+  limit: number,
+  tx: Executor = db
+): Promise<PushToken[]> {
   return tx
     .select(getTableColumns(pushTokens))
     .from(pushTokens)
@@ -18,9 +25,12 @@ export async function listActiveForNudges(tx: Executor = db): Promise<PushToken[
     .where(
       and(
         eq(pushTokens.isActive, true),
-        or(isNull(userSettings.userId), eq(userSettings.pushNotificationsEnabled, true))
+        or(isNull(userSettings.userId), eq(userSettings.pushNotificationsEnabled, true)),
+        afterId ? gt(pushTokens.id, afterId) : undefined
       )
-    );
+    )
+    .orderBy(asc(pushTokens.id))
+    .limit(limit);
 }
 
 /** Upsert on the token (unique) — re-registering a device refreshes its owner + activity. */

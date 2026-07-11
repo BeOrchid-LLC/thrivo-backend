@@ -7,13 +7,13 @@ import { adminUserRepo } from "../repositories";
 import type { AppEnv } from "../types/http";
 
 const listParamsSchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
   search: z.string().optional(),
   status: z.string().optional(),
 });
 
-/** GET /admin/users — paginated user list with optional search + status filter. */
+/** GET /admin/users — keyset-paginated user list with optional search + status filter (R5-4). */
 export async function listAdminUsers(c: Context<AppEnv>) {
   const query = c.req.query();
   const params = listParamsSchema.parse(query);

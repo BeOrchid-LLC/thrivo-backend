@@ -57,7 +57,7 @@ describe("@beorchid-llc/thrivo-contracts -- leads", () => {
 
     const page = adminLeadListResponseSchema.parse({
       items: [lead],
-      pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+      pagination: { limit: 20, total: 1, nextCursor: null },
     });
     expect(page.items[0]?.email).toBe("lead@example.com");
   });
