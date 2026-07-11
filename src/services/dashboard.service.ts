@@ -128,15 +128,44 @@ export async function getFoodEntriesForDay(user: User, day: string): Promise<Foo
   });
 }
 
-export async function getHistoryDays(
-  user: User,
-  options: { from?: string; to?: string }
-): Promise<{ days: HistoryDay[]; historyLimitDays: number }> {
-  const today = isoDay(new Date());
+export interface HistoryWindow {
+  today: string;
+  to: string;
+  from: string;
+  lockBefore: string;
+}
+
+/**
+ * D3 (I3): the free-history lock boundary must use the caller's LOCAL day,
+ * never server-UTC — a server-UTC "today" drifts a full day off the client's
+ * actual day for any non-UTC user near midnight (e.g. a UTC-7 user opening
+ * history at 18:00 local, when server UTC has already rolled to the next
+ * date). Precedence: an explicit `today` (the local-day string the client
+ * already computes for every write, via localDay()) wins; `to` is the older,
+ * weaker signal for clients that haven't upgraded; server-UTC is the
+ * last-resort fallback so this stays backward compatible. Pure — no `Date`
+ * dependency beyond the injected `now`, so it's directly unit-testable
+ * against the exact tz-boundary cases (UTC-7, UTC+13, DST edges).
+ */
+export function resolveHistoryWindow(
+  options: { from?: string; to?: string; today?: string },
+  now: Date = new Date()
+): HistoryWindow {
+  const serverToday = isoDay(now);
+  const today = options.today ?? options.to ?? serverToday;
   const to = options.to ?? today;
   const from = options.from ?? addDays(to, -29);
+  const lockBefore = addDays(today, -(FREE_HISTORY_LIMIT_DAYS - 1));
+  return { today, to, from, lockBefore };
+}
+
+export async function getHistoryDays(
+  user: User,
+  options: { from?: string; to?: string; today?: string }
+): Promise<{ days: HistoryDay[]; historyLimitDays: number }> {
+  const { today, to, from, lockBefore } = resolveHistoryWindow(options);
   const premium = isPremium(user);
-  const key = `${dashboardCacheKeys.history(user.id)}:${premium ? "premium" : "free"}:${from}:${to}`;
+  const key = `${dashboardCacheKeys.history(user.id)}:${premium ? "premium" : "free"}:${from}:${to}:${today}`;
 
   return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, async () => {
     const logs = await foodLogRepo.listLogsByLocalDateRange(user.id, from, to);
@@ -147,7 +176,6 @@ export async function getHistoryDays(
       groupedByDate.set(log.localDate, rows);
     }
 
-    const lockBefore = addDays(today, -(FREE_HISTORY_LIMIT_DAYS - 1));
     const days: HistoryDay[] = Array.from(groupedByDate.entries())
       .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
       .map(([day, dayLogs]) => {

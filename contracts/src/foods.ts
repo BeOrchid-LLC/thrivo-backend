@@ -90,6 +90,11 @@ export const foodLogHistoryQuerySchema = z.object({
   cursor: z.string().optional(),
   from: localDaySchema.optional(),
   to: localDaySchema.optional(),
+  // The client's local day (ADR-0022/D3) — the free-history lock boundary is
+  // computed in this frame, never server-UTC. Optional for backward
+  // compatibility with clients that haven't upgraded yet; falls back to `to`
+  // (or server-UTC today) when omitted.
+  today: localDaySchema.optional(),
 });
 
 export const historyDaySchema = z.object({
