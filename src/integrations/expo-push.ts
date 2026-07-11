@@ -2,7 +2,8 @@ import { env } from "../env";
 import { logger } from "../lib/logger";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
-const MAX_PER_REQUEST = 100; // Expo accepts up to 100 messages per call
+export const EXPO_MAX_PER_REQUEST = 100; // Expo accepts up to 100 messages per call
+const TIMEOUT_MS = 8_000; // same AbortController pattern as the OFF/Resend clients (R5-3/I15)
 
 export interface ExpoPushMessage {
   to: string;
@@ -40,16 +41,21 @@ export function collectInvalidTokens(batch: ExpoPushMessage[], tickets: ExpoTick
 }
 
 /**
- * Send Expo push messages, chunked to Expo's per-request limit. EXPO_ACCESS_TOKEN
- * is optional (it raises rate limits / enables enhanced security) — sends work
- * without it. A non-2xx response throws so BullMQ retries; dead tokens are
- * returned for lazy pruning, never deleted here.
+ * Send one Expo push request (must already be ≤100 messages — Expo's per-request
+ * limit). Timeout-bounded with the same AbortController pattern as the OFF/Resend
+ * clients (R5-3/I15) — previously this client was the only one with no timeout,
+ * so a hung request could stall a worker indefinitely. EXPO_ACCESS_TOKEN is
+ * optional (it raises rate limits / enables enhanced security) — sends work
+ * without it. A non-2xx response or timeout throws so the caller's retry policy
+ * applies; dead tokens are returned for lazy pruning, never deleted here.
  */
-export async function sendExpoPush(messages: ExpoPushMessage[]): Promise<ExpoPushResult> {
-  const invalidTokens: string[] = [];
+export async function sendExpoPushBatch(batch: ExpoPushMessage[]): Promise<ExpoPushResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-  for (const batch of chunk(messages, MAX_PER_REQUEST)) {
-    const res = await fetch(EXPO_PUSH_URL, {
+  let res: Response;
+  try {
+    res = await fetch(EXPO_PUSH_URL, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -57,16 +63,21 @@ export async function sendExpoPush(messages: ExpoPushMessage[]): Promise<ExpoPus
         ...(env.EXPO_ACCESS_TOKEN ? { authorization: `Bearer ${env.EXPO_ACCESS_TOKEN}` } : {}),
       },
       body: JSON.stringify(batch),
+      signal: controller.signal,
     });
-
-    if (!res.ok) {
-      logger.error({ status: res.status }, "expo push request failed");
-      throw new Error(`Expo push failed with status ${res.status}`);
-    }
-
-    const json = (await res.json()) as { data?: ExpoTicket[] };
-    invalidTokens.push(...collectInvalidTokens(batch, json.data ?? []));
+  } catch (err) {
+    throw new Error(
+      `Expo push request failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+  } finally {
+    clearTimeout(timer);
   }
 
-  return { invalidTokens };
+  if (!res.ok) {
+    logger.error({ status: res.status }, "expo push request failed");
+    throw new Error(`Expo push failed with status ${res.status}`);
+  }
+
+  const json = (await res.json()) as { data?: ExpoTicket[] };
+  return { invalidTokens: collectInvalidTokens(batch, json.data ?? []) };
 }

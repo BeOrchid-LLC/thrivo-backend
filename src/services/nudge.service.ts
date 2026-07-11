@@ -1,7 +1,26 @@
 import { logger } from "../lib/logger";
 import { pushTokenRepo, tipRepo } from "../repositories";
-import { sendExpoPush, type ExpoPushMessage } from "../integrations/expo-push";
+import { chunk, EXPO_MAX_PER_REQUEST } from "../integrations/expo-push";
+import { enqueue, QUEUE_NAMES } from "../lib/queue";
 import type { Tip } from "../repositories/tip.repository";
+
+const TOKEN_PAGE_SIZE = 500; // DB keyset page — chunked further into Expo-sized batches below
+
+/** One BullMQ job per Expo-sized batch; a retry only re-sends this batch (R5-3/I15). */
+export type NudgeChunkJobData = {
+  tipId: string;
+  tipBody: string;
+  tokens: string[];
+};
+
+// Failed chunks are kept (not dropped) as the de-facto DLQ, same convention as
+// EMAIL_JOB_OPTS — poison chunks stay visible for inspection instead of vanishing.
+const NUDGE_CHUNK_JOB_OPTS = {
+  attempts: 4,
+  backoff: { type: "exponential" as const, delay: 5000 },
+  removeOnComplete: true,
+  removeOnFail: false,
+};
 
 function isoDay(date = new Date()): string {
   return date.toISOString().slice(0, 10);
@@ -23,38 +42,51 @@ export async function selectDailyTip(localDate = isoDay()): Promise<Tip | null> 
   return active[dayNumber % active.length] ?? null;
 }
 
-export interface NudgeRunResult {
+export interface NudgeDispatchResult {
   tipId: string | null;
-  recipients: number;
-  pruned: number;
+  chunksEnqueued: number;
+  tokensQueued: number;
 }
 
-/** Fan the day's tip out to every eligible device, pruning tokens Expo rejects. */
-export async function sendDailyNudges(localDate = isoDay()): Promise<NudgeRunResult> {
+/**
+ * Dispatcher for the daily nudge (R5-3/I15). Pages eligible tokens by keyset
+ * cursor (bounded memory — never loads all active tokens at once) and enqueues
+ * one BullMQ job per Expo-sized batch instead of sending inline. This replaces
+ * the old single monolithic send: a 5xx mid-run used to throw and BullMQ would
+ * retry the *whole* job from batch zero (duplicate-storming everything already
+ * delivered); now a retry only touches the one chunk that failed.
+ */
+export async function sendDailyNudges(localDate = isoDay()): Promise<NudgeDispatchResult> {
   const tip = await selectDailyTip(localDate);
   if (!tip) {
     logger.warn("no active tips; daily nudge skipped");
-    return { tipId: null, recipients: 0, pruned: 0 };
+    return { tipId: null, chunksEnqueued: 0, tokensQueued: 0 };
   }
 
-  const tokens = await pushTokenRepo.listActiveForNudges();
-  if (tokens.length === 0) return { tipId: tip.id, recipients: 0, pruned: 0 };
+  let cursor: string | null = null;
+  let chunksEnqueued = 0;
+  let tokensQueued = 0;
 
-  const messages: ExpoPushMessage[] = tokens.map((token) => ({
-    to: token.expoPushToken,
-    title: "Thrivo",
-    body: tip.body,
-    data: { screen: "checkin", tipId: tip.id },
-  }));
+  for (;;) {
+    const page = await pushTokenRepo.listActiveForNudgesPage(cursor, TOKEN_PAGE_SIZE);
+    if (page.length === 0) break;
 
-  const { invalidTokens } = await sendExpoPush(messages);
-  if (invalidTokens.length > 0) await pushTokenRepo.pruneInvalid(invalidTokens);
+    for (const batch of chunk(page, EXPO_MAX_PER_REQUEST)) {
+      const data: NudgeChunkJobData = {
+        tipId: tip.id,
+        tipBody: tip.body,
+        tokens: batch.map((token) => token.expoPushToken),
+      };
+      await enqueue(QUEUE_NAMES.nudges, "send-nudge-chunk", data, NUDGE_CHUNK_JOB_OPTS);
+      chunksEnqueued += 1;
+      tokensQueued += batch.length;
+    }
 
-  const result: NudgeRunResult = {
-    tipId: tip.id,
-    recipients: tokens.length - invalidTokens.length,
-    pruned: invalidTokens.length,
-  };
-  logger.info(result, "daily nudges sent");
+    cursor = page[page.length - 1]!.id;
+    if (page.length < TOKEN_PAGE_SIZE) break;
+  }
+
+  const result: NudgeDispatchResult = { tipId: tip.id, chunksEnqueued, tokensQueued };
+  logger.info(result, "daily nudges dispatched");
   return result;
 }
