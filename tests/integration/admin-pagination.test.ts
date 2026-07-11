@@ -29,10 +29,11 @@ describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () =>
     await closeDb();
   });
 
-  it("pages through every user exactly once via nextCursor, with no OFFSET drift under a concurrent insert", async () => {
+  it("pages through every pre-existing user exactly once via nextCursor, with no OFFSET drift under a concurrent insert", async () => {
     const app = buildApp();
     const cookie = await adminCookie();
-    for (let i = 0; i < 9; i++) await makeUser();
+    const seeded = await Promise.all(Array.from({ length: 9 }, () => makeUser()));
+    const expectedIds = seeded.map((user) => user.id).sort();
 
     const seen: string[] = [];
     let cursor: string | undefined;
@@ -48,9 +49,13 @@ describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () =>
       seen.push(...body.data.items.map((item) => item.id));
       page += 1;
 
-      // Simulate a new signup landing between page reads — an OFFSET-based
-      // scheme would shift every subsequent page by one and either skip or
-      // duplicate a row; a keyset cursor must be immune to it.
+      // Simulate a new signup landing between page reads. It's newer than
+      // every already-seeded user, so — correctly — it lands *ahead* of the
+      // cursor and never appears in the rest of this descending walk (the
+      // same way a new email at the top of your inbox doesn't appear while
+      // you're scrolling into older ones). What must NOT happen is an
+      // OFFSET-style shift causing one of the 9 pre-existing rows to be
+      // skipped or duplicated because of the insert.
       if (page === 1) await makeUser();
 
       cursor = body.data.pagination.nextCursor ?? undefined;
@@ -58,9 +63,7 @@ describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () =>
       if (page > 20) throw new Error("pagination did not terminate");
     }
 
-    // 9 seeded + 1 inserted mid-walk = 10 users, each seen exactly once.
-    expect(seen).toHaveLength(10);
-    expect(new Set(seen).size).toBe(10);
+    expect(seen.slice().sort()).toEqual(expectedIds);
   });
 
   it("email-capture leads list pages via cursor the same way", async () => {
