@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ilike, sql } from "drizzle-orm";
+import { and, count, desc, eq, getTableColumns, ilike, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { emailCaptures, type EmailCaptureRow } from "../../db/schema";
@@ -111,10 +111,15 @@ type LeadCursor = { capturedAt: string; id: string };
 /**
  * `(captured_at, id) < cursor` as a row-value comparison — one indexed seek
  * (email_captures_captured_at_id_idx) per page, never an OFFSET scan-and-discard
- * (SYSTEM_DESIGN §373; R5-4/I16).
+ * (SYSTEM_DESIGN §373; R5-4/I16). The cursor's `captured_at` carries the
+ * column's raw `::text` cast (not a JS `Date`, which is millisecond-precision
+ * only against Postgres's microsecond `timestamptz` — see the identical note
+ * on `admin-user.repository.ts`'s `buildCursorWhere`), compared back against
+ * the bare column so the `email_captures_captured_at_id_idx` index stays
+ * usable.
  */
 function buildCursorWhere(cursor: LeadCursor) {
-  return sql`(${emailCaptures.capturedAt}, ${emailCaptures.id}) < (${new Date(cursor.capturedAt)}, ${cursor.id})`;
+  return sql`(${emailCaptures.capturedAt}, ${emailCaptures.id}) < (${cursor.capturedAt}::timestamptz, ${cursor.id})`;
 }
 
 /** Admin list — keyset-paginated, newest-first, optional email search. */
@@ -128,7 +133,10 @@ export async function list(params: ListParams): Promise<ListResult> {
 
   const [rows, [{ value: total }]] = await Promise.all([
     db
-      .select()
+      .select({
+        ...getTableColumns(emailCaptures),
+        capturedAtCursor: sql<string>`${emailCaptures.capturedAt}::text`,
+      })
       .from(emailCaptures)
       .where(and(searchWhere, cursorWhere))
       .orderBy(desc(emailCaptures.capturedAt), desc(emailCaptures.id))
@@ -140,7 +148,7 @@ export async function list(params: ListParams): Promise<ListResult> {
   const nextCursor =
     rows.length === limit && last
       ? encodeCursor({
-          capturedAt: last.capturedAt.toISOString(),
+          capturedAt: last.capturedAtCursor,
           id: last.id,
         } satisfies LeadCursor)
       : null;

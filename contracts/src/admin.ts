@@ -39,24 +39,46 @@ export const adminOtpVerifyPayloadSchema = z.object({
 export type AdminOtpVerifyPayload = z.infer<typeof adminOtpVerifyPayloadSchema>;
 
 // ---------------------------------------------------------------------------
-// Admin pagination helper
+// Admin pagination helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Keyset pagination (R5-4/I16) — no `page`/`totalPages`, since a numeric page
- * offset is exactly the "scan-and-discard, drifts under concurrent inserts"
- * failure mode this replaced (SYSTEM_DESIGN §373). `nextCursor` is opaque;
- * pass it back as `cursor` to fetch the next page, null on the last page.
+ * Offset pagination — still the shape for every admin list endpoint that
+ * hasn't been converted off OFFSET yet (subscriptions, tips, email-logs,
+ * audit-log; none of those routes exist server-side as of R5-4, but the
+ * contract is defined ahead of the implementation). Do NOT reuse this for a
+ * new list endpoint — SYSTEM_DESIGN §373 mandates keyset for any unbounded
+ * list; use `adminKeysetPaginationSchema` instead.
  */
 export const adminPaginationSchema = z.object({
-  limit: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
   total: z.number(),
-  nextCursor: z.string().nullable(),
+  totalPages: z.number(),
 });
 export type AdminPagination = z.infer<typeof adminPaginationSchema>;
 
 export const adminPaginated = <T extends z.ZodTypeAny>(item: T) =>
   z.object({ items: z.array(item), pagination: adminPaginationSchema });
+
+/**
+ * Keyset pagination (R5-4/I16) — no `page`/`totalPages`, since a numeric page
+ * offset is exactly the "scan-and-discard, drifts under concurrent inserts"
+ * failure mode this replaces (SYSTEM_DESIGN §373). `nextCursor` is opaque;
+ * pass it back as `cursor` to fetch the next page, null on the last page.
+ * Used by `admin/users` and `admin/leads`, the two endpoints R5-4 actually
+ * converted — every other admin list endpoint still uses
+ * `adminPaginationSchema` above until it gets the same treatment.
+ */
+export const adminKeysetPaginationSchema = z.object({
+  limit: z.number(),
+  total: z.number(),
+  nextCursor: z.string().nullable(),
+});
+export type AdminKeysetPagination = z.infer<typeof adminKeysetPaginationSchema>;
+
+export const adminKeysetPaginated = <T extends z.ZodTypeAny>(item: T) =>
+  z.object({ items: z.array(item), pagination: adminKeysetPaginationSchema });
 
 // ---------------------------------------------------------------------------
 // Admin user schemas
@@ -112,6 +134,10 @@ export type AdminUser = AdminUserDetail;
 
 export const adminUserDetailResponseSchema = z.object({ user: adminUserDetailSchema });
 export type AdminUserDetailResponse = z.infer<typeof adminUserDetailResponseSchema>;
+
+/** GET /admin/users — keyset-paginated (R5-4/I16); see `adminKeysetPaginated` above. */
+export const adminUserListResponseSchema = adminKeysetPaginated(adminUserSchema);
+export type AdminUserListResponse = z.infer<typeof adminUserListResponseSchema>;
 
 export const adminCancelPayloadSchema = z.object({ reason: z.string().min(1) });
 export type AdminCancelPayload = z.infer<typeof adminCancelPayloadSchema>;

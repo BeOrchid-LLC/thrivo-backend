@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { RouteContract } from "./common";
 import { idSchema, isoDateSchema } from "./common";
-import { adminPaginated } from "./admin";
+import { adminKeysetPaginated } from "./admin";
 
 /**
  * Lead capture (pre-signup email captures -- "leads"). Extend this enum as new
@@ -54,7 +54,7 @@ export const adminLeadSchema = z.object({
 });
 export type AdminLead = z.infer<typeof adminLeadSchema>;
 
-export const adminLeadListResponseSchema = adminPaginated(adminLeadSchema);
+export const adminLeadListResponseSchema = adminKeysetPaginated(adminLeadSchema);
 export type AdminLeadListResponse = z.infer<typeof adminLeadListResponseSchema>;
 
 export const leadRoutes = {
