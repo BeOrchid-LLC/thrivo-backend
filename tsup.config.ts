@@ -14,6 +14,7 @@ export default defineConfig({
     worker: "src/jobs/worker.ts", // BullMQ worker process
     migrate: "db/migrate.ts", // forward-only migration runner
     "backfill-food-basis": "scripts/backfill-food-basis.ts", // R1-5 one-off data repair
+    "backfill-streaks": "scripts/backfill-streaks.ts", // R4-3 one-off streak backfill
   },
   outDir: "dist",
   format: "esm",

@@ -28,6 +28,8 @@
     "db:check-timestamps": "tsx scripts/check-schema-timestamps.ts",
     "backfill:food-basis": "tsx scripts/backfill-food-basis.ts",
     "backfill:food-basis:deploy": "node dist/backfill-food-basis.js",
+    "backfill:streaks": "tsx scripts/backfill-streaks.ts",
+    "backfill:streaks:deploy": "node dist/backfill-streaks.js",
     "lint": "eslint src db contracts/src tests --ext .ts",
     "format": "prettier --write \"src/**/*.ts\" \"db/**/*.ts\" \"contracts/src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"db/**/*.ts\" \"contracts/src/**/*.ts\" \"tests/**/*.ts\"",

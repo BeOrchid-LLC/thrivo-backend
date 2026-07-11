@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -113,4 +113,40 @@ export async function listRange(
       )
     )
     .orderBy(dailySummaries.localDate);
+}
+
+/**
+ * R4-3 streak backfill — every distinct local day a user has a rollup for
+ * (ascending). A `daily_summaries` row only ever exists because
+ * `food.service.refreshDailySummary` ran after a real log write, so this is
+ * exactly the "did the user log on local day D?" signal the streak is derived
+ * from (D2 / ADR-0023's sibling decision, R4 doc).
+ */
+export async function listLocalDatesForUser(userId: string, tx: Executor = db): Promise<string[]> {
+  const rows = await tx
+    .selectDistinct({ localDate: dailySummaries.localDate })
+    .from(dailySummaries)
+    .where(eq(dailySummaries.userId, userId))
+    .orderBy(asc(dailySummaries.localDate));
+  return rows.map((r) => r.localDate);
+}
+
+/**
+ * R4-3 streak backfill — keyset page of distinct user ids with at least one
+ * `daily_summaries` row (SYSTEM_DESIGN §373: keyset, never offset, even for a
+ * one-off script). Uuid ordering is a stable total order, so `gt(userId,
+ * after)` is a valid cursor.
+ */
+export async function listUserIdsWithSummariesAfter(
+  afterUserId: string | null,
+  limit: number,
+  tx: Executor = db
+): Promise<string[]> {
+  const rows = await tx
+    .selectDistinct({ userId: dailySummaries.userId })
+    .from(dailySummaries)
+    .where(afterUserId ? gt(dailySummaries.userId, afterUserId) : undefined)
+    .orderBy(asc(dailySummaries.userId))
+    .limit(limit);
+  return rows.map((r) => r.userId);
 }
