@@ -1,8 +1,8 @@
 import { defineConfig } from "tsup";
 
 /**
- * Bundles the three process entrypoints into self-contained, natively-runnable
- * ESM under dist/ (the source uses extensionless imports under
+ * Bundles the process entrypoints into self-contained, natively-runnable ESM
+ * under dist/ (the source uses extensionless imports under
  * moduleResolution:"bundler", which Node can't resolve on its own). Runtime deps
  * stay external — installed in the image's node_modules — so this only bundles
  * our own code. tsc (`npm run typecheck`) remains the type-safety gate; esbuild
@@ -13,6 +13,7 @@ export default defineConfig({
     index: "src/index.ts", // API server
     worker: "src/jobs/worker.ts", // BullMQ worker process
     migrate: "db/migrate.ts", // forward-only migration runner
+    "backfill-food-basis": "scripts/backfill-food-basis.ts", // R1-5 one-off data repair
   },
   outDir: "dist",
   format: "esm",
