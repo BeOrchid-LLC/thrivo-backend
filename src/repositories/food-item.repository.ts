@@ -129,3 +129,27 @@ export async function insertServing(
 export async function deleteServings(foodItemId: string, tx: Executor = db): Promise<void> {
   await tx.delete(foodServings).where(eq(foodServings.foodItemId, foodItemId));
 }
+
+/**
+ * Batch page of active, OFF-sourced catalog items ordered by id — the R1-5
+ * backfill's checkpointable unit of work (`gt(id, afterId)` resumes where a
+ * prior run left off).
+ */
+export async function listOpenFoodFactsItemsAfter(
+  afterId: string | null,
+  limit: number,
+  tx: Executor = db
+): Promise<FoodItem[]> {
+  return tx
+    .select()
+    .from(foodItems)
+    .where(
+      and(
+        eq(foodItems.origin, "openfoodfacts"),
+        eq(foodItems.status, "active"),
+        afterId ? sql`${foodItems.id} > ${afterId}` : sql`true`
+      )
+    )
+    .orderBy(foodItems.id)
+    .limit(limit);
+}
