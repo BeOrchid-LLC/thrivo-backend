@@ -7,12 +7,12 @@ import type { EmailCapture } from "../repositories/email-capture.repository";
 import type { AppEnv } from "../types/http";
 
 const listParamsSchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
   search: z.string().optional(),
 });
 
-/** GET /admin/leads — paginated lead list with optional email search. */
+/** GET /admin/leads — keyset-paginated lead list with optional email search (R5-4). */
 export async function listAdminLeads(c: Context<AppEnv>) {
   const query = c.req.query();
   const params = listParamsSchema.parse(query);

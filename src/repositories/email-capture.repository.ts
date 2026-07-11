@@ -1,10 +1,11 @@
-import { count, desc, eq, ilike, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { emailCaptures, type EmailCaptureRow } from "../../db/schema";
 import type { AdminLead } from "../../contracts/src/leads";
 import * as adminAuditLogRepo from "./admin-audit-log.repository";
 import type { AuditActor } from "./admin-audit-log.repository";
+import { clampLimit, decodeCursor, encodeCursor } from "../lib/pagination";
 
 export type EmailCapture = EmailCaptureRow;
 
@@ -94,37 +95,59 @@ export async function reconcileToUser(
     .where(eq(emailCaptures.email, email));
 }
 
-export type ListParams = { page: number; pageSize: number; search?: string };
+export type ListParams = {
+  /** Opaque cursor from a previous page's `nextCursor` — omit for the first page. */
+  cursor?: string;
+  limit?: number;
+  search?: string;
+};
 export type ListResult = {
   items: AdminLead[];
-  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  pagination: { limit: number; total: number; nextCursor: string | null };
 };
 
-/** Admin list — paginated, newest-first, optional email search. */
+type LeadCursor = { capturedAt: string; id: string };
+
+/**
+ * `(captured_at, id) < cursor` as a row-value comparison — one indexed seek
+ * (email_captures_captured_at_id_idx) per page, never an OFFSET scan-and-discard
+ * (SYSTEM_DESIGN §373; R5-4/I16).
+ */
+function buildCursorWhere(cursor: LeadCursor) {
+  return sql`(${emailCaptures.capturedAt}, ${emailCaptures.id}) < (${new Date(cursor.capturedAt)}, ${cursor.id})`;
+}
+
+/** Admin list — keyset-paginated, newest-first, optional email search. */
 export async function list(params: ListParams): Promise<ListResult> {
-  const { page, pageSize, search } = params;
-  const offset = (page - 1) * pageSize;
-  const where = search ? ilike(emailCaptures.email, `%${search}%`) : undefined;
+  const { search } = params;
+  const limit = clampLimit(params.limit, 20, 100);
+  const searchWhere = search ? ilike(emailCaptures.email, `%${search}%`) : undefined;
+  const cursorWhere = params.cursor
+    ? buildCursorWhere(decodeCursor<LeadCursor>(params.cursor))
+    : undefined;
 
   const [rows, [{ value: total }]] = await Promise.all([
     db
       .select()
       .from(emailCaptures)
-      .where(where)
-      .orderBy(desc(emailCaptures.capturedAt))
-      .limit(pageSize)
-      .offset(offset),
-    db.select({ value: count() }).from(emailCaptures).where(where),
+      .where(and(searchWhere, cursorWhere))
+      .orderBy(desc(emailCaptures.capturedAt), desc(emailCaptures.id))
+      .limit(limit),
+    db.select({ value: count() }).from(emailCaptures).where(searchWhere),
   ]);
+
+  const last = rows[rows.length - 1];
+  const nextCursor =
+    rows.length === limit && last
+      ? encodeCursor({
+          capturedAt: last.capturedAt.toISOString(),
+          id: last.id,
+        } satisfies LeadCursor)
+      : null;
 
   return {
     items: rows.map(toAdminLead),
-    pagination: {
-      page,
-      pageSize,
-      total: Number(total),
-      totalPages: Math.max(1, Math.ceil(Number(total) / pageSize)),
-    },
+    pagination: { limit, total: Number(total), nextCursor },
   };
 }
 

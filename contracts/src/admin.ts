@@ -42,11 +42,16 @@ export type AdminOtpVerifyPayload = z.infer<typeof adminOtpVerifyPayloadSchema>;
 // Admin pagination helper
 // ---------------------------------------------------------------------------
 
+/**
+ * Keyset pagination (R5-4/I16) — no `page`/`totalPages`, since a numeric page
+ * offset is exactly the "scan-and-discard, drifts under concurrent inserts"
+ * failure mode this replaced (SYSTEM_DESIGN §373). `nextCursor` is opaque;
+ * pass it back as `cursor` to fetch the next page, null on the last page.
+ */
 export const adminPaginationSchema = z.object({
-  page: z.number(),
-  pageSize: z.number(),
+  limit: z.number(),
   total: z.number(),
-  totalPages: z.number(),
+  nextCursor: z.string().nullable(),
 });
 export type AdminPagination = z.infer<typeof adminPaginationSchema>;
 

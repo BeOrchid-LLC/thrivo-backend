@@ -1,4 +1,4 @@
-import { and, count, eq, ilike, isNull, isNotNull, or, desc } from "drizzle-orm";
+import { and, count, eq, ilike, isNull, isNotNull, or, desc, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { users } from "../../db/schema";
 import * as authIdentityRepo from "./auth-identity.repository";
@@ -13,10 +13,12 @@ import {
   toAdminUserDetail,
   type AdminUserAggregates,
 } from "../mappers/admin-user.mapper";
+import { clampLimit, decodeCursor, encodeCursor } from "../lib/pagination";
 
 export type AdminListParams = {
-  page: number;
-  pageSize: number;
+  /** Opaque cursor from a previous page's `nextCursor` — omit for the first page. */
+  cursor?: string;
+  limit?: number;
   search?: string;
   /** "active" | "suspended" | "deleted" | "all" */
   status?: string;
@@ -25,12 +27,14 @@ export type AdminListParams = {
 export type AdminListResult = {
   items: AdminUser[];
   pagination: {
-    page: number;
-    pageSize: number;
+    limit: number;
     total: number;
-    totalPages: number;
+    /** Opaque cursor for the next page, or null when this page is the last one. */
+    nextCursor: string | null;
   };
 };
+
+type UserCursor = { createdAt: string; id: string };
 
 function emptyAggregates(): AdminUserAggregates {
   return { totalFoodLogs: 0, currentStreakDays: 0, subscription: null };
@@ -71,40 +75,56 @@ function buildStatusWhere(status: string | undefined) {
   return and(isNull(users.deletedAt), isNotNull(users.accountStatus));
 }
 
+/**
+ * `(created_at, id) < cursor` as a row-value comparison — one indexed seek
+ * (users_created_at_id_idx) per page, never an OFFSET scan-and-discard
+ * (SYSTEM_DESIGN §373; R5-4/I16). The `id` tiebreak keeps the cursor stable
+ * when two rows share a `created_at` (bulk imports, seed data).
+ */
+function buildCursorWhere(cursor: UserCursor) {
+  return sql`(${users.createdAt}, ${users.id}) < (${new Date(cursor.createdAt)}, ${cursor.id})`;
+}
+
 export async function listUsers(params: AdminListParams): Promise<AdminListResult> {
-  const { page, pageSize, search, status } = params;
-  const offset = (page - 1) * pageSize;
+  const { search, status } = params;
+  const limit = clampLimit(params.limit, 20, 100);
 
   const searchWhere = search
     ? or(ilike(users.email, `%${search}%`), ilike(users.name, `%${search}%`))
     : undefined;
-
   const statusWhere = buildStatusWhere(status);
-  const where = and(searchWhere, statusWhere);
+  const filterWhere = and(searchWhere, statusWhere);
+  const cursorWhere = params.cursor
+    ? buildCursorWhere(decodeCursor<UserCursor>(params.cursor))
+    : undefined;
 
   const [rows, [{ value: total }]] = await Promise.all([
     db
       .select()
       .from(users)
-      .where(where)
-      .orderBy(desc(users.createdAt))
-      .limit(pageSize)
-      .offset(offset),
-    db.select({ value: count() }).from(users).where(where),
+      .where(and(filterWhere, cursorWhere))
+      .orderBy(desc(users.createdAt), desc(users.id))
+      .limit(limit),
+    db.select({ value: count() }).from(users).where(filterWhere),
   ]);
 
   const userIds = rows.map((row) => row.id);
   const aggregatesByUser = await loadAggregatesForUsers(userIds);
+
+  const last = rows[rows.length - 1];
+  const nextCursor =
+    rows.length === limit && last
+      ? encodeCursor({ createdAt: last.createdAt.toISOString(), id: last.id } satisfies UserCursor)
+      : null;
 
   return {
     items: rows.map((row) =>
       toAdminUserDetail(row, aggregatesByUser.get(row.id) ?? emptyAggregates())
     ),
     pagination: {
-      page,
-      pageSize,
+      limit,
       total: Number(total),
-      totalPages: Math.max(1, Math.ceil(Number(total) / pageSize)),
+      nextCursor,
     },
   };
 }
