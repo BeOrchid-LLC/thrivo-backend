@@ -120,6 +120,20 @@
       "when": 1783249243370,
       "tag": "0016_eager_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783747715356,
+      "tag": "0017_giant_tigra",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783750587166,
+      "tag": "0018_low_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

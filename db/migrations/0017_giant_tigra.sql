@@ -1,0 +1,1 @@
+ALTER TABLE "food_nutrients" ADD CONSTRAINT "food_nutrients_serving_g_required_for_per_serving" CHECK ("food_nutrients"."basis" <> 'per_serving' OR "food_nutrients"."serving_g" > 0);

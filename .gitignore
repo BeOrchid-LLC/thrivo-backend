@@ -16,3 +16,4 @@ dist/
 coverage/
 .nyc_output/
 .mcp.json
+scripts/.backfill-checkpoints/

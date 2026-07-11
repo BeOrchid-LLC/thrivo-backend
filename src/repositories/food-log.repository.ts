@@ -178,6 +178,11 @@ export async function deleteLogForUser(
   return row ?? null;
 }
 
+/** Every log snapshot that still points at a given catalog item — the R1-5 backfill's repair set. */
+export async function listByFoodItemId(foodItemId: string, tx: Executor = db): Promise<FoodLog[]> {
+  return tx.select().from(foodLogs).where(eq(foodLogs.foodItemId, foodItemId));
+}
+
 /** Admin batch — food log counts keyed by user id. */
 export async function countByUserIds(
   userIds: string[],

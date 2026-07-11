@@ -10,9 +10,22 @@ import type {
   UpdateLogPayload,
   LogEstimatePayload,
 } from "../../contracts/src/foods";
-import { ConflictError, NotFoundError, RateLimitedError, UpstreamError } from "../lib/errors";
+import {
+  ConflictError,
+  NotFoundError,
+  RateLimitedError,
+  UpstreamError,
+  ValidationError,
+} from "../lib/errors";
+import {
+  GRAMS_SERVING_ID,
+  assertSupportedBasis,
+  resolveQuantityGrams,
+  scaleNutrients,
+} from "../lib/nutrition";
 import { dailySummaryRepo, foodFavoriteRepo, foodItemRepo, foodLogRepo } from "../repositories";
 import type { FoodLog } from "../repositories/food-log.repository";
+import type { FoodServingRow } from "../../db/schema";
 import type { User } from "../repositories/user.repository";
 import { fetchOpenFoodFactsProduct } from "../integrations/open-food-facts";
 import { invalidateFoodDashboardCache } from "./dashboard-cache.service";
@@ -52,9 +65,12 @@ export async function lookupFood(user: User, barcode: string): Promise<FoodItem 
     await foodItemRepo.upsertNutrients(
       {
         foodItemId: item.id,
-        basis: upstream.servingGrams ? "per_serving" : "per_100g",
+        basis: upstream.basis,
         servingLabel: upstream.servingLabel,
-        servingG: upstream.servingGrams ? String(upstream.servingGrams) : null,
+        // The reference amount is only ever servingGrams when the whole product
+        // was normalized on that basis (ADR-0022/D1) — a per_100g product may
+        // still carry a display-only servingGrams hint that isn't the divisor.
+        servingG: upstream.basis === "per_serving" ? String(upstream.servingGrams) : null,
         kcal: String(upstream.nutrients.calories),
         proteinG: String(upstream.nutrients.proteinG),
         carbsG: String(upstream.nutrients.carbsG),
@@ -178,13 +194,24 @@ export async function logFood(user: User, payload: LogFoodPayload, idempotencyKe
   const nutrient = await foodItemRepo.getNutrients(item.id);
   if (!nutrient) throw new ConflictError("Food has no nutrition data");
   const servings = await foodItemRepo.getServings(item.id);
-  const serving = payload.servingId
-    ? servings.find((candidate) => candidate.id === payload.servingId)
-    : null;
-  const baseGrams = toNumber(nutrient.servingG);
-  const servingGrams = toNumber(serving?.grams);
-  const multiplier =
-    servingGrams && baseGrams ? payload.servings * (servingGrams / baseGrams) : payload.servings;
+  const serving = resolveNamedServing(payload.servingId, servings);
+  const basis = {
+    basis: assertSupportedBasis(nutrient.basis),
+    servingG: toNumber(nutrient.servingG) || null,
+    kcal: toNumber(nutrient.kcal),
+    proteinG: toNumber(nutrient.proteinG),
+    carbsG: toNumber(nutrient.carbsG),
+    fatG: toNumber(nutrient.fatG),
+  };
+  const quantityGrams = resolveQuantityGrams(
+    {
+      servingId: payload.servingId ?? null,
+      quantity: payload.servings,
+      matchedServingGrams: serving ? toNumber(serving.grams) : null,
+    },
+    basis
+  );
+  const scaled = scaleNutrients(basis, quantityGrams);
   const consumedAt = payload.consumedAt ? new Date(payload.consumedAt) : new Date();
   const now = new Date();
   const { log, totals } = await db.transaction(async (tx) => {
@@ -198,14 +225,20 @@ export async function logFood(user: User, payload: LogFoodPayload, idempotencyKe
         source: item.barcode ? "barcode" : "search",
         barcode: item.barcode,
         foodItemId: item.id,
-        servingId: serving?.id ?? payload.servingId ?? null,
+        // Only a real food_servings row is FK-storable; the grams sentinel and
+        // "no explicit serving" both persist as null (the snapshot columns below
+        // already capture what was actually logged).
+        servingId: serving?.id ?? null,
         name: item.name,
         servingQty: String(payload.servings),
-        servingUnit: payload.servingUnit ?? serving?.label ?? nutrient.servingLabel,
-        kcal: Math.round(toNumber(nutrient.kcal) * multiplier),
-        proteinG: String(toNumber(nutrient.proteinG) * multiplier),
-        carbsG: String(toNumber(nutrient.carbsG) * multiplier),
-        fatG: String(toNumber(nutrient.fatG) * multiplier),
+        servingUnit:
+          payload.servingUnit ??
+          serving?.label ??
+          (payload.servingId === GRAMS_SERVING_ID ? "g" : nutrient.servingLabel),
+        kcal: scaled.kcal,
+        proteinG: String(scaled.proteinG),
+        carbsG: String(scaled.carbsG),
+        fatG: String(scaled.fatG),
       },
       tx
     );
@@ -406,7 +439,7 @@ function buildServingOptions(
       grams: defaultGrams || null,
       isDefault: true,
     },
-    { id: null, measure: "weight", label: "grams", grams: 1, isDefault: false },
+    { id: GRAMS_SERVING_ID, measure: "weight", label: "grams", grams: 1, isDefault: false },
   ];
   for (const serving of servings) {
     if (options.some((option) => option.id === serving.id || option.label === serving.label))
@@ -463,7 +496,13 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
   };
 }
 
-async function refreshDailySummary(user: User, day: string, tx: Executor): Promise<DailyTotals> {
+/** Exported for the R1-5 backfill script, which must re-run recompute through this exact
+ * advisory-locked path (never a bespoke recompute) so it can't race a live writer. */
+export async function refreshDailySummary(
+  user: User,
+  day: string,
+  tx: Executor
+): Promise<DailyTotals> {
   // Serialize same-day writers before reading totals so the absolute recompute
   // can't miss a concurrently-inserted row (see daily-summary.repository.lockForDay).
   await dailySummaryRepo.lockForDay(user.id, day, tx);
@@ -496,6 +535,25 @@ async function dailyTotals(user: User, day: string, tx: Executor = db) {
 
 function canSeeFood(user: User, item: { tier: string; ownerUserId: string | null }) {
   return item.tier === "authoritative" || item.ownerUserId === user.id;
+}
+
+/**
+ * Resolves an explicit `servingId` to one of the item's real `food_servings`
+ * rows. `null`/undefined (no explicit serving) and the GRAMS_SERVING_ID
+ * sentinel both intentionally resolve to `null` here — neither is a DB row.
+ * Anything else that doesn't match is a stale/invalid id: reject it rather
+ * than silently falling back to the default reference amount (D2).
+ */
+function resolveNamedServing(
+  servingId: string | null | undefined,
+  servings: FoodServingRow[]
+): FoodServingRow | null {
+  if (!servingId || servingId === GRAMS_SERVING_ID) return null;
+  const match = servings.find((candidate) => candidate.id === servingId);
+  if (!match) {
+    throw new ValidationError("Selected serving no longer exists for this food");
+  }
+  return match;
 }
 
 function toNumber(value: string | number | null | undefined): number {
