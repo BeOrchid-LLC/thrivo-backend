@@ -62,6 +62,8 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
+      # ADR-0023 guard: fails if any db/schema/ timestamp column is timezone-naive.
+      - run: npm run db:check-timestamps
       - run: npm run contracts:build
       - run: npm run contracts:pack:dry
       - run: npm run build
