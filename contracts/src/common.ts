@@ -26,7 +26,7 @@ export type Meta = z.infer<typeof metaSchema>;
 export const apiErrorSchema = z.object({
   success: z.literal(false),
   error: z.object({
-    code: z.string(),
+    code: errorCodeSchema,
     message: z.string(),
     details: z.unknown().optional(),
   }),
