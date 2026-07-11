@@ -2,7 +2,10 @@ export interface OpenFoodFactsProduct {
   barcode: string;
   name: string;
   brand: string | null;
+  /** Which reference amount every nutrient below is stated for (ADR-0022) — one basis for the whole product. */
+  basis: "per_serving" | "per_100g";
   servingLabel: string;
+  /** Grams for one reference serving. Always > 0 when basis is per_serving; may be a display-only hint otherwise. */
   servingGrams: number | null;
   nutrients: {
     calories: number;
@@ -122,6 +125,29 @@ export async function searchOpenFoodFactsProducts(
   }
 }
 
+const SERVING_NUTRIENT_KEYS = [
+  "energy-kcal_serving",
+  "proteins_serving",
+  "carbohydrates_serving",
+  "fat_serving",
+] as const;
+const PER_100G_NUTRIENT_KEYS = [
+  "energy-kcal_100g",
+  "proteins_100g",
+  "carbohydrates_100g",
+  "fat_100g",
+] as const;
+
+/**
+ * ADR-0022 (D1) — one basis for the WHOLE product, never per-nutrient. OFF
+ * reports every macro on both a `*_serving` and `*_100g` key independently, and
+ * either can be missing per-nutrient; picking a basis per-nutrient (the old
+ * behavior) let a product be stored `per_serving` while its protein/carbs/fat
+ * were silently sourced from `*_100g` — the multiplier then scales numbers that
+ * were never on that basis. Precedence: a complete `*_serving` set (+ a usable
+ * `serving_quantity`) wins; else a complete `*_100g` set; else the product is
+ * rejected as incomplete rather than guessed at.
+ */
 function normalizeProduct(
   barcode: string,
   product: NonNullable<OffResponse["product"]>
@@ -130,19 +156,49 @@ function normalizeProduct(
   if (!name) return null;
   const nutriments = product.nutriments ?? {};
   const servingGrams = toNumber(product.serving_quantity);
-  return {
-    barcode,
-    name,
-    brand: clean(product.brands),
-    servingLabel: clean(product.serving_size) ?? (servingGrams ? `${servingGrams}g` : "serving"),
-    servingGrams,
-    nutrients: {
-      calories: firstNumber(nutriments, ["energy-kcal_serving", "energy-kcal_100g"]) ?? 0,
-      proteinG: firstNumber(nutriments, ["proteins_serving", "proteins_100g"]) ?? 0,
-      carbsG: firstNumber(nutriments, ["carbohydrates_serving", "carbohydrates_100g"]) ?? 0,
-      fatG: firstNumber(nutriments, ["fat_serving", "fat_100g"]) ?? 0,
-    },
-  };
+  const servingLabel =
+    clean(product.serving_size) ?? (servingGrams ? `${servingGrams}g` : "serving");
+  const brand = clean(product.brands);
+
+  const perServing =
+    servingGrams && servingGrams > 0 ? allNumbers(nutriments, SERVING_NUTRIENT_KEYS) : null;
+  if (perServing) {
+    return {
+      barcode,
+      name,
+      brand,
+      basis: "per_serving",
+      servingLabel,
+      servingGrams,
+      nutrients: {
+        calories: perServing[0],
+        proteinG: perServing[1],
+        carbsG: perServing[2],
+        fatG: perServing[3],
+      },
+    };
+  }
+
+  const per100g = allNumbers(nutriments, PER_100G_NUTRIENT_KEYS);
+  if (per100g) {
+    return {
+      barcode,
+      name,
+      brand,
+      basis: "per_100g",
+      servingLabel,
+      // Kept only as a display hint (e.g. "1 bar (40g)") — never a basis divisor here.
+      servingGrams,
+      nutrients: {
+        calories: per100g[0],
+        proteinG: per100g[1],
+        carbsG: per100g[2],
+        fatG: per100g[3],
+      },
+    };
+  }
+
+  return null;
 }
 
 function normalizeSearchResult(
@@ -165,15 +221,18 @@ function normalizeSearchResult(
   };
 }
 
-function firstNumber(
+/** Returns the parsed numbers for `keys`, in order, only if every one resolves — else null. */
+function allNumbers(
   values: Record<string, string | number | undefined>,
-  keys: string[]
-): number | null {
+  keys: readonly string[]
+): number[] | null {
+  const nums: number[] = [];
   for (const key of keys) {
     const value = toNumber(values[key]);
-    if (value !== null) return value;
+    if (value === null) return null;
+    nums.push(value);
   }
-  return null;
+  return nums;
 }
 
 function toNumber(value: string | number | undefined): number | null {
