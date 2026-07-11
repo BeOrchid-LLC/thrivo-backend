@@ -1,4 +1,4 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -116,6 +116,37 @@ export async function getServings(
   tx: Executor = db
 ): Promise<FoodServingRow[]> {
   return tx.select().from(foodServings).where(eq(foodServings.foodItemId, foodItemId));
+}
+
+export interface FoodItemWithNutrients {
+  item: FoodItem;
+  nutrient: FoodNutrientRow;
+}
+
+/**
+ * Batch fetch of items + their reference nutrition, one joined round-trip
+ * over the given ids (R5-1). Items with no nutrition row are excluded, same
+ * as the single-id `findById` + `getNutrients` path they replace for fan-outs.
+ */
+export async function findManyWithNutrients(
+  ids: string[],
+  tx: Executor = db
+): Promise<FoodItemWithNutrients[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ item: foodItems, nutrient: foodNutrients })
+    .from(foodItems)
+    .innerJoin(foodNutrients, eq(foodNutrients.foodItemId, foodItems.id))
+    .where(inArray(foodItems.id, ids));
+}
+
+/** Batch serving options for many items in one round-trip (R5-1). */
+export async function getServingsForItems(
+  ids: string[],
+  tx: Executor = db
+): Promise<FoodServingRow[]> {
+  if (ids.length === 0) return [];
+  return tx.select().from(foodServings).where(inArray(foodServings.foodItemId, ids));
 }
 
 export async function insertServing(

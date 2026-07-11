@@ -26,7 +26,7 @@ import {
 import { dailySummaryRepo, foodFavoriteRepo, foodItemRepo, foodLogRepo } from "../repositories";
 import { recordQualifyingDay } from "./streak.service";
 import type { FoodLog } from "../repositories/food-log.repository";
-import type { FoodServingRow } from "../../db/schema";
+import type { FoodItemRow, FoodNutrientRow, FoodServingRow } from "../../db/schema";
 import type { User } from "../repositories/user.repository";
 import { fetchOpenFoodFactsProduct } from "../integrations/open-food-facts";
 import { invalidateFoodDashboardCache } from "./dashboard-cache.service";
@@ -168,21 +168,51 @@ export async function updatePersonalFood(
   return mapped;
 }
 
+/**
+ * One joined/inArray round-trip regardless of favorite count (R5-1/I13),
+ * replacing the old fan-out where every favorite fired 3 sequential queries.
+ * Ordering is preserved from `listForUser` (most-used, then most-recent) —
+ * applied here in JS, not left to the batch query's arbitrary row order.
+ */
 export async function listFavorites(user: User): Promise<FoodItem[]> {
   const favorites = await foodFavoriteRepo.listForUser(user.id);
-  const items = await Promise.all(favorites.map((favorite) => toFoodItem(favorite.foodItemId)));
-  return items.filter((item): item is FoodItem => item !== null);
+  if (favorites.length === 0) return [];
+
+  const ids = favorites.map((favorite) => favorite.foodItemId);
+  const [rows, servings] = await Promise.all([
+    foodItemRepo.findManyWithNutrients(ids),
+    foodItemRepo.getServingsForItems(ids),
+  ]);
+
+  const rowById = new Map(rows.map((row) => [row.item.id, row]));
+  const servingsByItem = new Map<string, FoodServingRow[]>();
+  for (const serving of servings) {
+    const list = servingsByItem.get(serving.foodItemId);
+    if (list) list.push(serving);
+    else servingsByItem.set(serving.foodItemId, [serving]);
+  }
+
+  const items: FoodItem[] = [];
+  for (const favorite of favorites) {
+    const row = rowById.get(favorite.foodItemId);
+    if (!row) continue; // orphaned favorite (item since removed) — same skip as the old .filter(null)
+    items.push(mapFoodItem(row.item, row.nutrient, servingsByItem.get(favorite.foodItemId) ?? []));
+  }
+  return items;
 }
 
-export async function addFavorite(user: User, foodItemId: string): Promise<FoodItem[]> {
-  await getFoodDetail(user, foodItemId);
+/** Validates + fetches the item once, then reuses it as the mutation response (R5-1/I13). */
+export async function addFavorite(user: User, foodItemId: string): Promise<FoodItem> {
+  const item = await getFoodDetail(user, foodItemId);
   await foodFavoriteRepo.addFavorite({ userId: user.id, foodItemId, lastUsedAt: new Date() });
-  return listFavorites(user);
+  return item;
 }
 
-export async function removeFavorite(user: User, foodItemId: string): Promise<FoodItem[]> {
+/** Returns the removed item so the client can patch its list in place instead of re-fetching (R5-1/I13). */
+export async function removeFavorite(user: User, foodItemId: string): Promise<FoodItem | null> {
+  const item = await toFoodItem(foodItemId);
   await foodFavoriteRepo.removeFavorite(user.id, foodItemId);
-  return listFavorites(user);
+  return item;
 }
 
 export async function logFood(user: User, payload: LogFoodPayload, idempotencyKey?: string | null) {
@@ -409,6 +439,14 @@ async function toFoodItem(id: string): Promise<FoodItem | null> {
   const nutrient = await foodItemRepo.getNutrients(id);
   if (!nutrient) return null;
   const servings = await foodItemRepo.getServings(id);
+  return mapFoodItem(item, nutrient, servings);
+}
+
+function mapFoodItem(
+  item: FoodItemRow,
+  nutrient: FoodNutrientRow,
+  servings: FoodServingRow[]
+): FoodItem {
   const servingGrams = toNumber(nutrient.servingG);
   return {
     id: item.id,
