@@ -100,6 +100,12 @@ describe("food external search service", () => {
     await expect(enforceBarcodeLookupLimit("u1")).rejects.toThrow("Barcode lookup limit reached");
   });
 
+  it("fails open (allows the request) when Redis is unreachable during rate limiting", async () => {
+    redis.instance.incr.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+
+    await expect(enforceBarcodeLookupLimit("u1")).resolves.toBeUndefined();
+  });
+
   it("does not cache empty search results, so a repeat search retries upstream", async () => {
     searchOpenFoodFactsProducts.mockResolvedValueOnce([]);
 
