@@ -12,6 +12,7 @@ import {
   type SessionContext,
 } from "../session.service";
 import { resolveUser } from "../../services/identity.service";
+import { sendWelcomeEmail } from "../emails";
 import { exchangeCodeForIdToken, googleRedirectUri, verifyIdToken } from "./google.client";
 
 const PROVIDER = "google";
@@ -65,7 +66,9 @@ export async function completeGoogleSignIn(
   const claims = await verifyIdToken(idToken);
   if (!claims.emailVerified) throw new UnauthorizedError("Your Google email is not verified");
 
-  return db.transaction(async (tx) => {
+  let created = false;
+  let newUserId = "";
+  const tokens = await db.transaction(async (tx) => {
     const identity = await authIdentityRepo.upsertByEmail(
       {
         email: claims.email,
@@ -84,7 +87,14 @@ export async function completeGoogleSignIn(
       );
     }
 
-    await resolveUser(principalOf(identity), tx);
+    const resolved = await resolveUser(principalOf(identity), tx);
+    created = resolved.created;
+    newUserId = resolved.user.id;
     return issueSession(principalOf(identity), ctx, tx);
   });
+
+  // Fired after commit, never inside the transaction — see identity.service.ts.
+  if (created) await sendWelcomeEmail(claims.email, newUserId);
+
+  return tokens;
 }

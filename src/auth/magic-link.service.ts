@@ -5,7 +5,7 @@ import { logger } from "../lib/logger";
 import { env } from "../env";
 import { UnauthorizedError } from "../lib/errors";
 import { authIdentityRepo, verificationRepo } from "../repositories";
-import { sendAuthMagicLink } from "./emails";
+import { sendAuthMagicLink, sendWelcomeEmail } from "./emails";
 import { sha256Hex, randomToken } from "./crypto";
 import {
   issueSession,
@@ -76,12 +76,21 @@ export async function verifyMagicLink(
   }
   const email = row.identifier.slice(IDENTIFIER_PREFIX.length);
 
-  return db.transaction(async (tx) => {
+  let created = false;
+  let newUserId = "";
+  const tokens = await db.transaction(async (tx) => {
     const identity = await authIdentityRepo.upsertByEmail(
       { email, name: email.split("@")[0] ?? "Thrivo user", emailVerified: true },
       tx
     );
-    await resolveUser(principalOf(identity), tx);
+    const resolved = await resolveUser(principalOf(identity), tx);
+    created = resolved.created;
+    newUserId = resolved.user.id;
     return issueSession(principalOf(identity), ctx, tx);
   });
+
+  // Fired after commit, never inside the transaction — see identity.service.ts.
+  if (created) await sendWelcomeEmail(email, newUserId);
+
+  return tokens;
 }

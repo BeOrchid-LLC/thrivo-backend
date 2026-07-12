@@ -15,30 +15,32 @@ const principal = { subjectId: "sub_1", email: "a@b.com", emailVerified: true, n
 describe("identity.service.resolveUser", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("returns the already-linked profile (by auth_subject_id)", async () => {
+  it("returns the already-linked profile (by auth_subject_id), created: false", async () => {
     repo.findByAuthSubjectId.mockResolvedValue({ id: "u1" });
-    expect(await resolveUser(principal)).toEqual({ id: "u1" });
+    expect(await resolveUser(principal)).toEqual({ user: { id: "u1" }, created: false });
     expect(repo.findActiveByEmail).not.toHaveBeenCalled();
     expect(repo.createUser).not.toHaveBeenCalled();
   });
 
-  it("links an existing profile found by verified email", async () => {
+  it("links an existing profile found by verified email, created: false", async () => {
     repo.findByAuthSubjectId.mockResolvedValue(null);
     repo.findActiveByEmail.mockResolvedValue({ id: "u2" });
     repo.linkAuthSubject.mockResolvedValue({ id: "u2", authSubjectId: "sub_1" });
 
-    const user = await resolveUser(principal);
+    const { user, created } = await resolveUser(principal);
     expect(repo.linkAuthSubject).toHaveBeenCalledWith("u2", "sub_1", expect.anything());
     expect(user).toEqual({ id: "u2", authSubjectId: "sub_1" });
+    expect(created).toBe(false);
     expect(repo.createUser).not.toHaveBeenCalled();
   });
 
-  it("creates a fresh profile when nothing matches", async () => {
+  it("creates a fresh profile when nothing matches, created: true", async () => {
     repo.findByAuthSubjectId.mockResolvedValue(null);
     repo.findActiveByEmail.mockResolvedValue(null);
     repo.createUser.mockResolvedValue({ id: "u3" });
 
-    await resolveUser(principal);
+    const { created } = await resolveUser(principal);
+    expect(created).toBe(true);
     expect(repo.createUser).toHaveBeenCalledWith(
       { email: "a@b.com", name: "Ada", authSubjectId: "sub_1" },
       expect.anything()

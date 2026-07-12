@@ -6,6 +6,7 @@ import { ForbiddenError } from "../lib/errors";
 import { userRepo, webhookEventRepo } from "../repositories";
 import type { SubProvider, SubStatus } from "../../db/schema";
 import { persistSubscriptionAndMirror } from "./subscription.service";
+import { sendTemplatedEmail } from "./email.service";
 
 /**
  * RevenueCat v1 webhook envelope — only the fields we consume. Unknown fields are
@@ -42,6 +43,25 @@ export function signatureMatches(header: string | undefined, secret: string | un
 
 function isAuthorized(header: string | undefined): boolean {
   return signatureMatches(header, env.REVENUECAT_WEBHOOK_AUTH);
+}
+
+/**
+ * A5-5: confirmation that a cancellation was received. Fired only for the
+ * CANCELLATION event itself (auto-renew turned off), not for EXPIRATION —
+ * the user already saw the cancel flow in-app/in-store; this just confirms it
+ * landed, per the "honest, no-surprises" brand promise (~60s of the action).
+ */
+async function sendCancellationEmail(email: string, userId: string): Promise<void> {
+  await sendTemplatedEmail({
+    to: email,
+    userId,
+    template: "notification",
+    props: {
+      title: "Your Thrivo cancellation is confirmed",
+      body: "Auto-renew is off. You'll keep premium access until the end of your current billing period, then move to the free plan automatically — no further charges.",
+      cta: { label: "Manage subscription", url: "https://thrivo.fit/app/subscription" },
+    },
+  });
 }
 
 export function mapStore(store: string | null | undefined): SubProvider {
@@ -146,6 +166,14 @@ export async function handleRevenueCatWebhook(
     // as stale/out-of-order — same externally-visible outcome as an ignored event
     // type, just decided by the DB instead of the mapping above.
     await webhookEventRepo.markProcessed(ledger.id, "processed");
+
+    // Only the CANCELLATION event itself, and only when it actually applied —
+    // never on EXPIRATION (already communicated via the trial-ending reminder)
+    // and never on a stale/out-of-order event the monotonic guard dropped.
+    if (applied && event.type === "CANCELLATION" && user.email) {
+      await sendCancellationEmail(user.email, user.id);
+    }
+
     return applied ? "processed" : "ignored";
   } catch (err) {
     logger.error({ err, eventId: event.id, type: event.type }, "revenuecat webhook failed");
