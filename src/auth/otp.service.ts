@@ -27,7 +27,7 @@ export async function issueAuthOtp(email: string): Promise<void> {
   const normalized = normalizeEmail(email);
   const code = await authOtp.issue(normalized);
   if (!code) return; // throttled — stay silent (no enumeration)
-  await sendAuthOtp(normalized, code, "sign-in");
+  await sendAuthOtp(normalized, code, "sign-in", AUTH_OTP_TTL_SEC);
 }
 
 export async function consumeAuthOtp(email: string, code: string): Promise<AuthOtpConsumeResult> {

@@ -6,7 +6,13 @@
  */
 export type RenderedBody = { html: string; text?: string };
 
+/** Per-send context every template gets for free, independent of its own props. */
+export type EmailRenderContext = {
+  recipientEmail: string;
+  unsubscribeUrl: string;
+};
+
 export type EmailTemplate<P> = {
   subject: (props: P) => string;
-  render: (props: P) => RenderedBody;
+  render: (props: P, ctx: EmailRenderContext) => RenderedBody;
 };

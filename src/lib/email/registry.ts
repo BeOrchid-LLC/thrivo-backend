@@ -1,4 +1,4 @@
-import type { EmailTemplate } from "./types";
+import type { EmailRenderContext, EmailTemplate } from "./types";
 import { notificationTemplate, type NotificationProps } from "./templates/notification";
 import { otpTemplate, type OtpProps } from "./templates/otp";
 
@@ -24,13 +24,15 @@ export type RenderedEmail = { subject: string; html: string; text?: string };
 /**
  * Render a registered template to a subject + body. Throws on an unknown name —
  * worker payloads arrive as `unknown`, so this is the runtime guard behind the
- * compile-time types.
+ * compile-time types. `ctx` defaults to an empty recipient so existing callers
+ * that don't care about it (or tests) don't have to pass one.
  */
 export function renderTemplate<K extends TemplateName>(
   name: K,
-  props: TemplateProps[K]
+  props: TemplateProps[K],
+  ctx: EmailRenderContext = { recipientEmail: "", unsubscribeUrl: "" }
 ): RenderedEmail {
   const template = templates[name];
   if (!template) throw new Error(`unknown email template: ${String(name)}`);
-  return { subject: template.subject(props), ...template.render(props) };
+  return { subject: template.subject(props), ...template.render(props, ctx) };
 }

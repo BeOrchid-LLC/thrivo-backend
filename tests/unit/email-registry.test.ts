@@ -3,11 +3,28 @@ import { renderTemplate } from "../../src/lib/email/registry";
 
 describe("email template registry", () => {
   it("renders the otp template with the code and a purpose-specific subject", () => {
-    const out = renderTemplate("otp", { code: "123456", purpose: "sign-in" });
+    const out = renderTemplate("otp", { code: "123456", purpose: "sign-in", expiresInMinutes: 5 });
     expect(out.subject).toContain("123456");
     expect(out.subject).toContain("sign-in");
-    expect(out.html).toContain("123456");
+    // Each digit renders in its own box, so the html never has "123456" contiguous — the plain-text
+    // fallback does.
+    expect(out.html).toContain(">1<");
+    expect(out.html).toContain(">6<");
     expect(out.text).toContain("123456");
+  });
+
+  it("renders the otp template's recipient and expiry into the footer/body via render context", () => {
+    const out = renderTemplate(
+      "otp",
+      { code: "123456", purpose: "email-verification", expiresInMinutes: 5 },
+      {
+        recipientEmail: "maya@example.com",
+        unsubscribeUrl: "https://thrivo.fit/unsubscribe?email=maya%40example.com",
+      }
+    );
+    expect(out.html).toContain("Sent to maya@example.com");
+    expect(out.html).toContain("https://thrivo.fit/unsubscribe?email=maya%40example.com");
+    expect(out.html).toContain("expires in 5 minutes");
   });
 
   it("renders the notification template with subject, html and text", () => {

@@ -13,7 +13,10 @@ import type { SendEmailJobData } from "../../services/email.service";
  */
 export async function handleSendEmail(job: Job<SendEmailJobData>): Promise<void> {
   const { emailLogId, to, template, props } = job.data;
-  const rendered = renderTemplate(template, props as TemplateProps[TemplateName]);
+  const rendered = renderTemplate(template, props as TemplateProps[TemplateName], {
+    recipientEmail: to,
+    unsubscribeUrl: `https://thrivo.fit/unsubscribe?email=${encodeURIComponent(to)}`,
+  });
 
   try {
     const { id } = await sendEmail({
