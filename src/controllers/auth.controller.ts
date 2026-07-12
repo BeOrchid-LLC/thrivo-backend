@@ -9,14 +9,14 @@ import {
   RateLimitedError,
 } from "../lib/errors";
 import {
-  appleSignInSchema,
-  magicLinkRequestSchema,
-  magicLinkVerifySchema,
-  otpRequestSchema,
-  otpVerifySchema,
-  refreshRequestSchema,
+  appleSignInPayloadSchema as appleSignInSchema,
+  magicLinkRequestPayloadSchema as magicLinkRequestSchema,
+  magicLinkVerifyPayloadSchema as magicLinkVerifySchema,
+  otpRequestPayloadSchema as otpRequestSchema,
+  otpVerifyPayloadSchema as otpVerifySchema,
+  refreshPayloadSchema as refreshRequestSchema,
   type AuthSession,
-} from "../auth/schemas";
+} from "../../contracts/src/auth";
 import { requestMagicLink, verifyMagicLink } from "../auth/magic-link.service";
 import { issueAuthOtp, verifyAuthOtp } from "../auth/otp.service";
 import { rotateSession, revokeSession, type IssuedTokens } from "../auth/session.service";

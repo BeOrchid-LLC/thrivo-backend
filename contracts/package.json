@@ -1,6 +1,6 @@
 {
   "name": "@beorchid-llc/thrivo-contracts",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Shared Thrivo API request and response contracts.",
   "type": "module",
   "private": false,
@@ -51,6 +51,10 @@
     "./uploads": {
       "types": "./dist/uploads.d.ts",
       "import": "./dist/uploads.js"
+    },
+    "./tdee": {
+      "types": "./dist/tdee.d.ts",
+      "import": "./dist/tdee.js"
     }
   },
   "files": [

@@ -26,7 +26,7 @@ export type OtpRequestPayload = z.infer<typeof otpRequestPayloadSchema>;
 /** POST /auth/otp/verify payload */
 export const otpVerifyPayloadSchema = z.object({
   email: emailSchema,
-  code: z.string().regex(/^\d{6}$/),
+  code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code"),
 });
 export type OtpVerifyPayload = z.infer<typeof otpVerifyPayloadSchema>;
 
@@ -44,13 +44,15 @@ export type MagicLinkRequestPayload = z.infer<typeof magicLinkRequestPayloadSche
  * @deprecated Magic-link auth remains API-supported but is hidden in mobile while the UX is revisited.
  */
 export const magicLinkVerifyPayloadSchema = z.object({
-  token: z.string().min(1),
+  // Capped defensively — the issued token is a short opaque ID, never near this size.
+  token: z.string().min(1).max(512),
 });
 export type MagicLinkVerifyPayload = z.infer<typeof magicLinkVerifyPayloadSchema>;
 
 /** POST /auth/refresh + POST /auth/logout payload */
 export const refreshPayloadSchema = z.object({
-  refreshToken: z.string().min(1),
+  // Capped defensively — the issued token is a short opaque ID, never near this size.
+  refreshToken: z.string().min(1).max(512),
 });
 export type RefreshPayload = z.infer<typeof refreshPayloadSchema>;
 

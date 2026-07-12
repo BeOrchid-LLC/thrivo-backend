@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { validate } from "../middleware/validate";
 import {
-  appleSignInSchema,
-  magicLinkRequestSchema,
-  magicLinkVerifySchema,
-  otpRequestSchema,
-  otpVerifySchema,
-  refreshRequestSchema,
-} from "../auth/schemas";
+  appleSignInPayloadSchema as appleSignInSchema,
+  magicLinkRequestPayloadSchema as magicLinkRequestSchema,
+  magicLinkVerifyPayloadSchema as magicLinkVerifySchema,
+  otpRequestPayloadSchema as otpRequestSchema,
+  otpVerifyPayloadSchema as otpVerifySchema,
+  refreshPayloadSchema as refreshRequestSchema,
+} from "../../contracts/src/auth";
 import {
   getAuthSession,
   getGoogleCallback,
