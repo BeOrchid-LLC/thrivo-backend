@@ -30,9 +30,13 @@ const { estimateNutritionViaModel } = vi.hoisted(() => ({ estimateNutritionViaMo
 vi.mock("../../src/integrations/anthropic/estimate", () => ({ estimateNutritionViaModel }));
 
 import { estimateNutrition } from "../../src/services/estimate.service";
+import type { User } from "../../src/repositories/user.repository";
 
 const payload = { name: "Egusi soup", portionMeasure: "serving" as const, quantity: 1 };
 const nutrients = { calories: 300, proteinG: 12, carbsG: 20, fatG: 18 };
+
+const freeUser = { id: "u1", tier: "free" } as User;
+const premiumUser = { id: "u2", tier: "premium" } as User;
 
 describe("estimateNutrition service", () => {
   beforeEach(() => {
@@ -42,18 +46,26 @@ describe("estimateNutrition service", () => {
   });
 
   it("caches by normalized description — a repeat reuses one model call", async () => {
-    const first = await estimateNutrition("u1", payload);
-    const repeat = await estimateNutrition("u1", payload);
+    const first = await estimateNutrition(freeUser, payload);
+    const repeat = await estimateNutrition(freeUser, payload);
     expect(first).toEqual(nutrients);
     expect(repeat).toEqual(nutrients);
     expect(estimateNutritionViaModel).toHaveBeenCalledTimes(1);
   });
 
-  it("rate-limits real model calls per user", async () => {
-    for (let i = 0; i < 30; i++) {
-      await estimateNutrition("u1", { ...payload, name: `food-${i}` });
+  it("caps free users at the tighter free-tier limit, not the premium one", async () => {
+    for (let i = 0; i < 5; i++) {
+      await estimateNutrition(freeUser, { ...payload, name: `food-${i}` });
     }
-    await expect(estimateNutrition("u1", { ...payload, name: "food-30" })).rejects.toThrow();
+    await expect(estimateNutrition(freeUser, { ...payload, name: "food-5" })).rejects.toThrow();
+    expect(estimateNutritionViaModel).toHaveBeenCalledTimes(5);
+  });
+
+  it("gives premium users the full rate limit", async () => {
+    for (let i = 0; i < 30; i++) {
+      await estimateNutrition(premiumUser, { ...payload, name: `food-${i}` });
+    }
+    await expect(estimateNutrition(premiumUser, { ...payload, name: "food-30" })).rejects.toThrow();
     expect(estimateNutritionViaModel).toHaveBeenCalledTimes(30);
   });
 
@@ -61,7 +73,7 @@ describe("estimateNutrition service", () => {
     redis.instance.get.mockResolvedValueOnce(null);
     redis.instance.incr.mockRejectedValueOnce(new Error("redis down"));
 
-    await expect(estimateNutrition("u1", { ...payload, name: "uncached" })).rejects.toThrow(
+    await expect(estimateNutrition(freeUser, { ...payload, name: "uncached" })).rejects.toThrow(
       "redis down"
     );
     expect(estimateNutritionViaModel).not.toHaveBeenCalled();
