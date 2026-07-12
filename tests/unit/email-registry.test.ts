@@ -27,6 +27,26 @@ describe("email template registry", () => {
     expect(out.html).toContain("expires in 5 minutes");
   });
 
+  it("renders the magic-link template with the sign-in url and expiry", () => {
+    const out = renderTemplate(
+      "magic-link",
+      {
+        url: "https://thrivo.fit/api/v1/auth/magic-link/callback?token=abc123",
+        expiresInMinutes: 15,
+      },
+      {
+        recipientEmail: "maya@example.com",
+        unsubscribeUrl: "https://thrivo.fit/unsubscribe?email=maya%40example.com",
+      }
+    );
+    expect(out.subject).toBe("Your Thrivo sign-in link");
+    expect(out.html).toContain("Here&#39;s your sign-in link");
+    expect(out.html).toContain("https://thrivo.fit/api/v1/auth/magic-link/callback?token=abc123");
+    expect(out.html).toContain("expires in 15 minutes");
+    expect(out.html).toContain("Sent to maya@example.com");
+    expect(out.text).toContain("https://thrivo.fit/api/v1/auth/magic-link/callback?token=abc123");
+  });
+
   it("renders the notification template with subject, html and text", () => {
     const out = renderTemplate("notification", {
       title: "Welcome to Thrivo",

@@ -57,7 +57,7 @@ export async function requestMagicLink(email: string): Promise<void> {
   // HTTPS CTA survives email click tracking; the callback verifies server-side
   // and redirects to thrivo://auth with issued tokens (same as Google OAuth).
   const ctaUrl = `${env.AUTH_BASE_URL}/api/v1/auth/magic-link/callback?token=${encodeURIComponent(token)}`;
-  await sendAuthMagicLink(email, ctaUrl);
+  await sendAuthMagicLink(email, ctaUrl, TTL_MIN);
 }
 
 /**

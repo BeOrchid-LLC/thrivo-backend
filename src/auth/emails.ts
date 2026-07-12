@@ -9,23 +9,32 @@ const PURPOSE: Record<string, OtpProps["purpose"]> = {
   "forget-password": "password-reset",
 };
 
-export async function sendAuthOtp(email: string, otp: string, type: string): Promise<void> {
+export async function sendAuthOtp(
+  email: string,
+  otp: string,
+  type: string,
+  ttlSec: number
+): Promise<void> {
   await sendTemplatedEmail({
     to: email,
     template: "otp",
-    props: { code: otp, purpose: PURPOSE[type] ?? "sign-in" },
+    props: {
+      code: otp,
+      purpose: PURPOSE[type] ?? "sign-in",
+      expiresInMinutes: Math.max(1, Math.round(ttlSec / 60)),
+    },
   });
 }
 
-export async function sendAuthMagicLink(email: string, ctaUrl: string): Promise<void> {
+export async function sendAuthMagicLink(
+  email: string,
+  ctaUrl: string,
+  ttlMin: number
+): Promise<void> {
   await sendTemplatedEmail({
     to: email,
-    template: "notification",
-    props: {
-      title: "Sign in to Thrivo",
-      body: "Use this secure link to continue. It expires in 15 minutes.",
-      cta: { label: "Continue to Thrivo", url: ctaUrl },
-    },
+    template: "magic-link",
+    props: { url: ctaUrl, expiresInMinutes: ttlMin },
   });
 }
 
