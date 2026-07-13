@@ -58,7 +58,10 @@ function buildTargetPatch(user: User, patch: Partial<NewUserRow>): Partial<NewUs
   const heightCm = numberFromDb((patch.heightCm ?? user.heightCm) as string | null);
   const weightKg = numberFromDb((patch.weightKg ?? user.weightKg) as string | null);
   const activityLevel = (patch.activityLevel ?? user.activityLevel) as ActivityLevel | null;
-  const manualDailyTargetKcal = patch.manualDailyTargetKcal ?? user.manualDailyTargetKcal;
+  const manualDailyTargetKcal =
+    patch.manualDailyTargetKcal === undefined
+      ? user.manualDailyTargetKcal
+      : patch.manualDailyTargetKcal;
 
   if (manualDailyTargetKcal) {
     return {
