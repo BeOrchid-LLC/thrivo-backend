@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { idPk } from "./_shared";
 import { subscriptionEventTypeEnum } from "./_enums";
@@ -12,6 +12,14 @@ import { webhookEvents } from "./webhook-events";
  * Populated exclusively from confirmed RevenueCat webhook deliveries (never
  * from optimistic in-app writes), so the same real-world transition can't be
  * double-counted by two different callers of persistSubscriptionAndMirror.
+ *
+ * `priceAmountCents`/`currency` are nullable — populated going forward from
+ * RevenueCat's webhook price fields (billing-webhook.service.ts), and
+ * best-effort backfilled historically for existing rows by
+ * scripts/backfill-subscription-event-prices.ts. A null price means "we
+ * don't know", never "$0" — this is the only source `revenueToDate`/
+ * `firstChargeAmountCents` can be derived from, since `subscriptions` holds
+ * no amount at all.
  */
 export const subscriptionEvents = pgTable(
   "subscription_events",
@@ -24,6 +32,8 @@ export const subscriptionEvents = pgTable(
     productId: text("product_id"),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     rawEventId: uuid("raw_event_id").references(() => webhookEvents.id, { onDelete: "set null" }),
+    priceAmountCents: integer("price_amount_cents"),
+    currency: text("currency"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

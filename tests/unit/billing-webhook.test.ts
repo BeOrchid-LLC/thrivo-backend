@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifySubscriptionEvent,
+  extractPriceFields,
   mapStatus,
   mapStore,
   signatureMatches,
@@ -96,5 +97,41 @@ describe("subscription funnel classification", () => {
   it("ignores event types outside the funnel", () => {
     expect(classifySubscriptionEvent("BILLING_ISSUE", "NORMAL", "active")).toBeNull();
     expect(classifySubscriptionEvent("TRANSFER", null, null)).toBeNull();
+  });
+});
+
+describe("price field extraction", () => {
+  it("converts price_in_purchased_currency to integer cents", () => {
+    expect(
+      extractPriceFields({ price_in_purchased_currency: 14.99, currency: "USD" })
+    ).toEqual({ priceAmountCents: 1499, currency: "USD" });
+  });
+
+  it("keeps a free-trial $0 as 0, not null — RevenueCat sends 0, not absent", () => {
+    expect(extractPriceFields({ price_in_purchased_currency: 0, currency: "USD" })).toEqual({
+      priceAmountCents: 0,
+      currency: "USD",
+    });
+  });
+
+  it("keeps a refund's negative price as negative cents", () => {
+    expect(extractPriceFields({ price_in_purchased_currency: -14.99, currency: "USD" })).toEqual({
+      priceAmountCents: -1499,
+      currency: "USD",
+    });
+  });
+
+  it("stays null (never fabricated as 0) when the field is missing or null", () => {
+    expect(extractPriceFields({})).toEqual({ priceAmountCents: null, currency: null });
+    expect(
+      extractPriceFields({ price_in_purchased_currency: null, currency: null })
+    ).toEqual({ priceAmountCents: null, currency: null });
+  });
+
+  it("rounds fractional-cent prices to the nearest cent", () => {
+    expect(extractPriceFields({ price_in_purchased_currency: 9.994 }).priceAmountCents).toBe(999);
+    expect(extractPriceFields({ price_in_purchased_currency: 9.996 }).priceAmountCents).toBe(
+      1000
+    );
   });
 });

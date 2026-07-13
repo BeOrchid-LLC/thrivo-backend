@@ -207,6 +207,15 @@ export async function listByFoodItemId(foodItemId: string, tx: Executor = db): P
   return tx.select().from(foodLogs).where(eq(foodLogs.foodItemId, foodItemId));
 }
 
+/** Total food-log count for a single user — the admin user-detail stat card. */
+export async function countByUserId(userId: string, tx: Executor = db): Promise<number> {
+  const [row] = await tx
+    .select({ value: count() })
+    .from(foodLogs)
+    .where(eq(foodLogs.userId, userId));
+  return Number(row?.value ?? 0);
+}
+
 /** Admin batch — food log counts keyed by user id. */
 export async function countByUserIds(
   userIds: string[],

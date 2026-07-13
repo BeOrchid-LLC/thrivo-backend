@@ -16,6 +16,7 @@ export default defineConfig({
     "backfill-food-basis": "scripts/backfill-food-basis.ts", // R1-5 one-off data repair
     "backfill-streaks": "scripts/backfill-streaks.ts", // R4-3 one-off streak backfill
     "backfill-mrr-snapshots": "scripts/backfill-mrr-snapshots.ts", // B2a one-off mrr_snapshots backfill
+    "backfill-subscription-event-prices": "scripts/backfill-subscription-event-prices.ts", // one-off subscription_events price backfill
   },
   outDir: "dist",
   format: "esm",

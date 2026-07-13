@@ -1,4 +1,4 @@
-import { gte, sql } from "drizzle-orm";
+import { asc, eq, gte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -40,4 +40,40 @@ export async function countByTypeSince(
   };
   for (const row of rows) result[row.eventType] = row.count;
   return result;
+}
+
+/** Full funnel history for one user, oldest first — feeds the admin
+ *  user-detail timeline and the trial-started/converted/first-charge dates. */
+export async function listByUser(userId: string, tx: Executor = db): Promise<SubscriptionEvent[]> {
+  return tx
+    .select()
+    .from(subscriptionEvents)
+    .where(eq(subscriptionEvents.userId, userId))
+    .orderBy(asc(subscriptionEvents.occurredAt));
+}
+
+/** Sum of `price_amount_cents` for a user — "revenue to date". `null` (not 0)
+ *  when every row is unpriced, so "no data yet" stays distinguishable from "$0". */
+export async function sumPriceAmountCentsByUser(
+  userId: string,
+  tx: Executor = db
+): Promise<number | null> {
+  const [row] = await tx
+    .select({ total: sql<number | null>`sum(${subscriptionEvents.priceAmountCents})::int` })
+    .from(subscriptionEvents)
+    .where(eq(subscriptionEvents.userId, userId));
+  return row?.total ?? null;
+}
+
+/** scripts/backfill-subscription-event-prices.ts — write the reconstructed price. */
+export async function updatePrice(
+  id: string,
+  priceAmountCents: number,
+  currency: string | null,
+  tx: Executor = db
+): Promise<void> {
+  await tx
+    .update(subscriptionEvents)
+    .set({ priceAmountCents, currency })
+    .where(eq(subscriptionEvents.id, id));
 }

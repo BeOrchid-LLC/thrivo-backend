@@ -148,6 +148,17 @@ export async function updateUserProfile(
     patch.accountStatus = "free_plan";
   }
 
+  // Stamp the moment onboarding first completes — any of the branches above can
+  // be what pushes onboardingStep over the threshold. Set once; never overwritten
+  // by a later profile edit that happens to also touch onboarding fields.
+  if (
+    !user.onboardingCompletedAt &&
+    !isUserOnboarded(user) &&
+    isUserOnboarded({ ...user, ...patch })
+  ) {
+    patch.onboardingCompletedAt = now;
+  }
+
   const updated = await userRepo.updateProfile(user.id, patch);
   if (!updated) throw new NotFoundError("User not found");
 

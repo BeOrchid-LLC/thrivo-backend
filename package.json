@@ -33,6 +33,8 @@
     "backfill:streaks:deploy": "node dist/backfill-streaks.js",
     "backfill:mrr-snapshots": "tsx scripts/backfill-mrr-snapshots.ts",
     "backfill:mrr-snapshots:deploy": "node dist/backfill-mrr-snapshots.js",
+    "backfill:subscription-event-prices": "tsx scripts/backfill-subscription-event-prices.ts",
+    "backfill:subscription-event-prices:deploy": "node dist/backfill-subscription-event-prices.js",
     "lint": "eslint src db contracts/src tests --ext .ts",
     "format": "prettier --write \"src/**/*.ts\" \"db/**/*.ts\" \"contracts/src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"db/**/*.ts\" \"contracts/src/**/*.ts\" \"tests/**/*.ts\"",

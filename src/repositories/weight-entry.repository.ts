@@ -1,9 +1,32 @@
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { weightEntries, type NewWeightEntryRow, type WeightEntryRow } from "../../db/schema";
 
 export type WeightEntry = WeightEntryRow;
+
+/** Total weight-log count for a user — the admin user-detail stat card. */
+export async function countByUserId(userId: string, tx: Executor = db): Promise<number> {
+  const [row] = await tx
+    .select({ value: count() })
+    .from(weightEntries)
+    .where(eq(weightEntries.userId, userId));
+  return Number(row?.value ?? 0);
+}
+
+/** Most recent N entries — the admin user-detail "Weight logs" activity tab. */
+export async function listRecentByUser(
+  userId: string,
+  limit = 10,
+  tx: Executor = db
+): Promise<WeightEntry[]> {
+  return tx
+    .select()
+    .from(weightEntries)
+    .where(eq(weightEntries.userId, userId))
+    .orderBy(desc(weightEntries.localDate), desc(weightEntries.recordedAt))
+    .limit(limit);
+}
 
 export async function listForUser(
   userId: string,

@@ -23,6 +23,11 @@ const revenueCatEventSchema = z.object({
     purchased_at_ms: z.number().nullish(),
     expiration_at_ms: z.number().nullish(),
     event_timestamp_ms: z.number().nullish(),
+    // Price in the purchase currency — null/0 (free trial)/negative (refund)
+    // are all valid per RevenueCat's docs. Used to populate subscription_events'
+    // priceAmountCents/currency (revenue-to-date, first charge) going forward.
+    price_in_purchased_currency: z.number().nullish(),
+    currency: z.string().nullish(),
   }),
 });
 
@@ -96,6 +101,23 @@ export function mapStatus(type: string, periodType: string | null | undefined): 
  * event was applied — required to tell a fresh RENEWAL apart from a trial
  * converting, and a trial CANCELLATION apart from a regular one.
  */
+/**
+ * Convert RevenueCat's `price_in_purchased_currency` (float, purchase
+ * currency) to integer cents. Null/non-number stays null — never fabricated
+ * as 0 — since RevenueCat itself sends null for "unknown" (distinct from an
+ * actual $0 free-trial event, which arrives as the number 0).
+ */
+export function extractPriceFields(event: {
+  price_in_purchased_currency?: number | null;
+  currency?: string | null;
+}): { priceAmountCents: number | null; currency: string | null } {
+  const priceAmountCents =
+    typeof event.price_in_purchased_currency === "number"
+      ? Math.round(event.price_in_purchased_currency * 100)
+      : null;
+  return { priceAmountCents, currency: event.currency ?? null };
+}
+
 export function classifySubscriptionEvent(
   type: string,
   periodType: string | null | undefined,
@@ -198,6 +220,7 @@ export async function handleRevenueCatWebhook(
             productId: event.product_id ?? null,
             occurredAt: eventAt,
             rawEventId: ledger.id,
+            ...extractPriceFields(event),
           }
         : undefined
     );

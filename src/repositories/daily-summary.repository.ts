@@ -96,6 +96,24 @@ export async function upsertForDay(
   return row;
 }
 
+/**
+ * Average daily calorie total over the trailing `days` days — the admin
+ * user-detail stat card. `null` (not 0) when there are zero rows in range,
+ * so the UI can render "—" instead of a misleading "0 kcal avg".
+ */
+export async function getAvgDailyKcal(
+  userId: string,
+  days = 30,
+  tx: Executor = db
+): Promise<number | null> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [row] = await tx
+    .select({ avg: sql<number | null>`avg(${dailySummaries.totalCalories})::int` })
+    .from(dailySummaries)
+    .where(and(eq(dailySummaries.userId, userId), gte(dailySummaries.localDate, since)));
+  return row?.avg ?? null;
+}
+
 export async function listRange(
   userId: string,
   fromDate: string,

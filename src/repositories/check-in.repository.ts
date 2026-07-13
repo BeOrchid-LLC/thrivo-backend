@@ -1,9 +1,18 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { checkIns, type CheckInRow, type NewCheckInRow } from "../../db/schema";
 
 export type CheckIn = CheckInRow;
+
+/** Total check-in count for a user — the admin user-detail stat card. */
+export async function countByUserId(userId: string, tx: Executor = db): Promise<number> {
+  const [row] = await tx
+    .select({ value: count() })
+    .from(checkIns)
+    .where(eq(checkIns.userId, userId));
+  return Number(row?.value ?? 0);
+}
 
 export async function getForDay(
   userId: string,

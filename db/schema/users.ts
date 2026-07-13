@@ -57,6 +57,9 @@ export const users = pgTable(
 
     onboardingStep: integer("onboarding_step").notNull().default(1),
     onboardingSkipped: boolean("onboarding_skipped").notNull().default(false),
+    // Set once, the moment onboardingStep first crosses COMPLETE_ONBOARDING_STEP
+    // (user.service.ts::updateProfile) — never overwritten by later profile edits.
+    onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     // Throttled liveness stamp (auth middleware). Written via raw SQL so it never
     // trips updated_at's $onUpdate. Powers last-active and DAU/MAU.

@@ -46,6 +46,17 @@ export const subscriptionEventTypeEnum = pgEnum("subscription_event_type", [
   "expired",
 ]);
 
+/**
+ * Append-only generic product-analytics events (see user-events.ts) — for
+ * lifecycle moments that aren't billing-specific (contrast with
+ * subscription_event_type). Receiving end only for now; nothing in this
+ * codebase fires these yet (future mobile-app instrumentation).
+ */
+export const userEventTypeEnum = pgEnum("user_event_type", [
+  "onboarding_completed",
+  "upgrade_prompt_shown",
+]);
+
 export const emailStatusEnum = pgEnum("email_status", [
   "queued",
   "sent",
@@ -83,6 +94,7 @@ export type Platform = (typeof platformEnum.enumValues)[number];
 export type SubProvider = (typeof subProviderEnum.enumValues)[number];
 export type SubStatus = (typeof subStatusEnum.enumValues)[number];
 export type SubscriptionEventType = (typeof subscriptionEventTypeEnum.enumValues)[number];
+export type UserEventType = (typeof userEventTypeEnum.enumValues)[number];
 export type EmailStatus = (typeof emailStatusEnum.enumValues)[number];
 export type WebhookProvider = (typeof webhookProviderEnum.enumValues)[number];
 export type WebhookStatus = (typeof webhookStatusEnum.enumValues)[number];
