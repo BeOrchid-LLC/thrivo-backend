@@ -200,6 +200,28 @@ export const adminRoutes = {
     path: "/api/v1/admin/metrics/dashboard",
     auth: "admin",
   },
+
+  // Overview page — one route per independently-fetched section.
+  getOverviewMetrics: {
+    method: "GET",
+    path: "/api/v1/admin/overview/metrics",
+    auth: "admin",
+  },
+  getOverviewRevenueTrend: {
+    method: "GET",
+    path: "/api/v1/admin/overview/revenue-trend",
+    auth: "admin",
+  },
+  getOverviewTrialPipeline: {
+    method: "GET",
+    path: "/api/v1/admin/overview/trial-pipeline",
+    auth: "admin",
+  },
+  getOverviewPlanBreakdown: {
+    method: "GET",
+    path: "/api/v1/admin/overview/plan-breakdown",
+    auth: "admin",
+  },
   cancelSubscription: {
     method: "POST",
     path: "/api/v1/admin/users/:id/subscription/cancel",

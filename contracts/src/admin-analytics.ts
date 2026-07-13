@@ -42,6 +42,78 @@ export type AdminSubscriptionAnalyticsResponse = z.infer<
   typeof adminSubscriptionAnalyticsResponseSchema
 >;
 
+// ---------------------------------------------------------------------------
+// Admin overview page — each section below is its own endpoint, fetched
+// independently by the frontend (no combined "everything" endpoint).
+// ---------------------------------------------------------------------------
+
+export const adminOverviewMetricsSchema = z.object({
+  mrr: z.object({ cents: z.number(), deltaPct: z.number().nullable() }),
+  arr: z.object({ cents: z.number(), deltaPct: z.number().nullable() }),
+  premiumUsers: z.object({ total: z.number(), monthly: z.number(), annual: z.number() }),
+  churnRate: z.object({ pct: z.number(), churnedMrrCents: z.number() }),
+  dauMau: z.object({
+    dau: z.number(),
+    mau: z.number(),
+    totalUsers: z.number(),
+    ratioPct: z.number(),
+  }),
+});
+export type AdminOverviewMetrics = z.infer<typeof adminOverviewMetricsSchema>;
+export const adminOverviewMetricsResponseSchema = z.object({
+  metrics: adminOverviewMetricsSchema,
+});
+export type AdminOverviewMetricsResponse = z.infer<typeof adminOverviewMetricsResponseSchema>;
+
+export const adminOverviewRevenueTrendSchema = z.object({
+  trend: z.array(timePointSchema),
+  newMrrCents: z.number(),
+  churnedMrrCents: z.number(),
+  netNewMrrCents: z.number(),
+});
+export type AdminOverviewRevenueTrend = z.infer<typeof adminOverviewRevenueTrendSchema>;
+export const adminOverviewRevenueTrendResponseSchema = z.object({
+  revenueTrend: adminOverviewRevenueTrendSchema,
+});
+export type AdminOverviewRevenueTrendResponse = z.infer<
+  typeof adminOverviewRevenueTrendResponseSchema
+>;
+
+export const adminOverviewTrialPipelineSchema = z.object({
+  started: z.number(),
+  converted: z.number(),
+  convertedPct: z.number(),
+  cancelled: z.number(),
+  cancelledPct: z.number(),
+  activePct: z.number(),
+});
+export type AdminOverviewTrialPipeline = z.infer<typeof adminOverviewTrialPipelineSchema>;
+export const adminOverviewTrialPipelineResponseSchema = z.object({
+  trialPipeline: adminOverviewTrialPipelineSchema,
+});
+export type AdminOverviewTrialPipelineResponse = z.infer<
+  typeof adminOverviewTrialPipelineResponseSchema
+>;
+
+export const adminPlanBreakdownRowSchema = z.object({
+  plan: z.enum(["monthly", "annual"]),
+  priceLabel: z.string(),
+  userCount: z.number(),
+  mrrCents: z.number(),
+});
+export type AdminPlanBreakdownRow = z.infer<typeof adminPlanBreakdownRowSchema>;
+export const adminOverviewPlanBreakdownSchema = z.object({
+  totalPremium: z.number(),
+  plans: z.array(adminPlanBreakdownRowSchema),
+});
+export type AdminOverviewPlanBreakdown = z.infer<typeof adminOverviewPlanBreakdownSchema>;
+export const adminOverviewPlanBreakdownResponseSchema = z.object({
+  planBreakdown: adminOverviewPlanBreakdownSchema,
+});
+export type AdminOverviewPlanBreakdownResponse = z.infer<
+  typeof adminOverviewPlanBreakdownResponseSchema
+>;
+
 export const adminEngagementAnalyticsSchema = z.object({
   onboardingFunnel: z.array(z.object({ step: z.string(), count: z.number() })),
   topFoods: z.array(z.object({ name: z.string(), count: z.number() })),

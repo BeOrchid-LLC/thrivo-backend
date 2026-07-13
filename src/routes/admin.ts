@@ -15,6 +15,12 @@ import {
 } from "../controllers/admin-users.controller";
 import { getAdminDashboardMetrics } from "../controllers/admin-metrics.controller";
 import {
+  getAdminOverviewMetrics,
+  getAdminOverviewPlanBreakdown,
+  getAdminOverviewRevenueTrend,
+  getAdminOverviewTrialPipeline,
+} from "../controllers/admin-overview.controller";
+import {
   listAdminLeads,
   hardDeleteAdminLead,
   exportAdminLeads,
@@ -49,6 +55,12 @@ adminRouter.delete("/users/:id", requireAdmin, hardDeleteAdminUser);
 
 // Metrics
 adminRouter.get("/metrics/dashboard", requireAdmin, getAdminDashboardMetrics);
+
+// Overview page — one route per independently-fetched section.
+adminRouter.get("/overview/metrics", requireAdmin, getAdminOverviewMetrics);
+adminRouter.get("/overview/revenue-trend", requireAdmin, getAdminOverviewRevenueTrend);
+adminRouter.get("/overview/trial-pipeline", requireAdmin, getAdminOverviewTrialPipeline);
+adminRouter.get("/overview/plan-breakdown", requireAdmin, getAdminOverviewPlanBreakdown);
 
 // Leads (email captures) -- export route registered before /:id-shaped routes
 // so "export" is never matched as an :id param.
