@@ -77,12 +77,19 @@ export const dailyTotalsSchema = z.object({
 });
 export type DailyTotals = z.infer<typeof dailyTotalsSchema>;
 
-export const foodLogDayQuerySchema = z.object({ date: localDaySchema });
+export const foodLogDayQuerySchema = z.object({
+  date: localDaySchema,
+  today: localDaySchema.optional(),
+});
 export const foodLogDayResponseSchema = apiSuccessSchema(
   z.object({
     day: localDaySchema,
     entries: z.array(foodLogEntrySchema),
     isEmptyDay: z.boolean(),
+    isLocked: z.boolean(),
+    lockReason: z.enum(["free_history_limit"]).nullable(),
+    historyLimitDays: z.number().int(),
+    totals: dailyTotalsSchema,
   })
 );
 

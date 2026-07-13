@@ -22,6 +22,7 @@ import {
   getDashboardCalories,
   getDashboardMacros,
   getFoodEntriesForDay,
+  getFoodLogDayDetail,
   getHistoryDays,
   getWaterState,
 } from "../../src/services/dashboard.service";
@@ -219,6 +220,26 @@ describe.skipIf(!run)("integration: safety invariants", () => {
       expect(freeHistory.days[0]).toMatchObject({ day: "2026-05-01", isLocked: true, entries: [] });
       expect(JSON.stringify(freeHistory)).not.toContain("Private old meal");
       expect(premiumHistory.days[0]?.entries[0]?.name).toBe("Visible old meal");
+    });
+
+    it("redacts single-day food details beyond the free seven-day window", async () => {
+      const freeUser = await makeUser({ tier: "free" });
+      const premiumUser = await makeUser({ tier: "premium" });
+      await makeFoodLog(freeUser.id, { localDate: "2026-06-01", name: "Private old meal" });
+      await makeFoodLog(premiumUser.id, { localDate: "2026-06-01", name: "Visible old meal" });
+
+      const freeDetail = await getFoodLogDayDetail(freeUser, "2026-06-01", "2026-06-28");
+      const premiumDetail = await getFoodLogDayDetail(premiumUser, "2026-06-01", "2026-06-28");
+
+      expect(freeDetail).toMatchObject({
+        day: "2026-06-01",
+        isLocked: true,
+        lockReason: "free_history_limit",
+        entries: [],
+        totals: { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 },
+      });
+      expect(JSON.stringify(freeDetail)).not.toContain("Private old meal");
+      expect(premiumDetail.entries[0]?.name).toBe("Visible old meal");
     });
   });
 });
