@@ -11,6 +11,8 @@ import {
 import {
   listAdminUsers,
   getAdminUser,
+  getAdminUserTimeline,
+  getAdminUserActivity,
   hardDeleteAdminUser,
 } from "../controllers/admin-users.controller";
 import { getAdminDashboardMetrics } from "../controllers/admin-metrics.controller";
@@ -51,6 +53,8 @@ adminRouter.post("/auth/logout", requireAdmin, postAdminLogout);
 // User management (all protected)
 adminRouter.get("/users", requireAdmin, listAdminUsers);
 adminRouter.get("/users/:id", requireAdmin, getAdminUser);
+adminRouter.get("/users/:id/timeline", requireAdmin, getAdminUserTimeline);
+adminRouter.get("/users/:id/activity", requireAdmin, getAdminUserActivity);
 adminRouter.delete("/users/:id", requireAdmin, hardDeleteAdminUser);
 
 // Metrics

@@ -4,6 +4,9 @@ import { respondOk } from "../lib/response";
 import { NotFoundError } from "../lib/errors";
 import { getClientIp } from "../lib/request-ip";
 import { adminUserRepo } from "../repositories";
+import { adminActivityTypeSchema } from "../../contracts/src/admin";
+import { getUserTimeline } from "../services/admin-timeline.service";
+import { getUserActivity } from "../services/admin-activity.service";
 import type { AppEnv } from "../types/http";
 
 const listParamsSchema = z.object({
@@ -27,6 +30,26 @@ export async function getAdminUser(c: Context<AppEnv>) {
   const user = await adminUserRepo.findById(id);
   if (!user) throw new NotFoundError("User not found");
   return respondOk(c, { user });
+}
+
+/** GET /admin/users/:id/timeline — merged subscription + product-event history. */
+export async function getAdminUserTimeline(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  const timeline = await getUserTimeline(id);
+  return respondOk(c, { timeline });
+}
+
+const activityQuerySchema = z.object({
+  type: adminActivityTypeSchema,
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+
+/** GET /admin/users/:id/activity?type=food_logs|check_ins|weight_logs&limit= */
+export async function getAdminUserActivity(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  const { type, limit } = activityQuerySchema.parse(c.req.query());
+  const page = await getUserActivity(id, type, limit);
+  return respondOk(c, page);
 }
 
 /**
