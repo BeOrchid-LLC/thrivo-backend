@@ -108,7 +108,7 @@ export async function getWaterState(user: User, day: string): Promise<Water> {
       remainingMl,
       progressPercent,
       glassMl: GLASS_ML,
-      glasses: Math.floor(totalMl / GLASS_ML),
+      glasses: Math.round(totalMl / GLASS_ML),
       targetGlasses: TARGET_GLASSES,
       entries: entries.map((entry) => ({
         id: entry.id,
