@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { users, type NewUserRow, type UserRow } from "../../db/schema";
@@ -12,6 +12,24 @@ export type User = UserRow;
  */
 export async function touchLastActive(id: string, tx: Executor = db): Promise<void> {
   await tx.execute(sql`update ${users} set last_active_at = now() where id = ${id}`);
+}
+
+/** Total active (not soft-deleted) user count — used by admin overview metrics. */
+export async function countActive(tx: Executor = db): Promise<number> {
+  const [row] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(users)
+    .where(isNull(users.deletedAt));
+  return row?.count ?? 0;
+}
+
+/** Active users whose `last_active_at` is on or after `since` — the DAU/MAU signal. */
+export async function countActiveSince(since: Date, tx: Executor = db): Promise<number> {
+  const [row] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(users)
+    .where(and(isNull(users.deletedAt), gte(users.lastActiveAt, since)));
+  return row?.count ?? 0;
 }
 
 /** Active = not soft-deleted. Every read excludes soft-deleted rows. */

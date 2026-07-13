@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mapStatus, mapStore, signatureMatches } from "../../src/services/billing-webhook.service";
+import {
+  classifySubscriptionEvent,
+  mapStatus,
+  mapStore,
+  signatureMatches,
+} from "../../src/services/billing-webhook.service";
 
 describe("billing-webhook signature", () => {
   it("matches the exact shared secret", () => {
@@ -49,5 +54,47 @@ describe("revenuecat event mapping", () => {
     expect(mapStore("STRIPE")).toBe("stripe");
     expect(mapStore("APP_STORE")).toBe("app_store");
     expect(mapStore(undefined)).toBe("app_store");
+  });
+});
+
+describe("subscription funnel classification", () => {
+  it("classifies a trial start", () => {
+    expect(classifySubscriptionEvent("INITIAL_PURCHASE", "TRIAL", null)).toBe("trial_started");
+  });
+
+  it("classifies a trial converting to a paid renewal/product change", () => {
+    expect(classifySubscriptionEvent("RENEWAL", "NORMAL", "trialing")).toBe("trial_converted");
+    expect(classifySubscriptionEvent("PRODUCT_CHANGE", "NORMAL", "trialing")).toBe(
+      "trial_converted"
+    );
+    expect(classifySubscriptionEvent("UNCANCELLATION", "NORMAL", "trialing")).toBe(
+      "trial_converted"
+    );
+  });
+
+  it("does not classify a RENEWAL as a conversion while still in TRIAL period_type", () => {
+    expect(classifySubscriptionEvent("RENEWAL", "TRIAL", "trialing")).toBeNull();
+  });
+
+  it("classifies a cancellation during a trial as trial_cancelled", () => {
+    expect(classifySubscriptionEvent("CANCELLATION", "NORMAL", "trialing")).toBe("trial_cancelled");
+  });
+
+  it("does not classify a regular (non-trial) cancellation into the funnel", () => {
+    expect(classifySubscriptionEvent("CANCELLATION", "NORMAL", "active")).toBeNull();
+  });
+
+  it("classifies a non-trial renewal as renewed", () => {
+    expect(classifySubscriptionEvent("RENEWAL", "NORMAL", "active")).toBe("renewed");
+  });
+
+  it("classifies EXPIRATION regardless of prior status", () => {
+    expect(classifySubscriptionEvent("EXPIRATION", null, "trialing")).toBe("expired");
+    expect(classifySubscriptionEvent("EXPIRATION", null, "active")).toBe("expired");
+  });
+
+  it("ignores event types outside the funnel", () => {
+    expect(classifySubscriptionEvent("BILLING_ISSUE", "NORMAL", "active")).toBeNull();
+    expect(classifySubscriptionEvent("TRANSFER", null, null)).toBeNull();
   });
 });

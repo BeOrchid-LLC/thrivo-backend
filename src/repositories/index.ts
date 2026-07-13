@@ -15,6 +15,8 @@ export * as checkInRepo from "./check-in.repository";
 export * as weightEntryRepo from "./weight-entry.repository";
 export * as waterIntakeRepo from "./water-intake.repository";
 export * as subscriptionRepo from "./subscription.repository";
+export * as subscriptionEventRepo from "./subscription-event.repository";
+export * as mrrSnapshotRepo from "./mrr-snapshot.repository";
 export * as settingsRepo from "./settings.repository";
 export * as emailCaptureRepo from "./email-capture.repository";
 export * as emailLogRepo from "./email-log.repository";

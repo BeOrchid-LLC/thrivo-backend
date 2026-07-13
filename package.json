@@ -31,6 +31,8 @@
     "backfill:food-basis:deploy": "node dist/backfill-food-basis.js",
     "backfill:streaks": "tsx scripts/backfill-streaks.ts",
     "backfill:streaks:deploy": "node dist/backfill-streaks.js",
+    "backfill:mrr-snapshots": "tsx scripts/backfill-mrr-snapshots.ts",
+    "backfill:mrr-snapshots:deploy": "node dist/backfill-mrr-snapshots.js",
     "lint": "eslint src db contracts/src tests --ext .ts",
     "format": "prettier --write \"src/**/*.ts\" \"db/**/*.ts\" \"contracts/src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"db/**/*.ts\" \"contracts/src/**/*.ts\" \"tests/**/*.ts\"",

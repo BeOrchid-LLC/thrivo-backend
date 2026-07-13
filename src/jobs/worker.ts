@@ -65,6 +65,13 @@ async function registerSchedulers(): Promise<void> {
     { pattern: "0 9 * * *", tz: "UTC" },
     { name: "trial-reminder", data: {} }
   );
+  // After reconcile-subscriptions (03:30 UTC) so today's expirations are
+  // already reflected in `subscriptions.status` before the snapshot reads it.
+  await maintenance.upsertJobScheduler(
+    "snapshot-mrr",
+    { pattern: "0 4 * * *", tz: "UTC" },
+    { name: "snapshot-mrr", data: {} }
+  );
   await getQueue(QUEUE_NAMES.nudges).upsertJobScheduler(
     "send-daily-nudges",
     { pattern: "0 8 * * *", tz: "UTC" },

@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lt, lte, or } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { subscriptions, type NewSubscriptionRow, type SubscriptionRow } from "../../db/schema";
@@ -81,6 +81,36 @@ export async function expireOverdue(now: Date, tx: Executor = db): Promise<Subsc
       )
     )
     .returning();
+}
+
+/**
+ * Revenue-generating subscriptions grouped by product id — the basis for MRR
+ * and the plan-breakdown split. Trialing and canceled-but-not-yet-expired
+ * subscriptions don't count: they're not currently producing revenue.
+ */
+export async function countActiveByProductId(
+  tx: Executor = db
+): Promise<Array<{ productId: string | null; count: number }>> {
+  return tx
+    .select({ productId: subscriptions.productId, count: sql<number>`count(*)::int` })
+    .from(subscriptions)
+    .where(inArray(subscriptions.status, ["active", "in_grace", "past_due"]))
+    .groupBy(subscriptions.productId);
+}
+
+/**
+ * Subscriptions that flipped to `expired` on or after `since` — used to
+ * attribute churned MRR to the day it actually happened, for the daily
+ * snapshot. Relies on `expireOverdue`'s write bumping `updated_at`.
+ */
+export async function listExpiredSince(
+  since: Date,
+  tx: Executor = db
+): Promise<Array<{ productId: string | null }>> {
+  return tx
+    .select({ productId: subscriptions.productId })
+    .from(subscriptions)
+    .where(and(eq(subscriptions.status, "expired"), gte(subscriptions.updatedAt, since)));
 }
 
 /** Trial-reminder sweep — served by the (current_period_end) / (status) indexes. */

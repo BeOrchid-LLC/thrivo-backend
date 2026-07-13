@@ -14,6 +14,8 @@ export * from "./check-ins";
 export * from "./weight-entries";
 export * from "./water-intake";
 export * from "./subscriptions";
+export * from "./subscription-events";
+export * from "./mrr-snapshots";
 export * from "./settings";
 export * from "./email-captures";
 export * from "./email-logs";

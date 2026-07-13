@@ -3,8 +3,8 @@ import { z } from "zod";
 import { env } from "../env";
 import { logger } from "../lib/logger";
 import { ForbiddenError } from "../lib/errors";
-import { userRepo, webhookEventRepo } from "../repositories";
-import type { SubProvider, SubStatus } from "../../db/schema";
+import { subscriptionRepo, userRepo, webhookEventRepo } from "../repositories";
+import type { SubProvider, SubscriptionEventType, SubStatus } from "../../db/schema";
 import { persistSubscriptionAndMirror } from "./subscription.service";
 import { sendTemplatedEmail } from "./email.service";
 
@@ -90,6 +90,28 @@ export function mapStatus(type: string, periodType: string | null | undefined): 
 }
 
 /**
+ * Classify a RevenueCat event into a `subscription_events` row type, or `null`
+ * if it's not part of the trial funnel (e.g. a non-trial CANCELLATION, or a
+ * BILLING_ISSUE). `previousStatus` is the subscription's status *before* this
+ * event was applied — required to tell a fresh RENEWAL apart from a trial
+ * converting, and a trial CANCELLATION apart from a regular one.
+ */
+export function classifySubscriptionEvent(
+  type: string,
+  periodType: string | null | undefined,
+  previousStatus: SubStatus | null
+): SubscriptionEventType | null {
+  if (type === "INITIAL_PURCHASE" && periodType === "TRIAL") return "trial_started";
+  if (type === "EXPIRATION") return "expired";
+  if (type === "CANCELLATION") return previousStatus === "trialing" ? "trial_cancelled" : null;
+  if (type === "RENEWAL" || type === "PRODUCT_CHANGE" || type === "UNCANCELLATION") {
+    if (previousStatus === "trialing" && periodType !== "TRIAL") return "trial_converted";
+    if (type === "RENEWAL" && previousStatus !== "trialing") return "renewed";
+  }
+  return null;
+}
+
+/**
  * Process an inbound RevenueCat webhook. Idempotent and ordering-safe:
  * - the (provider, event_id) ledger dedupes retries (same event applied twice);
  * - the monotonic-by-event-time guard lives inside `persistSubscriptionAndMirror`'s
@@ -149,18 +171,36 @@ export async function handleRevenueCatWebhook(
 
     const eventAt = event.event_timestamp_ms ? new Date(event.event_timestamp_ms) : new Date();
     const periodEnd = event.expiration_at_ms ? new Date(event.expiration_at_ms) : null;
-    const applied = await persistSubscriptionAndMirror(user.id, {
-      userId: user.id,
-      rcAppUserId: event.app_user_id,
-      provider: mapStore(event.store),
-      productId: event.product_id ?? null,
-      status,
-      trialEnd: status === "trialing" ? periodEnd : (user.trialEndsAt ?? null),
-      currentPeriodStart: event.purchased_at_ms ? new Date(event.purchased_at_ms) : null,
-      currentPeriodEnd: periodEnd,
-      cancelAtPeriodEnd: status === "canceled",
-      lastEventAt: eventAt,
-    });
+    const previousSub = await subscriptionRepo.getByUser(user.id);
+    const funnelEventType = classifySubscriptionEvent(
+      event.type,
+      event.period_type,
+      previousSub?.status ?? null
+    );
+    const applied = await persistSubscriptionAndMirror(
+      user.id,
+      {
+        userId: user.id,
+        rcAppUserId: event.app_user_id,
+        provider: mapStore(event.store),
+        productId: event.product_id ?? null,
+        status,
+        trialEnd: status === "trialing" ? periodEnd : (user.trialEndsAt ?? null),
+        currentPeriodStart: event.purchased_at_ms ? new Date(event.purchased_at_ms) : null,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: status === "canceled",
+        lastEventAt: eventAt,
+      },
+      funnelEventType
+        ? {
+            userId: user.id,
+            eventType: funnelEventType,
+            productId: event.product_id ?? null,
+            occurredAt: eventAt,
+            rawEventId: ledger.id,
+          }
+        : undefined
+    );
 
     // `applied === null` ⇒ the atomic write's monotonic guard dropped this event
     // as stale/out-of-order — same externally-visible outcome as an ignored event

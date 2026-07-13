@@ -3,6 +3,7 @@ import { logger } from "../../lib/logger";
 import { handleReconcileSummaries } from "./reconcile-summaries";
 import { handleTrialReminder } from "./trial-reminder";
 import { handleReconcileSubscriptions } from "./reconcile-subscriptions";
+import { handleSnapshotMrr } from "./snapshot-mrr";
 
 /**
  * Router for the `maintenance` queue. Scheduled system jobs share one queue and
@@ -13,6 +14,7 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
   "reconcile-daily-summaries": handleReconcileSummaries,
   "trial-reminder": handleTrialReminder,
   "reconcile-subscriptions": handleReconcileSubscriptions,
+  "snapshot-mrr": handleSnapshotMrr,
 };
 
 export async function handleMaintenance(job: Job): Promise<void> {
