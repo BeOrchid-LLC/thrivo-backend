@@ -13,7 +13,7 @@ import { closeRedis } from "../lib/redis";
 // double-fire scheduled sends. Live queues:
 //   emails      → send-email (renders + sends via Resend, records email_logs)
 //   nudges      → send-nudge (daily psychology tip → Expo Push)
-//   maintenance → reconcile-daily-summaries · trial-reminder · reconcile-subscriptions
+//   maintenance → reconcile-daily-summaries · trial-reminder · reconcile-subscriptions · weekly-review
 //   analytics   → server-side product events                                   [stub]
 
 const workers: Worker[] = [];
@@ -76,6 +76,14 @@ async function registerSchedulers(): Promise<void> {
     "send-daily-nudges",
     { pattern: "0 8 * * *", tz: "UTC" },
     { name: "send-daily-nudges", data: {} }
+  );
+  // Hourly, not daily: each run only touches the timezone bucket currently at
+  // TARGET_LOCAL_HOUR (weekly-review.ts), so the send lands near each user's
+  // local morning instead of one fixed UTC time for everyone.
+  await maintenance.upsertJobScheduler(
+    "weekly-review",
+    { pattern: "0 * * * *", tz: "UTC" },
+    { name: "weekly-review", data: {} }
   );
   logger.info("schedulers registered");
 }

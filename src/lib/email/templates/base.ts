@@ -11,35 +11,6 @@ export function escapeHtml(value: string): string {
 }
 
 /**
- * Branded, inline-styled HTML shell shared by every template (inline styles
- * because email clients ignore <style>/external CSS). `contentHtml` is trusted
- * markup the template already escaped; callers must escape any user-provided
- * text before passing it in.
- *
- * @deprecated Superseded by `emailShell` + `emailHeader`/`emailFooter` below,
- * which add dark-mode support and match the redesigned templates. Kept as-is
- * so `notification.ts` keeps rendering unchanged until it's migrated over.
- */
-export function baseLayout(opts: { contentHtml: string }): string {
-  return `<!doctype html>
-<html lang="en">
-  <body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
-      <tr><td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;">
-          <tr><td style="padding:24px 32px;background:#16a34a;color:#ffffff;font-size:20px;font-weight:700;">Thrivo</td></tr>
-          <tr><td style="padding:32px;color:#18181b;font-size:15px;line-height:1.6;">${opts.contentHtml}</td></tr>
-          <tr><td style="padding:20px 32px;background:#fafafa;color:#71717a;font-size:12px;line-height:1.5;">
-            You're receiving this because you have a Thrivo account.<br/>Thrivo · BeOrchid LLC
-          </td></tr>
-        </table>
-      </td></tr>
-    </table>
-  </body>
-</html>`;
-}
-
-/**
  * "T" brandmark, ported from the production asset (`thrivo-public/public/icons/logo.svg`)
  * rather than re-derived from Figma's rotated/flipped div transforms, so the
  * mark stays pixel-true to the one already shipping on the web/admin apps.
@@ -50,9 +21,22 @@ const LOGOMARK_SVG = `<svg width="22" height="22" viewBox="0 0 80 80" xmlns="htt
   <path d="M49.8629 0C38.9686 0 30.1369 8.83165 30.1369 19.726L60.2739 19.726C71.1683 19.726 79.9999 10.8944 79.9999 0L49.8629 0Z" fill="#F39C12"/>
 </svg>`;
 
-/** Icon glyphs, ported from Figma where noted (OTP frame 277:472, magic-link frame 269:4). Paint via `currentColor`. */
+/**
+ * Icon glyphs, ported from Figma where noted (OTP frame 277:472, magic-link
+ * frame 269:4, weekly-review frame 269:134). Paint via `currentColor`.
+ */
 const ICONS: Record<
-  "seal-check" | "envelope" | "link" | "clock" | "check" | "shield",
+  | "seal-check"
+  | "envelope"
+  | "link"
+  | "clock"
+  | "check"
+  | "check-circle"
+  | "shield"
+  | "fork"
+  | "arrow-right"
+  | "warning"
+  | "trending",
   { viewBox: string; content: string }
 > = {
   // Figma asset 4a025153a3dfa4dccc37e8f8fea6077ca37d0ca8.svg — the OTP icon-badge glyph.
@@ -84,6 +68,35 @@ const ICONS: Record<
   shield: {
     viewBox: "0 0 20 20",
     content: `<path d="M15.2969 2.3291H2.79688C2.50679 2.3291 2.22859 2.44434 2.02348 2.64945C1.81836 2.85457 1.70312 3.13277 1.70312 3.42285V7.79785C1.70312 11.8557 3.66562 14.3135 5.3125 15.6604C7.08828 17.1135 8.84922 17.6049 8.92344 17.6252C9.00425 17.6473 9.0895 17.6473 9.17031 17.6252C9.24453 17.6049 11.0055 17.1135 12.7813 15.6604C14.4281 14.3135 16.3906 11.8557 16.3906 7.79785V3.42285C16.3906 3.13277 16.2754 2.85457 16.0703 2.64945C15.8652 2.44434 15.587 2.3291 15.2969 2.3291ZM15.4531 7.79785C15.4531 10.7479 14.3641 13.1408 12.2156 14.9119C11.2731 15.6859 10.2001 16.2854 9.04688 16.6822C7.89354 16.2857 6.8204 15.6862 5.87813 14.9119C3.72969 13.1408 2.64062 10.7479 2.64062 7.79785V3.42285C2.64062 3.38141 2.65709 3.34167 2.68639 3.31237C2.71569 3.28306 2.75543 3.2666 2.79688 3.2666H15.2969C15.3383 3.2666 15.3781 3.28306 15.4074 3.31237C15.4367 3.34167 15.4531 3.38141 15.4531 3.42285V7.79785ZM12.5031 6.8416C12.5909 6.92949 12.6402 7.04863 12.6402 7.17285C12.6402 7.29707 12.5909 7.41621 12.5031 7.5041L8.12812 11.8791C8.04023 11.9669 7.92109 12.0162 7.79688 12.0162C7.67266 12.0162 7.55352 11.9669 7.46563 11.8791L5.59063 10.0041C5.50783 9.91524 5.46275 9.79771 5.46489 9.67628C5.46703 9.55484 5.51623 9.43897 5.60211 9.35309C5.68799 9.26721 5.80386 9.21801 5.9253 9.21587C6.04674 9.21373 6.16427 9.2588 6.25312 9.3416L7.79688 10.8846L11.8406 6.8416C11.9285 6.75382 12.0477 6.70451 12.1719 6.70451C12.2961 6.70451 12.4152 6.75382 12.5031 6.8416Z" fill="currentColor"/>`,
+  },
+  // Figma asset 0bf251dc382f09776872dc0e73f68fc919e148d8.svg — weekly-review frame (269:134), replaces
+  // the earlier hand-drawn placeholder now that the real button glyph is available.
+  fork: {
+    viewBox: "0 0 16 16",
+    content: `<path d="M4.625 5.5V2.5C4.625 2.40054 4.66451 2.30516 4.73484 2.23484C4.80516 2.16451 4.90054 2.125 5 2.125C5.09946 2.125 5.19484 2.16451 5.26516 2.23484C5.33549 2.30516 5.375 2.40054 5.375 2.5V5.5C5.375 5.59946 5.33549 5.69484 5.26516 5.76516C5.19484 5.83549 5.09946 5.875 5 5.875C4.90054 5.875 4.80516 5.83549 4.73484 5.76516C4.66451 5.69484 4.625 5.59946 4.625 5.5ZM13.375 2.5V14C13.375 14.0995 13.3355 14.1948 13.2652 14.2652C13.1948 14.3355 13.0995 14.375 13 14.375C12.9005 14.375 12.8052 14.3355 12.7348 14.2652C12.6645 14.1948 12.625 14.0995 12.625 14V10.875H9.5C9.40054 10.875 9.30516 10.8355 9.23483 10.7652C9.16451 10.6948 9.125 10.5995 9.125 10.5C9.125 10.2244 9.1675 3.73438 12.8525 2.15563C12.9095 2.13124 12.9717 2.12136 13.0334 2.12689C13.0952 2.13242 13.1546 2.15317 13.2064 2.18729C13.2581 2.22141 13.3006 2.26783 13.3301 2.32241C13.3595 2.37698 13.3749 2.438 13.375 2.5ZM12.625 3.125C10.3256 4.64313 9.94875 8.8425 9.88688 10.125H12.625V3.125ZM7.37 2.4375C7.36179 2.38891 7.34409 2.34241 7.31792 2.30066C7.29174 2.25892 7.2576 2.22273 7.21744 2.19418C7.17727 2.16562 7.13188 2.14526 7.08385 2.13425C7.03582 2.12324 6.98609 2.12179 6.9375 2.13C6.88891 2.13821 6.84241 2.15591 6.80066 2.18208C6.75891 2.20826 6.72273 2.2424 6.69418 2.28256C6.66562 2.32273 6.64526 2.36812 6.63425 2.41615C6.62324 2.46418 6.62179 2.51391 6.63 2.5625L7.125 5.53C7.125 6.09359 6.90112 6.63409 6.5026 7.0326C6.10409 7.43112 5.56359 7.655 5 7.655C4.43641 7.655 3.89591 7.43112 3.4974 7.0326C3.09888 6.63409 2.875 6.09359 2.875 5.53L3.37 2.5625C3.38658 2.46437 3.36349 2.36367 3.30582 2.28256C3.24816 2.20146 3.16063 2.14658 3.0625 2.13C2.96437 2.11342 2.86367 2.13651 2.78256 2.19418C2.70146 2.25184 2.64658 2.33937 2.63 2.4375L2.13 5.4375C2.12675 5.45818 2.12508 5.47907 2.125 5.5C2.1259 6.19725 2.37983 6.87047 2.83962 7.39463C3.29941 7.91879 3.93381 8.25827 4.625 8.35V14C4.625 14.0995 4.66451 14.1948 4.73484 14.2652C4.80516 14.3355 4.90054 14.375 5 14.375C5.09946 14.375 5.19484 14.3355 5.26516 14.2652C5.33549 14.1948 5.375 14.0995 5.375 14V8.35C6.06619 8.25827 6.70059 7.91879 7.16038 7.39463C7.62017 6.87047 7.8741 6.19725 7.875 5.5C7.87492 5.47907 7.87325 5.45818 7.87 5.4375L7.37 2.4375Z" fill="currentColor"/>`,
+  },
+  // Figma asset 5be69abf5d01e901f75c1b85300a4a4747b999c2.svg — weekly-review frame, button trailing icon.
+  "arrow-right": {
+    viewBox: "0 0 15 15",
+    content: `<path d="M12.9047 7.74844L8.68594 11.9672C8.61929 12.0293 8.53115 12.0631 8.44007 12.0615C8.34899 12.0599 8.26209 12.023 8.19768 11.9586C8.13327 11.8942 8.09637 11.8073 8.09476 11.7162C8.09316 11.6251 8.12696 11.537 8.18906 11.4703L11.8072 7.85156H2.34375C2.25051 7.85156 2.16109 7.81452 2.09516 7.74859C2.02923 7.68266 1.99219 7.59324 1.99219 7.5C1.99219 7.40676 2.02923 7.31734 2.09516 7.25141C2.16109 7.18548 2.25051 7.14844 2.34375 7.14844H11.8072L8.18906 3.52969C8.12696 3.46304 8.09316 3.3749 8.09476 3.28382C8.09637 3.19274 8.13327 3.10584 8.19768 3.04143C8.26209 2.97701 8.34899 2.94012 8.44007 2.93851C8.53115 2.9369 8.61929 2.97071 8.68594 3.03281L12.9047 7.25156C12.9705 7.31748 13.0075 7.40684 13.0075 7.5C13.0075 7.59316 12.9705 7.68252 12.9047 7.74844Z" fill="currentColor"/>`,
+  },
+  // Figma asset 57024ffa452f1497f16a8ffcf4ad64b15938c2ae.svg — weekly-review info-row 1 (fill-opacity 0.5 in
+  // Figma; opacity applied by the caller via the soft-muted color instead, since currentColor already
+  // carries that alpha through the class/inline-style, and baking it into the path too would double it).
+  "check-circle": {
+    viewBox: "0 0 14 14",
+    content: `<path d="M9.41938 5.45563C9.48082 5.51715 9.51534 5.60055 9.51534 5.6875C9.51534 5.77445 9.48082 5.85785 9.41938 5.91937L6.35687 8.98188C6.29535 9.04332 6.21195 9.07784 6.125 9.07784C6.03805 9.07784 5.95465 9.04332 5.89313 8.98188L4.58063 7.66938C4.52267 7.60717 4.49111 7.5249 4.49261 7.4399C4.49411 7.35489 4.52855 7.27378 4.58867 7.21367C4.64878 7.15355 4.72989 7.11911 4.8149 7.11761C4.8999 7.11611 4.98217 7.14766 5.04437 7.20562L6.125 8.2857L8.95562 5.45563C9.01715 5.39418 9.10055 5.35966 9.1875 5.35966C9.27445 5.35966 9.35785 5.39418 9.41938 5.45563ZM12.5781 7C12.5781 8.10325 12.251 9.18172 11.638 10.099C11.0251 11.0164 10.1539 11.7313 9.13466 12.1535C8.11539 12.5757 6.99381 12.6862 5.91176 12.4709C4.82971 12.2557 3.83578 11.7244 3.05567 10.9443C2.27556 10.1642 1.74429 9.17029 1.52906 8.08824C1.31382 7.00619 1.42429 5.88461 1.84648 4.86534C2.26868 3.84608 2.98364 2.97489 3.90096 2.36196C4.81828 1.74903 5.89675 1.42188 7 1.42188C8.47888 1.42361 9.89669 2.01186 10.9424 3.05759C11.9881 4.10331 12.5764 5.52112 12.5781 7ZM11.9219 7C11.9219 6.02655 11.6332 5.07495 11.0924 4.26555C10.5516 3.45615 9.78288 2.82531 8.88352 2.45278C7.98417 2.08026 6.99454 1.98279 6.03979 2.1727C5.08504 2.36261 4.20805 2.83137 3.51971 3.51971C2.83137 4.20805 2.36261 5.08504 2.1727 6.03979C1.98279 6.99454 2.08026 7.98417 2.45278 8.88352C2.82531 9.78288 3.45615 10.5516 4.26555 11.0924C5.07495 11.6332 6.02655 11.9219 7 11.9219C8.30492 11.9204 9.55598 11.4014 10.4787 10.4787C11.4014 9.55598 11.9204 8.30492 11.9219 7Z" fill="currentColor"/>`,
+  },
+  // Figma asset 8f74df0cae4cf014256c67a9a85c487c28f76853.svg — weekly-review info-row 2, replaces the
+  // earlier hand-drawn placeholder now that the real glyph is available.
+  warning: {
+    viewBox: "0 0 14 14",
+    content: `<path d="M12.8554 10.3409L8.07242 2.03547C7.96257 1.84868 7.80583 1.69382 7.61773 1.58623C7.42964 1.47864 7.2167 1.42204 7 1.42204C6.7833 1.42204 6.57036 1.47864 6.38227 1.58623C6.19417 1.69382 6.03743 1.84868 5.92758 2.03547L1.14461 10.3409C1.03933 10.5211 0.983847 10.726 0.983847 10.9348C0.983847 11.1435 1.03933 11.3485 1.14461 11.5287C1.253 11.7168 1.40952 11.8726 1.5981 11.9802C1.78668 12.0877 2.0005 12.1431 2.21758 12.1406H11.7824C11.9993 12.1429 12.2129 12.0874 12.4013 11.9799C12.5896 11.8723 12.746 11.7166 12.8543 11.5287C12.9597 11.3485 13.0154 11.1436 13.0156 10.9349C13.0158 10.7262 12.9605 10.5212 12.8554 10.3409ZM12.2861 11.2C12.235 11.2879 12.1614 11.3606 12.0728 11.4105C11.9843 11.4605 11.8841 11.486 11.7824 11.4844H2.21758C2.11593 11.486 2.01568 11.4605 1.92715 11.4105C1.83862 11.3606 1.76502 11.2879 1.71391 11.2C1.6661 11.1196 1.64086 11.0278 1.64086 10.9342C1.64086 10.8407 1.6661 10.7488 1.71391 10.6684L6.49633 2.36305C6.54861 2.27619 6.62247 2.20434 6.71072 2.15445C6.79897 2.10457 6.89862 2.07836 7 2.07836C7.10138 2.07836 7.20103 2.10457 7.28928 2.15445C7.37753 2.20434 7.45139 2.27619 7.50367 2.36305L12.2866 10.6684C12.3344 10.7489 12.3595 10.8407 12.3594 10.9343C12.3593 11.0278 12.334 11.1196 12.2861 11.2ZM6.67187 7.875V5.6875C6.67187 5.60048 6.70645 5.51702 6.76798 5.45548C6.82952 5.39395 6.91298 5.35937 7 5.35937C7.08702 5.35937 7.17048 5.39395 7.23202 5.45548C7.29355 5.51702 7.32812 5.60048 7.32812 5.6875V7.875C7.32812 7.96202 7.29355 8.04548 7.23202 8.10702C7.17048 8.16855 7.08702 8.20312 7 8.20312C6.91298 8.20312 6.82952 8.16855 6.76798 8.10702C6.70645 8.04548 6.67187 7.96202 6.67187 7.875ZM7.54687 9.84375C7.54687 9.95191 7.5148 10.0576 7.45471 10.1476C7.39462 10.2375 7.30921 10.3076 7.20928 10.349C7.10935 10.3904 6.99939 10.4012 6.89331 10.3801C6.78723 10.359 6.68978 10.3069 6.6133 10.2304C6.53682 10.154 6.48473 10.0565 6.46363 9.95044C6.44253 9.84436 6.45336 9.7344 6.49475 9.63447C6.53615 9.53454 6.60624 9.44913 6.69617 9.38904C6.78611 9.32895 6.89184 9.29687 7 9.29687C7.14504 9.29687 7.28414 9.35449 7.3867 9.45705C7.48926 9.55961 7.54687 9.69871 7.54687 9.84375Z" fill="currentColor"/>`,
+  },
+  // Figma asset c27e65e93e6f77762e374e2d15a2ceb0a3f1051a.svg — weekly-review header eyebrow icon.
+  trending: {
+    viewBox: "0 0 13 13",
+    content: `<path d="M9.23812 7.76953C9.13652 8.33727 8.86343 8.86026 8.45559 9.26809C8.04776 9.67593 7.52477 9.94902 6.95703 10.0506C6.94022 10.0532 6.92325 10.0545 6.90625 10.0547C6.82964 10.055 6.75573 10.0264 6.69924 9.97468C6.64275 9.92294 6.60783 9.85181 6.60142 9.77547C6.59502 9.69914 6.61761 9.62319 6.66469 9.56275C6.71177 9.50232 6.77988 9.46184 6.85547 9.44938C7.73805 9.30109 8.48707 8.55156 8.63688 7.66797C8.65034 7.58824 8.69493 7.51712 8.76083 7.47027C8.79347 7.44707 8.83035 7.43052 8.86937 7.42158C8.9084 7.41263 8.9488 7.41146 8.98828 7.41813C9.02776 7.42479 9.06554 7.43917 9.09946 7.46044C9.13338 7.48171 9.16278 7.50945 9.18598 7.54208C9.20918 7.57472 9.22573 7.6116 9.23467 7.65062C9.24362 7.68965 9.24479 7.73005 9.23812 7.76953ZM10.8672 7.3125C10.8672 8.47075 10.4071 9.58156 9.58807 10.4006C8.76906 11.2196 7.65825 11.6797 6.5 11.6797C5.34175 11.6797 4.23094 11.2196 3.41193 10.4006C2.59293 9.58156 2.13281 8.47075 2.13281 7.3125C2.13281 5.91754 2.68379 4.48855 3.77051 3.06516C3.7966 3.03049 3.8298 3.0018 3.86788 2.981C3.90596 2.9602 3.94804 2.94778 3.99131 2.94456C4.03458 2.94134 4.07804 2.94739 4.11878 2.96232C4.15952 2.97725 4.1966 3.00071 4.22754 3.03113L5.56512 4.3291L6.73766 1.11414C6.75439 1.06826 6.7819 1.02708 6.81788 0.994062C6.85386 0.961043 6.89725 0.937155 6.94439 0.924411C6.99153 0.911668 7.04104 0.910442 7.08876 0.920837C7.13647 0.931232 7.18099 0.952943 7.21855 0.984141C8.31391 1.89566 10.8672 4.33672 10.8672 7.3125ZM10.2578 7.3125C10.2578 4.85469 8.29512 2.75031 7.1566 1.73672L5.97391 4.97961C5.95651 5.0274 5.92742 5.07008 5.8893 5.10375C5.85117 5.13742 5.80523 5.16102 5.75565 5.17237C5.70607 5.18373 5.65444 5.1825 5.60546 5.16879C5.55648 5.15508 5.51171 5.12932 5.47523 5.09387L4.05336 3.7116C3.18246 4.93238 2.74219 6.14453 2.74219 7.3125C2.74219 8.30913 3.1381 9.26495 3.84283 9.96967C4.54755 10.6744 5.50337 11.0703 6.5 11.0703C7.49663 11.0703 8.45245 10.6744 9.15717 9.96967C9.8619 9.26495 10.2578 8.30913 10.2578 7.3125Z" fill="currentColor"/>`,
   },
 };
 
@@ -119,20 +132,32 @@ export function emailShell(opts: {
       .email-heading { color: ${light.headingText}; }
       .email-body { color: ${light.bodyText}; }
       .email-muted { color: ${light.mutedText}; }
+      .email-soft-muted { color: ${light.softMutedText}; }
       .email-accent { color: ${light.accent}; }
-      .email-icon-tint { background: ${light.iconTint}; }
-      .email-border { border-color: ${light.border}; background: ${light.border}; }
+      .email-link { color: ${light.linkGreen}; }
+      /* color too, not just background: the ring's track circle picks this up via
+         stroke=currentColor, same reasoning as email-border below. */
+      .email-icon-tint { color: ${light.iconTint}; background: ${light.iconTint}; }
+      .email-ring-track { color: ${light.ringTrack}; }
+      .email-border { color: ${light.border}; border-color: ${light.border}; background: ${light.border}; }
       .email-input { background: ${light.inputBg}; border-color: ${light.border}; }
+      .email-cta-panel-bg { background: ${light.ctaPanelBg}; }
+      .email-cta-panel-text { color: ${light.ctaPanelText}; }
       @media (prefers-color-scheme: dark) {
         .email-bg { background: ${dark.pageBg} !important; }
         .email-card { background: ${dark.cardBg} !important; border-color: ${dark.cardBorder} !important; }
         .email-heading { color: ${dark.headingText} !important; }
         .email-body { color: ${dark.bodyText} !important; }
         .email-muted { color: ${dark.mutedText} !important; }
+        .email-soft-muted { color: ${dark.softMutedText} !important; }
         .email-accent { color: ${dark.accent} !important; }
-        .email-icon-tint { background: ${dark.iconTint} !important; }
-        .email-border { border-color: ${dark.border} !important; background: ${dark.border} !important; }
+        .email-link { color: ${dark.linkGreen} !important; }
+        .email-icon-tint { color: ${dark.iconTint} !important; background: ${dark.iconTint} !important; }
+        .email-ring-track { color: ${dark.ringTrack} !important; }
+        .email-border { color: ${dark.border} !important; border-color: ${dark.border} !important; background: ${dark.border} !important; }
         .email-input { background: ${dark.inputBg} !important; border-color: ${dark.border} !important; }
+        .email-cta-panel-bg { background: ${dark.ctaPanelBg} !important; }
+        .email-cta-panel-text { color: ${dark.ctaPanelText} !important; }
       }
     </style>
   </head>
@@ -156,10 +181,12 @@ export function emailShell(opts: {
 
 /**
  * Logomark + wordmark. Centered when there's no `eyebrow` (OTP, magic link);
- * left-aligned with the eyebrow badge on the right when one is passed (nudge,
- * recap).
+ * left-aligned with the eyebrow badge (optionally icon-led) on the right when
+ * one is passed (weekly-review, recap) — sentence case in `linkGreen`, not the
+ * uppercase/`accent` styling originally guessed before the weekly-review frame
+ * (269:134) was pulled.
  */
-export function emailHeader(opts?: { eyebrow?: string }): string {
+export function emailHeader(opts?: { eyebrow?: string; eyebrowIcon?: "trending" }): string {
   const brand = `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
       <td style="vertical-align:middle;">${LOGOMARK_SVG}</td>
       <td class="email-heading" style="vertical-align:middle;padding-left:8px;font-size:16px;font-weight:700;letter-spacing:0.2px;">THRIVO</td>
@@ -169,9 +196,13 @@ export function emailHeader(opts?: { eyebrow?: string }): string {
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${brand}</td></tr></table>`;
   }
 
+  const iconHtml = opts.eyebrowIcon
+    ? `<svg width="13" height="13" viewBox="${ICONS[opts.eyebrowIcon].viewBox}" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-right:4px;">${ICONS[opts.eyebrowIcon].content}</svg>`
+    : "";
+
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       <td align="left">${brand}</td>
-      <td class="email-accent" align="right" style="font-size:11px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;">${escapeHtml(
+      <td align="right" style="font-size:12px;font-weight:600;color:${emailBrand.brightGreen};">${iconHtml}${escapeHtml(
         opts.eyebrow
       )}</td>
     </tr></table>`;
@@ -189,33 +220,128 @@ export function emailIconBadge(variant: "seal-check" | "envelope"): string {
     </td></tr></table>`;
 }
 
-/** One icon + text row, for the small bullet lists under OTP/magic-link CTAs (Figma "InfoRow", 277:510 etc). */
-export function emailIconRow(opts: { icon: "clock" | "check" | "shield"; text: string }): string {
+/**
+ * Bold heading + optional body paragraph, centered — the exact pair OTP and
+ * magic-link each hand-wrote with only their top margins differing. Any new
+ * "explain what this email is about" template reaches for this instead of
+ * re-typing the h1/p styles a third time.
+ */
+export function emailHeroText(opts: {
+  heading: string;
+  paragraph?: string;
+  headingMarginTop?: number;
+  paragraphMarginTop?: number;
+}): string {
+  const heading = `<h1 class="email-heading" style="margin:${opts.headingMarginTop ?? 20}px 0 0;font-size:20px;font-weight:700;letter-spacing:-0.3px;">${escapeHtml(opts.heading)}</h1>`;
+  const paragraph = opts.paragraph
+    ? `<p class="email-body" style="margin:${opts.paragraphMarginTop ?? 10}px 0 0;font-size:14px;line-height:1.5;">${escapeHtml(opts.paragraph)}</p>`
+    : "";
+  return heading + paragraph;
+}
+
+/**
+ * One icon + text row, for the small bullet lists under a CTA. Full-strength
+ * `email-body` by default (OTP/magic-link's InfoRows — important instructional
+ * text). Pass `muted` for de-emphasized notes (weekly-review's InfoRows,
+ * frame 269:134, confirmed at 50%-opacity heading color for both text and icon).
+ */
+export function emailIconRow(opts: {
+  icon: "clock" | "check" | "check-circle" | "shield" | "warning";
+  text: string;
+  muted?: boolean;
+}): string {
   const icon = ICONS[opts.icon];
+  const textClass = opts.muted ? "email-soft-muted" : "email-body";
+  const color = opts.muted ? emailTokens.light.softMutedText : emailTokens.light.bodyText;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td class="email-body" width="20" valign="top" style="padding:16px 10px 16px 0;">
+      <td class="${textClass}" width="20" valign="top" style="padding:16px 10px 16px 0;color:${color};">
         <svg width="20" height="20" viewBox="${icon.viewBox}" xmlns="http://www.w3.org/2000/svg">${icon.content}</svg>
       </td>
-      <td class="email-body" style="font-size:14px;line-height:1.4;padding:16px 0;">${escapeHtml(opts.text)}</td>
+      <td class="${textClass}" style="font-size:14px;line-height:1.4;padding:16px 0;color:${color};">${escapeHtml(opts.text)}</td>
     </tr></table>`;
 }
 
 /**
- * Full-width green CTA button (Figma "Button", 269:25) — 50px tall, rounded 12px,
- * optional leading icon. Uses the fixed brand green, not the light/dark `accent`
- * token — confirmed by the dark magic-link frame (277:414) that this button
- * doesn't switch shade the way the icon badge and links do.
+ * A list of `emailIconRow`s with dividers auto-interleaved between them —
+ * every template so far (OTP, magic-link, weekly-review) hand-interleaved
+ * `emailDivider()` calls itself, one easy-to-forget divider away from a
+ * missing separator. Wrapped in the standard row-list padding.
  */
-export function emailButton(opts: { label: string; url: string; icon?: "link" }): string {
-  const iconHtml = opts.icon
-    ? `<svg width="17" height="17" viewBox="${ICONS[opts.icon].viewBox}" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-right:12px;">${ICONS[opts.icon].content}</svg>`
+export function emailRowList(
+  rows: Array<{
+    icon: "clock" | "check" | "check-circle" | "shield" | "warning";
+    text: string;
+    muted?: boolean;
+  }>
+): string {
+  const items = rows.map((row) => emailIconRow(row));
+  return `<div style="padding:4px 24px 8px;">${items.join(emailDivider())}</div>`;
+}
+
+/**
+ * Circular progress ring with the percent + up to two caption lines rendered
+ * as SVG `<text>` inside the same element — not an HTML overlay on top of the
+ * SVG, since absolute positioning is unreliable across email clients. Used by
+ * the weekly-review email's "100% — you logged 7 of 7 days" hero.
+ */
+export function emailProgressRing(opts: {
+  percent: number;
+  line1?: string;
+  line2?: string;
+}): string {
+  const size = 172;
+  const strokeWidth = 11;
+  const radius = (size - strokeWidth) / 2;
+  const center = size / 2;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(100, opts.percent));
+  const dashoffset = circumference * (1 - clamped / 100);
+
+  const light = emailTokens.light;
+  const line1 = opts.line1
+    ? `<text class="email-soft-muted" x="${center}" y="${center + 20}" text-anchor="middle" font-size="12" font-family="${emailFonts.body}" fill="currentColor" style="color:${light.softMutedText};">${escapeHtml(opts.line1)}</text>`
     : "";
+  const line2 = opts.line2
+    ? `<text class="email-heading" x="${center}" y="${center + 38}" text-anchor="middle" font-size="13" font-weight="700" font-family="${emailFonts.body}" fill="currentColor" style="color:${light.headingText};">${escapeHtml(opts.line2)}</text>`
+    : "";
+
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:8px 0 4px;">
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+        <circle class="email-ring-track" cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="currentColor" stroke-width="${strokeWidth}" style="color:${light.ringTrack};"/>
+        <circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${emailBrand.brightGreen}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${dashoffset}" transform="rotate(-90 ${center} ${center})"/>
+        <text class="email-heading" x="${center}" y="${center - 6}" text-anchor="middle" font-size="34" font-weight="700" font-family="${emailFonts.body}" fill="currentColor" style="color:${light.headingText};">${escapeHtml(`${Math.round(clamped)}%`)}</text>
+        ${line1}
+        ${line2}
+      </svg>
+    </td></tr></table>`;
+}
+
+/**
+ * Full-width green CTA button (Figma "Button", 269:25/269:165) — 50px tall,
+ * rounded 12px, optional leading + trailing icons (weekly-review pairs a fork
+ * with a trailing arrow). Uses the fixed brand green, not the light/dark
+ * `accent` token — confirmed by the dark magic-link frame (277:414) that this
+ * button doesn't switch shade the way the icon badge and links do.
+ */
+export function emailButton(opts: {
+  label: string;
+  url: string;
+  icon?: "link" | "fork";
+  trailingIcon?: "arrow-right";
+}): string {
+  const icon = (
+    name: "link" | "fork" | "arrow-right" | undefined,
+    margin: "margin-right" | "margin-left"
+  ) =>
+    name
+      ? `<svg width="16" height="16" viewBox="${ICONS[name].viewBox}" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;${margin}:9px;">${ICONS[name].content}</svg>`
+      : "";
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:${emailBrand.green};border-radius:12px;text-align:center;">
       <a href="${escapeHtml(
         opts.url
-      )}" style="display:block;padding:15px 24px;color:${emailTokens.light.accentText};font-size:16px;font-weight:600;text-decoration:none;line-height:20px;">${iconHtml}${escapeHtml(
+      )}" style="display:block;padding:15px 24px;color:${emailTokens.light.accentText};font-size:16px;font-weight:600;text-decoration:none;line-height:20px;">${icon(opts.icon, "margin-right")}${escapeHtml(
         opts.label
-      )}</a>
+      )}${icon(opts.trailingIcon, "margin-left")}</a>
     </td></tr></table>`;
 }
 
@@ -225,20 +351,30 @@ export function emailDivider(): string {
 }
 
 /**
- * Secondary card below the main card for CTA-button templates: "having trouble"
- * fallback link (Figma "Card:margin" 269:53). The link color in Figma
- * (#27ae60) is a one-off, slightly brighter green than the shared accent
- * token (#09823c) — close enough that we reuse `email-accent` rather than
- * add a bespoke color for a single secondary-link use.
+ * The rounded, bordered card treatment placed below the main card (Figma
+ * "Card:margin" 269:53) — a thin wrapper, no inner padding of its own, so any
+ * content (a paragraph, a row list, a stat panel) supplies its own. Originally
+ * hand-written twice: magic-link's fallback-link card and weekly-review's
+ * info-row card. Any future "extra card below the main one" reaches for this
+ * instead of re-typing the bg/border/radius/margin trio a third time.
+ */
+export function emailSecondaryCard(innerHtml: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-card" style="background:${emailTokens.light.cardBg};border:1px solid ${emailTokens.light.cardBorder};border-radius:16px;margin-top:12px;">
+      <tr><td>${innerHtml}</td></tr>
+    </table>`;
+}
+
+/**
+ * "Having trouble" fallback link, styled in `linkGreen` — confirmed as its own
+ * token (not `accent`) now that the weekly-review frame independently shows
+ * the same #27ae60 in light mode. See tokens.ts.
  */
 export function emailFallbackLinkCard(opts: { url: string }): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-card" style="background:${emailTokens.light.cardBg};border:1px solid ${emailTokens.light.cardBorder};border-radius:16px;margin-top:12px;">
-      <tr><td style="padding:16px 20px;">
-        <p class="email-body" style="margin:0;font-size:12px;line-height:1.5;word-break:break-all;">Having trouble? Copy and paste this link into your browser: <span class="email-accent" style="font-weight:600;">${escapeHtml(
-          opts.url
-        )}</span></p>
-      </td></tr>
-    </table>`;
+  return emailSecondaryCard(
+    `<p class="email-body" style="margin:0;padding:16px 20px;font-size:12px;line-height:1.5;word-break:break-all;">Having trouble? Copy and paste this link into your browser: <span class="email-link" style="font-weight:600;color:${emailTokens.light.linkGreen};">${escapeHtml(
+      opts.url
+    )}</span></p>`
+  );
 }
 
 /** "Sent to {email}" + copyright + unsubscribe, shared by every redesigned template. */

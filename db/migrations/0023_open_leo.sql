@@ -1,0 +1,2 @@
+ALTER TABLE "global_settings" ADD COLUMN "email_food_log_reminder_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "user_settings" ADD COLUMN "email_food_log_reminder_enabled" boolean DEFAULT true NOT NULL;

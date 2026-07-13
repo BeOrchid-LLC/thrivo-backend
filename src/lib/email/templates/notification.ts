@@ -1,7 +1,13 @@
 import type { EmailTemplate } from "../types";
-import { baseLayout, escapeHtml } from "./base";
+import { emailButton, emailFooter, emailHeader, emailHeroText, emailShell } from "./base";
 
-/** Generic transactional notification: a title, a body, and an optional CTA. */
+/**
+ * Generic transactional notification: a title, a body, and an optional CTA.
+ * Used by welcome, cancellation, and trial-reminder emails — the simplest
+ * possible assembly of the shared blocks (no icon badge, no row list), which
+ * is the point: proving the block set generalizes past the 3 bespoke designs
+ * it was extracted from.
+ */
 export type NotificationProps = {
   title: string;
   body: string;
@@ -10,21 +16,29 @@ export type NotificationProps = {
 
 export const notificationTemplate: EmailTemplate<NotificationProps> = {
   subject: (p) => p.title,
-  render: (p) => {
+  render: (p, ctx) => {
     const button = p.cta
-      ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr><td style="border-radius:8px;background:#16a34a;">
-           <a href="${encodeURI(p.cta.url)}" style="display:inline-block;padding:12px 20px;color:#ffffff;text-decoration:none;font-weight:600;">${escapeHtml(
-             p.cta.label
-           )}</a></td></tr></table>`
+      ? `<div style="padding-top:24px;">${emailButton({ label: p.cta.label, url: p.cta.url })}</div>`
       : "";
 
-    const contentHtml = `<h1 style="margin:0 0 12px;font-size:20px;">${escapeHtml(p.title)}</h1>
-      <p style="margin:0;">${escapeHtml(p.body)}</p>${button}`;
+    const cardHtml = `<div style="padding:28px 24px 24px;text-align:center;">
+        ${emailHeroText({ heading: p.title, paragraph: p.body })}
+        ${button}
+      </div>`;
+
+    const html = emailShell({
+      headerHtml: emailHeader(),
+      cardHtml,
+      footerHtml: emailFooter({
+        recipientEmail: ctx.recipientEmail,
+        unsubscribeUrl: ctx.unsubscribeUrl,
+      }),
+    });
 
     const text = [p.title, "", p.body, p.cta ? `\n${p.cta.label}: ${p.cta.url}` : ""]
       .join("\n")
       .trim();
 
-    return { html: baseLayout({ contentHtml }), text };
+    return { html, text };
   },
 };

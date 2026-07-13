@@ -47,6 +47,33 @@ describe("email template registry", () => {
     expect(out.text).toContain("https://thrivo.fit/api/v1/auth/magic-link/callback?token=abc123");
   });
 
+  it("renders the weekly-review template with rounded, clamped counts", () => {
+    const out = renderTemplate(
+      "weekly-review",
+      { loggedThisWeek: 7, loggedLastWeek: 4 },
+      {
+        recipientEmail: "maya@example.com",
+        unsubscribeUrl: "https://thrivo.fit/unsubscribe?email=maya%40example.com",
+      }
+    );
+    expect(out.subject).toBe("Your week in review");
+    expect(out.html).toContain(">100%<");
+    expect(out.html).toContain("7 of 7 days");
+    expect(out.html).toContain("Last week: 4 of 7.");
+    expect(out.html).toContain("Sent to maya@example.com");
+    expect(out.text).toContain("Log today's meals: https://thrivo.fit/app/log");
+  });
+
+  it("clamps weekly-review counts to 0-7 instead of trusting the caller", () => {
+    const out = renderTemplate(
+      "weekly-review",
+      { loggedThisWeek: 9, loggedLastWeek: -3 },
+      undefined
+    );
+    expect(out.html).toContain(">100%<");
+    expect(out.html).toContain("Last week: 0 of 7.");
+  });
+
   it("renders the notification template with subject, html and text", () => {
     const out = renderTemplate("notification", {
       title: "Welcome to Thrivo",
@@ -68,6 +95,20 @@ describe("email template registry", () => {
     });
     expect(out.html).not.toContain("<script>alert(1)</script>");
     expect(out.html).toContain("&lt;script&gt;");
+  });
+
+  it("renders the notification template's recipient/unsubscribe footer and dark-mode CSS — it no longer has neither on the deprecated baseLayout", () => {
+    const out = renderTemplate(
+      "notification",
+      { title: "Welcome to Thrivo", body: "Let's hit your goals." },
+      {
+        recipientEmail: "maya@example.com",
+        unsubscribeUrl: "https://thrivo.fit/unsubscribe?email=maya%40example.com",
+      }
+    );
+    expect(out.html).toContain("Sent to maya@example.com");
+    expect(out.html).toContain("https://thrivo.fit/unsubscribe?email=maya%40example.com");
+    expect(out.html).toContain("@media (prefers-color-scheme: dark)");
   });
 
   it("throws on an unknown template name", () => {

@@ -2,6 +2,7 @@ import type { EmailRenderContext, EmailTemplate } from "./types";
 import { notificationTemplate, type NotificationProps } from "./templates/notification";
 import { otpTemplate, type OtpProps } from "./templates/otp";
 import { magicLinkTemplate, type MagicLinkProps } from "./templates/magic-link";
+import { weeklyReviewTemplate, type WeeklyReviewProps } from "./templates/weekly-review";
 
 /**
  * The typed template registry. Each key maps a template name to its props type,
@@ -12,6 +13,7 @@ export type TemplateProps = {
   notification: NotificationProps;
   otp: OtpProps;
   "magic-link": MagicLinkProps;
+  "weekly-review": WeeklyReviewProps;
 };
 
 export type TemplateName = keyof TemplateProps;
@@ -20,6 +22,7 @@ const templates: { [K in TemplateName]: EmailTemplate<TemplateProps[K]> } = {
   notification: notificationTemplate,
   otp: otpTemplate,
   "magic-link": magicLinkTemplate,
+  "weekly-review": weeklyReviewTemplate,
 };
 
 export type RenderedEmail = { subject: string; html: string; text?: string };

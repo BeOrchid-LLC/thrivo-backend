@@ -1,7 +1,7 @@
-import { and, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
-import { users, type NewUserRow, type UserRow } from "../../db/schema";
+import { userSettings, users, type NewUserRow, type UserRow } from "../../db/schema";
 
 export type User = UserRow;
 
@@ -99,4 +99,42 @@ export async function updateProfile(
 /** GDPR-friendly soft delete (recovery/audit). Hard erasure cascades elsewhere. */
 export async function softDeleteUser(id: string, tx: Executor = db): Promise<void> {
   await tx.update(users).set({ deletedAt: new Date() }).where(eq(users.id, id));
+}
+
+export interface WeeklyReviewCandidate {
+  id: string;
+  email: string;
+  timezone: string | null;
+}
+
+/**
+ * Keyset page of users whose local clock currently reads `targetLocalHour` —
+ * backs the weekly-review email's per-timezone-bucketed send (an hourly cron
+ * calls this with the current UTC hour's bucket instead of one fixed daily
+ * run). A missing settings row counts as enabled, same convention as
+ * `pushTokenRepo.listActiveForNudgesPage`. An invalid `users.timezone` (it's
+ * unvalidated free text) simply excludes that user rather than erroring the
+ * whole query.
+ */
+export async function listEligibleForWeeklyReviewPage(
+  targetLocalHour: number,
+  afterUserId: string | null,
+  limit: number,
+  tx: Executor = db
+): Promise<WeeklyReviewCandidate[]> {
+  return tx
+    .select({ id: users.id, email: users.email, timezone: users.timezone })
+    .from(users)
+    .leftJoin(userSettings, eq(userSettings.userId, users.id))
+    .where(
+      and(
+        isNull(users.deletedAt),
+        or(isNull(userSettings.userId), eq(userSettings.emailFoodLogReminderEnabled, true)),
+        sql`(${users.timezone} is null or exists (select 1 from pg_timezone_names where name = ${users.timezone}))`,
+        sql`extract(hour from (now() at time zone coalesce(${users.timezone}, 'UTC')))::int = ${targetLocalHour}`,
+        afterUserId ? gt(users.id, afterUserId) : undefined
+      )
+    )
+    .orderBy(asc(users.id))
+    .limit(limit);
 }

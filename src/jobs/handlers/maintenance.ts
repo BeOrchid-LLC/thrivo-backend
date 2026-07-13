@@ -3,6 +3,7 @@ import { logger } from "../../lib/logger";
 import { handleReconcileSummaries } from "./reconcile-summaries";
 import { handleTrialReminder } from "./trial-reminder";
 import { handleReconcileSubscriptions } from "./reconcile-subscriptions";
+import { handleWeeklyReview } from "./weekly-review";
 import { handleSnapshotMrr } from "./snapshot-mrr";
 
 /**
@@ -14,6 +15,7 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
   "reconcile-daily-summaries": handleReconcileSummaries,
   "trial-reminder": handleTrialReminder,
   "reconcile-subscriptions": handleReconcileSubscriptions,
+  "weekly-review": handleWeeklyReview,
   "snapshot-mrr": handleSnapshotMrr,
 };
 

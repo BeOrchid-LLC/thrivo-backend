@@ -3,8 +3,9 @@ import {
   emailDivider,
   emailFooter,
   emailHeader,
+  emailHeroText,
   emailIconBadge,
-  emailIconRow,
+  emailRowList,
   emailShell,
   escapeHtml,
 } from "./base";
@@ -67,24 +68,19 @@ export const otpTemplate: EmailTemplate<OtpProps> = {
     const cardHtml = `
       <div style="padding:28px 24px 0;text-align:center;">
         ${emailIconBadge("seal-check")}
-        <h1 class="email-heading" style="margin:20px 0 0;font-size:20px;font-weight:700;letter-spacing:-0.3px;">${escapeHtml(
-          heading
-        )}</h1>
-        <p class="email-body" style="margin:10px 0 0;font-size:14px;line-height:1.5;">${escapeHtml(paragraph)}</p>
+        ${emailHeroText({ heading, paragraph })}
         <div style="padding-top:28px;">${otpCodeBoxes(p.code)}</div>
         <p class="email-accent" style="margin:32px 0 12px;font-size:16px;font-weight:600;letter-spacing:-0.3px;">Copy code</p>
       </div>
       <div style="padding-top:28px;">${emailDivider()}</div>
-      <div style="padding:4px 24px 8px;">
-        ${emailIconRow({ icon: "clock", text: expiryText })}
-        ${emailDivider()}
-        ${emailIconRow({
+      ${emailRowList([
+        { icon: "clock", text: expiryText },
+        {
           icon: "check",
           text: "The code verifies your account — you don't need to copy or enter anything special.",
-        })}
-        ${emailDivider()}
-        ${emailIconRow({ icon: "shield", text: closingNote })}
-      </div>`;
+        },
+        { icon: "shield", text: closingNote },
+      ])}`;
 
     const html = emailShell({
       headerHtml: emailHeader(),
