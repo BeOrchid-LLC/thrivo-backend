@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MigrationMeta } from "drizzle-orm/migrator";
+import type { Client } from "pg";
 import {
+  acquireMigrationLock,
   applyDeferredStatements,
   isConcurrentIndexStatement,
   isDeferredMigration,
@@ -26,6 +28,25 @@ function journal(...tags: string[]) {
 }
 
 describe("migration deferral policy", () => {
+  it("polls for the advisory lock without blocking PostgreSQL", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ locked: false }] })
+      .mockResolvedValueOnce({ rows: [{ locked: true }] });
+
+    await acquireMigrationLock({ query } as unknown as Pick<Client, "query">, 100, 0);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenLastCalledWith("SELECT pg_try_advisory_lock($1) AS locked", [4011982]);
+  });
+
+  it("times out instead of waiting indefinitely for the advisory lock", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ locked: false }] });
+
+    await expect(
+      acquireMigrationLock({ query } as unknown as Pick<Client, "query">, 0, 0)
+    ).rejects.toThrow("timed out waiting for the migration advisory lock");
+  });
   it("recognizes only concurrent index statements", () => {
     expect(isConcurrentIndexStatement('DROP INDEX CONCURRENTLY IF EXISTS "old_idx"')).toBe(true);
     expect(

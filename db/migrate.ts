@@ -31,6 +31,8 @@ const MIGRATIONS_TABLE = "__drizzle_migrations";
 const DEFERRED_MIGRATION_TAGS = new Set(["0027_cheerful_hannibal_king"]);
 const DEFERRED_LOCK_TIMEOUT = "10s";
 const DEFERRED_STATEMENT_TIMEOUT = "15min";
+const MIGRATION_LOCK_WAIT_TIMEOUT_MS = 60_000;
+const MIGRATION_LOCK_RETRY_DELAY_MS = 1_000;
 
 export type MigrationMode = "strict" | "deployment" | "startup";
 
@@ -101,6 +103,41 @@ function validateDeferredMigrations(
   }
 }
 
+export async function acquireMigrationLock(
+  client: Pick<pg.Client, "query">,
+  timeoutMs = MIGRATION_LOCK_WAIT_TIMEOUT_MS,
+  retryDelayMs = MIGRATION_LOCK_RETRY_DELAY_MS
+): Promise<void> {
+  const startedAt = Date.now();
+  let attempts = 0;
+
+  while (true) {
+    attempts += 1;
+    const result = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock($1) AS locked",
+      [MIGRATION_LOCK_KEY]
+    );
+    if (result.rows[0]?.locked) {
+      logger.info({ attempts, waitMs: Date.now() - startedAt }, "migration lock acquired");
+      return;
+    }
+
+    const elapsedMs = Date.now() - startedAt;
+    const remainingMs = timeoutMs - elapsedMs;
+    if (remainingMs <= 0) {
+      const error = new Error("timed out waiting for the migration advisory lock");
+      logger.error({ attempts, waitMs: elapsedMs }, "migration lock acquisition timed out");
+      throw error;
+    }
+
+    if (attempts === 1 || attempts % 5 === 0) {
+      logger.warn({ attempts, waitMs: elapsedMs }, "migration lock busy; retrying");
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, Math.min(retryDelayMs, remainingMs));
+    });
+  }
+}
 async function appliedMigrationHashes(pool: pg.Pool): Promise<Set<string>> {
   const result = await pool.query<{ hash: string }>(
     'select "hash" from "drizzle"."__drizzle_migrations"'
@@ -257,10 +294,12 @@ export async function runMigrations(mode: MigrationMode = "strict"): Promise<Mig
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 1 });
   const db = drizzle(pool);
   const lockClient = new pg.Client({ connectionString: env.DATABASE_URL });
+  let migrationLockAcquired = false;
 
   try {
     await lockClient.connect();
-    await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    await acquireMigrationLock(lockClient);
+    migrationLockAcquired = true;
     const { migrationsFolder, migrations, journal } = await readMigrationState();
     const deferredIndex = migrations.findIndex(isDeferredMigration);
 
@@ -293,10 +332,12 @@ export async function runMigrations(mode: MigrationMode = "strict"): Promise<Mig
     logger.info({ mode, deferredTags }, "required migrations applied; deferred indexes pending");
     return { deferredTags };
   } finally {
-    try {
-      await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
-    } catch {
-      // Best-effort: the session lock releases on disconnect regardless.
+    if (migrationLockAcquired) {
+      try {
+        await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
+      } catch {
+        // Best-effort: the session lock releases on disconnect regardless.
+      }
     }
     await lockClient.end().catch(() => {});
     await pool.end();
@@ -309,21 +350,25 @@ export async function runDeferredMigrations(
 ): Promise<void> {
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 1 });
   const lockClient = new pg.Client({ connectionString: env.DATABASE_URL });
+  let migrationLockAcquired = false;
 
   try {
     await lockClient.connect();
     // Configure timeouts before waiting for the advisory lock so a stale
     // migration process cannot leave the background task waiting forever.
     await configureDeferredSession(lockClient);
-    await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    await acquireMigrationLock(lockClient);
+    migrationLockAcquired = true;
     const { migrations } = await readMigrationState();
     await applyPendingDeferredMigrations(lockClient, pool, migrations, shouldStop);
     logger.info("deferred migrations complete");
   } finally {
-    try {
-      await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
-    } catch {
-      // Best-effort: the session lock releases on disconnect regardless.
+    if (migrationLockAcquired) {
+      try {
+        await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
+      } catch {
+        // Best-effort: the session lock releases on disconnect regardless.
+      }
     }
     await lockClient.end().catch(() => {});
     await pool.end();
