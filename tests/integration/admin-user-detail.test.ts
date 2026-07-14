@@ -90,7 +90,9 @@ describe.skipIf(!run)("integration: admin user detail", () => {
       headers: { Cookie: await adminCookie() },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { user: { subscription: Record<string, unknown> } } };
+    const body = (await res.json()) as {
+      data: { user: { subscription: Record<string, unknown> } };
+    };
     expect(body.data.user.subscription).toMatchObject({
       trialStartedAt: "2026-06-14T00:00:00.000Z",
       trialConvertedAt: "2026-06-21T00:00:00.000Z",
@@ -121,10 +123,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     const parsed = adminUserTimelineResponseSchema.safeParse(body.data);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.timeline.map((e) => e.type)).toEqual([
-        "account_created",
-        "trial_started",
-      ]);
+      expect(parsed.data.timeline.map((e) => e.type)).toEqual(["account_created", "trial_started"]);
     }
 
     const missing = await app.request(

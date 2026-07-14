@@ -102,9 +102,10 @@ describe("subscription funnel classification", () => {
 
 describe("price field extraction", () => {
   it("converts price_in_purchased_currency to integer cents", () => {
-    expect(
-      extractPriceFields({ price_in_purchased_currency: 14.99, currency: "USD" })
-    ).toEqual({ priceAmountCents: 1499, currency: "USD" });
+    expect(extractPriceFields({ price_in_purchased_currency: 14.99, currency: "USD" })).toEqual({
+      priceAmountCents: 1499,
+      currency: "USD",
+    });
   });
 
   it("keeps a free-trial $0 as 0, not null — RevenueCat sends 0, not absent", () => {
@@ -123,15 +124,14 @@ describe("price field extraction", () => {
 
   it("stays null (never fabricated as 0) when the field is missing or null", () => {
     expect(extractPriceFields({})).toEqual({ priceAmountCents: null, currency: null });
-    expect(
-      extractPriceFields({ price_in_purchased_currency: null, currency: null })
-    ).toEqual({ priceAmountCents: null, currency: null });
+    expect(extractPriceFields({ price_in_purchased_currency: null, currency: null })).toEqual({
+      priceAmountCents: null,
+      currency: null,
+    });
   });
 
   it("rounds fractional-cent prices to the nearest cent", () => {
     expect(extractPriceFields({ price_in_purchased_currency: 9.994 }).priceAmountCents).toBe(999);
-    expect(extractPriceFields({ price_in_purchased_currency: 9.996 }).priceAmountCents).toBe(
-      1000
-    );
+    expect(extractPriceFields({ price_in_purchased_currency: 9.996 }).priceAmountCents).toBe(1000);
   });
 });

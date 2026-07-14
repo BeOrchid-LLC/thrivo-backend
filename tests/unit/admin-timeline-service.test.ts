@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { findById, listByUser: listSubEvents, getByUser } = vi.hoisted(() => ({
+const {
+  findById,
+  listByUser: listSubEvents,
+  getByUser,
+} = vi.hoisted(() => ({
   findById: vi.fn(),
   listByUser: vi.fn(),
   getByUser: vi.fn(),
@@ -43,7 +47,10 @@ describe("admin-timeline.service", () => {
   });
 
   it("includes onboarding_completed only when the timestamp is set", async () => {
-    findById.mockResolvedValue({ ...BASE_USER, onboardingCompletedAt: new Date("2026-06-14T09:17:00.000Z") });
+    findById.mockResolvedValue({
+      ...BASE_USER,
+      onboardingCompletedAt: new Date("2026-06-14T09:17:00.000Z"),
+    });
     listSubEvents.mockResolvedValue([]);
     listUserEvents.mockResolvedValue([]);
     getByUser.mockResolvedValue(null);
@@ -56,7 +63,11 @@ describe("admin-timeline.service", () => {
   it("titles a converted trial with its charged amount when priced, and without when not", async () => {
     findById.mockResolvedValue(BASE_USER);
     listSubEvents.mockResolvedValue([
-      { eventType: "trial_converted", priceAmountCents: 1499, occurredAt: new Date("2026-06-23T08:05:00.000Z") },
+      {
+        eventType: "trial_converted",
+        priceAmountCents: 1499,
+        occurredAt: new Date("2026-06-23T08:05:00.000Z"),
+      },
     ]);
     listUserEvents.mockResolvedValue([]);
     getByUser.mockResolvedValue(null);
@@ -115,9 +126,16 @@ describe("admin-timeline.service", () => {
   });
 
   it("sorts every entry chronologically regardless of source order", async () => {
-    findById.mockResolvedValue({ ...BASE_USER, onboardingCompletedAt: new Date("2026-06-14T09:17:00.000Z") });
+    findById.mockResolvedValue({
+      ...BASE_USER,
+      onboardingCompletedAt: new Date("2026-06-14T09:17:00.000Z"),
+    });
     listSubEvents.mockResolvedValue([
-      { eventType: "trial_started", priceAmountCents: null, occurredAt: new Date("2026-06-16T08:05:00.000Z") },
+      {
+        eventType: "trial_started",
+        priceAmountCents: null,
+        occurredAt: new Date("2026-06-16T08:05:00.000Z"),
+      },
     ]);
     listUserEvents.mockResolvedValue([
       {

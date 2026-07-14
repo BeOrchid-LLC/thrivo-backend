@@ -26,7 +26,14 @@ describe("admin-activity.service", () => {
 
   it("maps food_logs rows, defaulting the limit and dropping the meal field entirely", async () => {
     listRecentLogs.mockResolvedValue([
-      { id: "f1", name: "Oats with banana", localDate: "2026-06-30", servingQty: "1", servingUnit: "serving", kcal: 380 },
+      {
+        id: "f1",
+        name: "Oats with banana",
+        localDate: "2026-06-30",
+        servingQty: "1",
+        servingUnit: "serving",
+        kcal: 380,
+      },
     ]);
     countFoodLogs.mockResolvedValue(124);
 
@@ -35,7 +42,14 @@ describe("admin-activity.service", () => {
     expect(listRecentLogs).toHaveBeenCalledWith("u1", 10);
     expect(page).toEqual({
       items: [
-        { id: "f1", name: "Oats with banana", localDate: "2026-06-30", servingQty: 1, servingUnit: "serving", kcal: 380 },
+        {
+          id: "f1",
+          name: "Oats with banana",
+          localDate: "2026-06-30",
+          servingQty: 1,
+          servingUnit: "serving",
+          kcal: 380,
+        },
       ],
       total: 124,
       limit: 10,
@@ -64,12 +78,16 @@ describe("admin-activity.service", () => {
   });
 
   it("maps check_ins rows as-is (mood/note pass through)", async () => {
-    listForUser.mockResolvedValue([{ id: "c1", localDate: "2026-06-30", mood: "good", note: "felt fine" }]);
+    listForUser.mockResolvedValue([
+      { id: "c1", localDate: "2026-06-30", mood: "good", note: "felt fine" },
+    ]);
     countCheckIns.mockResolvedValue(15);
 
     const page = await getUserActivity("u1", "check_ins");
 
-    expect(page.items).toEqual([{ id: "c1", localDate: "2026-06-30", mood: "good", note: "felt fine" }]);
+    expect(page.items).toEqual([
+      { id: "c1", localDate: "2026-06-30", mood: "good", note: "felt fine" },
+    ]);
     expect(page.total).toBe(15);
   });
 });
