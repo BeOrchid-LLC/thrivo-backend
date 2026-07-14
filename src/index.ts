@@ -5,9 +5,10 @@ import { buildApp } from "./app";
 import { logger } from "./lib/logger";
 import { closeDb, pingDb } from "../db";
 import { closeRedis, pingRedis } from "./lib/redis";
-import { runMigrations } from "../db/migrate";
+import { runDeferredMigrations, runMigrations } from "../db/migrate";
 
-// Process bootstrap: validate env (on import) → init Sentry → build app → serve →
+// Process bootstrap: validate env (on import) → init Sentry → verify required
+// dependencies/schema → serve → run optional index work in the background →
 // register graceful shutdown so Coolify/Docker rolling redeploys don't drop requests.
 
 if (env.SENTRY_DSN) {
@@ -26,7 +27,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     p,
     new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms).unref();
+      setTimeout(() => reject(new Error(label + " timed out after " + ms + "ms")), ms).unref();
     }),
   ]);
 }
@@ -61,17 +62,76 @@ async function verifyDependencies(): Promise<void> {
   }
 }
 
+async function delayForRetry(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref();
+  });
+}
+
+async function runDeferredMigrationsWithRetry(
+  deferredTags: string[],
+  shouldStop: () => boolean
+): Promise<void> {
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (shouldStop()) return;
+    try {
+      logger.info({ deferredTags, attempt }, "deferred migration attempt started");
+      await runDeferredMigrations(shouldStop);
+      logger.info({ deferredTags, attempt }, "deferred migrations completed");
+      return;
+    } catch (err) {
+      if (attempt === maxAttempts || shouldStop()) throw err;
+      logger.warn(
+        { err, deferredTags, attempt, nextAttempt: attempt + 1 },
+        "deferred migrations failed; retrying"
+      );
+      await delayForRetry(5000);
+    }
+  }
+}
+
 await verifyDependencies();
-await runMigrations();
+const { deferredTags } = await runMigrations("startup");
+
+let shuttingDown = false;
+let stopDeferredMigrations = () => {};
+let deferredMigrationTask: Promise<void> | undefined;
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   logger.info({ port: info.port }, "thrivo-backend listening");
 });
 
-let shuttingDown = false;
+if (deferredTags.length > 0) {
+  let stopRequested = false;
+  stopDeferredMigrations = () => {
+    stopRequested = true;
+  };
+
+  deferredMigrationTask = runDeferredMigrationsWithRetry(deferredTags, () => stopRequested).catch(
+    (err) => {
+      logger.error({ err, deferredTags }, "deferred migration failed after API startup");
+      Sentry.captureException(err);
+    }
+  );
+  logger.info({ deferredTags }, "deferred migrations started after API startup");
+}
+
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopDeferredMigrations();
+  if (deferredMigrationTask) {
+    await Promise.race([
+      deferredMigrationTask,
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 5000);
+        timer.unref();
+      }),
+    ]);
+  }
   logger.info({ signal }, "graceful shutdown: draining");
   server.close();
   await closeDb();

@@ -10,17 +10,37 @@ import { env } from "../src/env";
 import { logger } from "../src/lib/logger";
 
 /**
- * Forward-only migration runner for CI, the Coolify pre-deploy step, and the
- * test harness. Normal migrations use Drizzle's transactional migrator. A
- * migration containing CREATE INDEX CONCURRENTLY is applied statement-by-
- * statement outside a transaction because PostgreSQL forbids that DDL inside
- * one; the migration is recorded in the same Drizzle ledger afterward.
+ * Migration execution is deliberately split by deployment context:
+ *
+ * - strict: CI/local migration commands wait for every migration, including
+ *   optional concurrent indexes;
+ * - deployment: Coolify's pre-deploy command applies required schema changes
+ *   but leaves optional concurrent indexes for the API process;
+ * - startup: the API applies required schema changes before binding, then
+ *   returns the pending optional indexes for post-bind execution.
+ *
+ * Migration 0027 only adds/removes performance indexes. It is therefore safe
+ * to defer, but this policy is explicit so a future correctness migration is
+ * never deferred merely because it happens to contain CONCURRENTLY.
  */
 
 const MIGRATION_LOCK_KEY = 4011982;
 const MIGRATIONS_FOLDER = "db/migrations";
 const MIGRATIONS_SCHEMA = "drizzle";
 const MIGRATIONS_TABLE = "__drizzle_migrations";
+const DEFERRED_MIGRATION_TAGS = new Set(["0027_cheerful_hannibal_king"]);
+const DEFERRED_LOCK_TIMEOUT = "10s";
+const DEFERRED_STATEMENT_TIMEOUT = "15min";
+
+export type MigrationMode = "strict" | "deployment" | "startup";
+
+export interface MigrationRunResult {
+  deferredTags: string[];
+}
+
+export interface LoadedMigration extends MigrationMeta {
+  tag: string;
+}
 
 interface JournalEntry {
   idx: number;
@@ -36,18 +56,49 @@ interface MigrationJournal {
   entries: JournalEntry[];
 }
 
-function isConcurrentIndexMigration(migration: MigrationMeta): boolean {
-  return migration.sql.some((statement) => /create\s+index\s+concurrently/i.test(statement));
+function isDeferredMigration(migration: Pick<LoadedMigration, "tag">): boolean {
+  return DEFERRED_MIGRATION_TAGS.has(migration.tag);
 }
 
-async function applyOutsideTransaction(pool: pg.Pool, migration: MigrationMeta): Promise<void> {
-  for (const statement of migration.sql) {
-    if (statement.trim()) await pool.query(statement);
+function isConcurrentIndexStatement(statement: string): boolean {
+  return /^(drop|create)\s+index\s+concurrently\b/i.test(statement.trim());
+}
+
+function validateDeferredMigrations(
+  migrations: readonly LoadedMigration[],
+  journal: MigrationJournal
+): void {
+  const deferredIndices = migrations
+    .map((migration, index) => (isDeferredMigration(migration) ? index : -1))
+    .filter((index) => index >= 0);
+
+  if (deferredIndices.length === 0) return;
+
+  const firstDeferredIndex = Math.min(...deferredIndices);
+  if (firstDeferredIndex + deferredIndices.length !== migrations.length) {
+    throw new Error(
+      "Deferred migrations must be the terminal migrations; add a new deployment strategy before appending later migrations"
+    );
   }
-  await pool.query(
-    `insert into "${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}" ("hash", "created_at") values ($1, $2)`,
-    [migration.hash, migration.folderMillis]
-  );
+
+  for (const migration of migrations.filter(isDeferredMigration)) {
+    const statements = migration.sql.filter((statement) => statement.trim());
+    if (
+      statements.length === 0 ||
+      statements.some((statement) => !isConcurrentIndexStatement(statement))
+    ) {
+      throw new Error("Deferred migration " + migration.tag + " contains non-index SQL");
+    }
+  }
+
+  const journalTags = new Set(journal.entries.map((entry) => entry.tag));
+  for (const migration of migrations.filter(isDeferredMigration)) {
+    if (!journalTags.has(migration.tag)) {
+      throw new Error(
+        "Deferred migration " + migration.tag + " is missing from the migration journal"
+      );
+    }
+  }
 }
 
 async function appliedMigrationHashes(pool: pg.Pool): Promise<Set<string>> {
@@ -57,63 +108,217 @@ async function appliedMigrationHashes(pool: pg.Pool): Promise<Set<string>> {
   return new Set(result.rows.map((row) => row.hash));
 }
 
-async function runMigrations(): Promise<void> {
+async function createPriorMigrationFolder(
+  migrationsFolder: string,
+  journal: MigrationJournal,
+  priorCount: number
+): Promise<string> {
+  const tempFolder = await fs.mkdtemp(path.join(os.tmpdir(), "thrivo-migrations-"));
+  const priorEntries = journal.entries.slice(0, priorCount);
+  await fs.mkdir(path.join(tempFolder, "meta"), { recursive: true });
+  await fs.writeFile(
+    path.join(tempFolder, "meta", "_journal.json"),
+    JSON.stringify({ ...journal, entries: priorEntries })
+  );
+  for (const entry of priorEntries) {
+    await fs.copyFile(
+      path.join(migrationsFolder, entry.tag + ".sql"),
+      path.join(tempFolder, entry.tag + ".sql")
+    );
+  }
+  return tempFolder;
+}
+
+async function configureDeferredSession(client: pg.Client): Promise<void> {
+  // These settings apply only to the dedicated advisory-lock session and do
+  // not change database-wide defaults or affect request connections.
+  await client.query("SELECT set_config('lock_timeout', $1, false)", [DEFERRED_LOCK_TIMEOUT]);
+  await client.query("SELECT set_config('statement_timeout', $1, false)", [
+    DEFERRED_STATEMENT_TIMEOUT,
+  ]);
+}
+
+async function recordMigration(pool: pg.Pool, migration: LoadedMigration): Promise<void> {
+  const ledgerSql =
+    'insert into "' +
+    MIGRATIONS_SCHEMA +
+    '"."' +
+    MIGRATIONS_TABLE +
+    '" ("hash", "created_at") values ($1, $2)';
+  await pool.query(ledgerSql, [migration.hash, migration.folderMillis]);
+}
+
+export async function applyDeferredStatements(
+  query: (statement: string) => Promise<unknown>,
+  migration: LoadedMigration,
+  record: () => Promise<void>,
+  shouldStop: () => boolean = () => false
+): Promise<void> {
+  const statements = migration.sql.filter((statement) => statement.trim());
+
+  for (const [index, statement] of statements.entries()) {
+    if (shouldStop()) return;
+    const startedAt = Date.now();
+    logger.info(
+      {
+        migration: migration.tag,
+        statement: index + 1,
+        totalStatements: statements.length,
+      },
+      "deferred migration statement started"
+    );
+    try {
+      await query(statement);
+      logger.info(
+        {
+          migration: migration.tag,
+          statement: index + 1,
+          totalStatements: statements.length,
+          durationMs: Date.now() - startedAt,
+        },
+        "deferred migration statement completed"
+      );
+    } catch (err) {
+      logger.error(
+        {
+          err,
+          migration: migration.tag,
+          statement: index + 1,
+          totalStatements: statements.length,
+          durationMs: Date.now() - startedAt,
+        },
+        "deferred migration statement failed"
+      );
+      throw err;
+    }
+  }
+
+  // The ledger is written only after every DDL statement succeeds. If the
+  // process dies before this insert, the next run retries the whole migration;
+  // migration 0027 starts with idempotent DROP INDEX IF EXISTS statements.
+  await record();
+  logger.info({ migration: migration.tag }, "deferred migration recorded");
+}
+
+async function applyDeferredMigration(
+  client: pg.Client,
+  pool: pg.Pool,
+  migration: LoadedMigration,
+  shouldStop: () => boolean
+): Promise<void> {
+  await applyDeferredStatements(
+    (statement) => client.query(statement),
+    migration,
+    () => recordMigration(pool, migration),
+    shouldStop
+  );
+}
+
+async function readMigrationState(): Promise<{
+  migrationsFolder: string;
+  migrations: LoadedMigration[];
+  journal: MigrationJournal;
+}> {
+  const migrationsFolder = path.resolve(MIGRATIONS_FOLDER);
+  const journal = JSON.parse(
+    await fs.readFile(path.join(migrationsFolder, "meta", "_journal.json"), "utf8")
+  ) as MigrationJournal;
+  const migrations = readMigrationFiles({ migrationsFolder }).map((migration, index) => {
+    const tag = journal.entries[index]?.tag;
+    if (!tag) throw new Error("Migration metadata is missing a journal tag at index " + index);
+    return { ...migration, tag };
+  });
+  validateDeferredMigrations(migrations, journal);
+  return { migrationsFolder, migrations, journal };
+}
+
+async function applyPendingDeferredMigrations(
+  client: pg.Client,
+  pool: pg.Pool,
+  migrations: readonly LoadedMigration[],
+  shouldStop: () => boolean
+): Promise<void> {
+  const appliedHashes = await appliedMigrationHashes(pool);
+  await configureDeferredSession(client);
+
+  for (const migration of migrations.filter(isDeferredMigration)) {
+    if (shouldStop()) return;
+    if (appliedHashes.has(migration.hash)) continue;
+    await applyDeferredMigration(client, pool, migration, shouldStop);
+    appliedHashes.add(migration.hash);
+  }
+}
+
+/**
+ * Apply all pending migrations. In startup/deployment modes, optional terminal
+ * index migrations are left pending and returned to the caller.
+ */
+export async function runMigrations(mode: MigrationMode = "strict"): Promise<MigrationRunResult> {
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 1 });
   const db = drizzle(pool);
   const lockClient = new pg.Client({ connectionString: env.DATABASE_URL });
-  const migrationsFolder = path.resolve(MIGRATIONS_FOLDER);
 
   try {
     await lockClient.connect();
     await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    const { migrationsFolder, migrations, journal } = await readMigrationState();
+    const deferredIndex = migrations.findIndex(isDeferredMigration);
 
-    const journal = JSON.parse(
-      await fs.readFile(path.join(migrationsFolder, "meta", "_journal.json"), "utf8")
-    ) as MigrationJournal;
-    const migrations = readMigrationFiles({ migrationsFolder });
-    const concurrentIndex = migrations.findIndex(isConcurrentIndexMigration);
-
-    if (concurrentIndex < 0) {
+    if (deferredIndex < 0) {
       await migrate(db, { migrationsFolder });
-    } else {
-      const tempFolder = await fs.mkdtemp(path.join(os.tmpdir(), "thrivo-migrations-"));
-      try {
-        const priorEntries = journal.entries.slice(0, concurrentIndex);
-        await fs.mkdir(path.join(tempFolder, "meta"), { recursive: true });
-        await fs.writeFile(
-          path.join(tempFolder, "meta", "_journal.json"),
-          JSON.stringify({ ...journal, entries: priorEntries })
-        );
-        for (const entry of priorEntries) {
-          await fs.copyFile(
-            path.join(migrationsFolder, `${entry.tag}.sql`),
-            path.join(tempFolder, `${entry.tag}.sql`)
-          );
-        }
-
-        // Creates the ledger and applies any pending transactional migrations
-        // before the first concurrent-index migration.
-        await migrate(db, { migrationsFolder: tempFolder });
-
-        const appliedHashes = await appliedMigrationHashes(pool);
-        let index = concurrentIndex;
-        while (index < migrations.length && isConcurrentIndexMigration(migrations[index]!)) {
-          const migration = migrations[index]!;
-          if (!appliedHashes.has(migration.hash)) {
-            await applyOutsideTransaction(pool, migration);
-            appliedHashes.add(migration.hash);
-          }
-          index += 1;
-        }
-
-        // Applies any ordinary migrations after the concurrent migration(s).
-        await migrate(db, { migrationsFolder });
-      } finally {
-        await fs.rm(tempFolder, { recursive: true, force: true });
-      }
+      logger.info({ mode }, "migrations applied");
+      return { deferredTags: [] };
     }
 
-    logger.info("migrations applied");
+    const tempFolder = await createPriorMigrationFolder(migrationsFolder, journal, deferredIndex);
+    try {
+      // The temporary journal contains only correctness migrations before the
+      // deferred index segment, so this path never blocks on CONCURRENTLY.
+      await migrate(db, { migrationsFolder: tempFolder });
+    } finally {
+      await fs.rm(tempFolder, { recursive: true, force: true });
+    }
+
+    if (mode === "strict") {
+      await applyPendingDeferredMigrations(lockClient, pool, migrations, () => false);
+      logger.info({ mode }, "migrations applied");
+      return { deferredTags: [] };
+    }
+
+    const appliedHashes = await appliedMigrationHashes(pool);
+    const deferredTags = migrations
+      .filter(isDeferredMigration)
+      .filter((migration) => !appliedHashes.has(migration.hash))
+      .map((migration) => migration.tag);
+    logger.info({ mode, deferredTags }, "required migrations applied; deferred indexes pending");
+    return { deferredTags };
+  } finally {
+    try {
+      await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
+    } catch {
+      // Best-effort: the session lock releases on disconnect regardless.
+    }
+    await lockClient.end().catch(() => {});
+    await pool.end();
+  }
+}
+
+/** Run pending optional indexes after the API has bound its listening port. */
+export async function runDeferredMigrations(
+  shouldStop: () => boolean = () => false
+): Promise<void> {
+  const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 1 });
+  const lockClient = new pg.Client({ connectionString: env.DATABASE_URL });
+
+  try {
+    await lockClient.connect();
+    // Configure timeouts before waiting for the advisory lock so a stale
+    // migration process cannot leave the background task waiting forever.
+    await configureDeferredSession(lockClient);
+    await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    const { migrations } = await readMigrationState();
+    await applyPendingDeferredMigrations(lockClient, pool, migrations, shouldStop);
+    logger.info("deferred migrations complete");
   } finally {
     try {
       await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
@@ -136,10 +341,16 @@ const isMain = (() => {
 })();
 
 if (isMain) {
-  runMigrations().catch((err) => {
-    logger.error({ err }, "migration failed");
+  const mode: MigrationMode = process.argv.includes("--deployment") ? "deployment" : "strict";
+  runMigrations(mode).catch((err) => {
+    logger.error({ err, mode }, "migration failed");
     process.exit(1);
   });
 }
 
-export { runMigrations };
+export {
+  DEFERRED_MIGRATION_TAGS,
+  isConcurrentIndexStatement,
+  isDeferredMigration,
+  validateDeferredMigrations,
+};
