@@ -56,20 +56,45 @@ function referenceMonthBounds(now: Date): { start: Date; end: Date } {
   return { start, end };
 }
 
+interface ReferenceMonthRevenue {
+  startMrrCents: number | null;
+  endMrrCents: number | null;
+  churnedMrrCents: number;
+  netNewMrrCents: number;
+  newMrrCents: number;
+}
+
+async function getReferenceMonthRevenue(now: Date): Promise<ReferenceMonthRevenue> {
+  const { start, end } = referenceMonthBounds(now);
+  const dayBeforeStart = new Date(start.getTime() - MS_PER_DAY);
+  const [snapshotBeforeMonth, snapshotMonthEnd, churnedMrrCents] = await Promise.all([
+    mrrSnapshotRepo.getOnOrBefore(dayBeforeStart),
+    mrrSnapshotRepo.getOnOrBefore(end),
+    mrrSnapshotRepo.sumChurnedMrrBetween(toDateOnly(start), toDateOnly(end)),
+  ]);
+  const startMrrCents = snapshotBeforeMonth?.mrrCents ?? null;
+  const endMrrCents = snapshotMonthEnd?.mrrCents ?? null;
+  const netNewMrrCents = (endMrrCents ?? 0) - (startMrrCents ?? 0);
+  return {
+    startMrrCents,
+    endMrrCents,
+    churnedMrrCents,
+    netNewMrrCents,
+    newMrrCents: netNewMrrCents + churnedMrrCents,
+  };
+}
 /** GET /admin/overview/metrics */
 export async function getOverviewMetrics(now = new Date()): Promise<AdminOverviewMetrics> {
   const thirtyDaysAgo = new Date(now.getTime() - 30 * MS_PER_DAY);
   const oneYearAgo = new Date(now.getTime() - 365 * MS_PER_DAY);
   const dayAgo = new Date(now.getTime() - MS_PER_DAY);
-  const { start: monthStart, end: monthEnd } = referenceMonthBounds(now);
-  const dayBeforeMonthStart = new Date(monthStart.getTime() - MS_PER_DAY);
 
   const [
     latestSnapshot,
     snapshot30dAgo,
     snapshot1yAgo,
-    snapshotBeforeMonth,
-    churnedThisRefMonth,
+    referenceMonth,
+
     activeByProduct,
     totalUsers,
     dau,
@@ -78,8 +103,8 @@ export async function getOverviewMetrics(now = new Date()): Promise<AdminOvervie
     mrrSnapshotRepo.getLatest(),
     mrrSnapshotRepo.getOnOrBefore(thirtyDaysAgo),
     mrrSnapshotRepo.getOnOrBefore(oneYearAgo),
-    mrrSnapshotRepo.getOnOrBefore(dayBeforeMonthStart),
-    mrrSnapshotRepo.sumChurnedMrrBetween(toDateOnly(monthStart), toDateOnly(monthEnd)),
+    getReferenceMonthRevenue(now),
+
     subscriptionRepo.countActiveByProductId(),
     userRepo.countActive(),
     userRepo.countActiveSince(dayAgo),
@@ -89,7 +114,7 @@ export async function getOverviewMetrics(now = new Date()): Promise<AdminOvervie
   const { monthly, annual } = countsByPlan(activeByProduct);
   const mrrCents = latestSnapshot?.mrrCents ?? liveMrrCents(activeByProduct);
   const arrCents = mrrCents * 12;
-  const startOfMonthMrr = snapshotBeforeMonth?.mrrCents ?? mrrCents;
+  const startOfMonthMrr = referenceMonth.startMrrCents ?? mrrCents;
 
   return {
     mrr: { cents: mrrCents, deltaPct: pctDelta(mrrCents, snapshot30dAgo?.mrrCents) },
@@ -99,8 +124,8 @@ export async function getOverviewMetrics(now = new Date()): Promise<AdminOvervie
     },
     premiumUsers: { total: monthly + annual, monthly, annual },
     churnRate: {
-      pct: startOfMonthMrr > 0 ? (churnedThisRefMonth / startOfMonthMrr) * 100 : 0,
-      churnedMrrCents: churnedThisRefMonth,
+      pct: startOfMonthMrr > 0 ? (referenceMonth.churnedMrrCents / startOfMonthMrr) * 100 : 0,
+      churnedMrrCents: referenceMonth.churnedMrrCents,
     },
     dauMau: { dau, mau, totalUsers, ratioPct: mau > 0 ? (dau / mau) * 100 : 0 },
   };
@@ -115,21 +140,14 @@ export async function getOverviewRevenueTrend(
     .filter((p) => p.snapshot !== null)
     .map((p) => ({ date: p.monthEnd, value: p.snapshot!.mrrCents }));
 
-  const { start: monthStart, end: monthEnd } = referenceMonthBounds(now);
-  const dayBeforeMonthStart = new Date(monthStart.getTime() - MS_PER_DAY);
-  const [snapshotBeforeMonth, snapshotMonthEnd, churnedMrrCents] = await Promise.all([
-    mrrSnapshotRepo.getOnOrBefore(dayBeforeMonthStart),
-    mrrSnapshotRepo.getOnOrBefore(monthEnd),
-    mrrSnapshotRepo.sumChurnedMrrBetween(toDateOnly(monthStart), toDateOnly(monthEnd)),
-  ]);
+  const referenceMonth = await getReferenceMonthRevenue(now);
 
-  const netNewMrrCents = (snapshotMonthEnd?.mrrCents ?? 0) - (snapshotBeforeMonth?.mrrCents ?? 0);
-  // Net = New − Churned, so New = Net + Churned. There's no separate "new
-  // subscriber" event stream to sum directly — this is the only derivation
-  // available from snapshot deltas + the churn figure we already compute.
-  const newMrrCents = netNewMrrCents + churnedMrrCents;
-
-  return { trend, newMrrCents, churnedMrrCents, netNewMrrCents };
+  return {
+    trend,
+    newMrrCents: referenceMonth.newMrrCents,
+    churnedMrrCents: referenceMonth.churnedMrrCents,
+    netNewMrrCents: referenceMonth.netNewMrrCents,
+  };
 }
 
 /** GET /admin/overview/trial-pipeline */

@@ -14,6 +14,15 @@ export function isValidTimezone(timezone: string): boolean {
   }
 }
 
+/** Runtime compatibility check after PostgreSQL has accepted the stored zone. */
+export function tryLocalDateFor(
+  timezone: string | null | undefined,
+  at: Date = new Date()
+): string | null {
+  if (timezone && !isValidTimezone(timezone)) return null;
+  return localDateFor(timezone, at);
+}
+
 function resolveZone(timezone: string | null | undefined): string {
   return timezone && isValidTimezone(timezone) ? timezone : DEFAULT_TIMEZONE;
 }

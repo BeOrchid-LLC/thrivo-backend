@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lte, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -9,6 +9,12 @@ import {
 } from "../../db/schema";
 
 export type DailySummary = DailySummaryRow;
+
+export interface WeeklyReviewWindow {
+  userId: string;
+  lastWeekStart: string;
+  today: string;
+}
 
 /**
  * Serialize concurrent recomputes for a single (user, day) rollup. Transaction-
@@ -131,6 +137,29 @@ export async function listRange(
       )
     )
     .orderBy(dailySummaries.localDate);
+}
+
+/** One set-based read for all daily rows needed by a weekly-review page. */
+export async function listForWeeklyReview(
+  windows: WeeklyReviewWindow[],
+  tx: Executor = db
+): Promise<Array<Pick<DailySummary, "userId" | "localDate">>> {
+  if (windows.length === 0) return [];
+
+  return tx
+    .select({ userId: dailySummaries.userId, localDate: dailySummaries.localDate })
+    .from(dailySummaries)
+    .where(
+      or(
+        ...windows.map((window) =>
+          and(
+            eq(dailySummaries.userId, window.userId),
+            gte(dailySummaries.localDate, window.lastWeekStart),
+            lte(dailySummaries.localDate, window.today)
+          )
+        )
+      )
+    );
 }
 
 /**

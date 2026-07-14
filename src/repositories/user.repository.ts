@@ -131,7 +131,14 @@ export async function listEligibleForWeeklyReviewPage(
         isNull(users.deletedAt),
         or(isNull(userSettings.userId), eq(userSettings.emailFoodLogReminderEnabled, true)),
         sql`(${users.timezone} is null or exists (select 1 from pg_timezone_names where name = ${users.timezone}))`,
-        sql`extract(hour from (now() at time zone coalesce(${users.timezone}, 'UTC')))::int = ${targetLocalHour}`,
+        sql`(
+          case
+            when ${users.timezone} is null
+              or exists (select 1 from pg_timezone_names where name = ${users.timezone})
+            then extract(hour from (now() at time zone coalesce(${users.timezone}, 'UTC')))::int
+            else null
+          end
+        ) = ${targetLocalHour}`,
         afterUserId ? gt(users.id, afterUserId) : undefined
       )
     )

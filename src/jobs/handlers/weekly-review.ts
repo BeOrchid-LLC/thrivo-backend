@@ -1,10 +1,11 @@
 import type { Job } from "bullmq";
 import { emailLogRepo, settingsRepo, userRepo } from "../../repositories";
 import { sendTemplatedEmail } from "../../services/email.service";
-import { getWeeklyReviewStats, hasLoggedToday } from "../../services/weekly-review.service";
+import { getWeeklyReviewBatch } from "../../services/weekly-review.service";
 import { logger } from "../../lib/logger";
 
 const PAGE_SIZE = 200;
+const SEND_CONCURRENCY = 8;
 // Matches the existing push nudge's 8am UTC default and dailyFoodLogReminderTime's
 // "08:00" default — not yet wired to each user's own customizable reminder time.
 const TARGET_LOCAL_HOUR = 8;
@@ -31,6 +32,8 @@ export async function handleWeeklyReview(_job: Job): Promise<void> {
   let sent = 0;
   let skippedLogged = 0;
   let skippedDuplicate = 0;
+  let skippedUnsupportedTimezone = 0;
+  let failed = 0;
 
   for (;;) {
     const page = await userRepo.listEligibleForWeeklyReviewPage(
@@ -40,34 +43,82 @@ export async function handleWeeklyReview(_job: Job): Promise<void> {
     );
     if (page.length === 0) break;
 
+    const review = await getWeeklyReviewBatch(page, now);
+    skippedUnsupportedTimezone += review.skippedUnsupportedTimezone;
+    const recentSends = await emailLogRepo.listRecentSends(
+      page.map((candidate) => candidate.id),
+      "weekly-review",
+      new Date(now.getTime() - DEDUPE_WINDOW_MS)
+    );
+
+    const toSend: Array<{
+      candidate: (typeof page)[number];
+      stats: NonNullable<ReturnType<typeof review.byUserId.get>>;
+    }> = [];
     for (const candidate of page) {
-      if (await hasLoggedToday(candidate.id, candidate.timezone, now)) {
+      const stats = review.byUserId.get(candidate.id);
+      if (!stats) continue;
+
+      if (stats.loggedToday) {
         skippedLogged += 1;
         continue;
       }
-      const dedupeSince = new Date(now.getTime() - DEDUPE_WINDOW_MS);
-      if (await emailLogRepo.hasRecentSend(candidate.id, "weekly-review", dedupeSince)) {
+      if (recentSends.has(candidate.id)) {
         skippedDuplicate += 1;
         continue;
       }
-
-      const stats = await getWeeklyReviewStats(candidate.id, candidate.timezone, now);
-      await sendTemplatedEmail({
-        to: candidate.email,
-        userId: candidate.id,
-        template: "weekly-review",
-        props: { loggedThisWeek: stats.loggedThisWeek, loggedLastWeek: stats.loggedLastWeek },
-      });
-      sent += 1;
+      toSend.push({ candidate, stats });
     }
+
+    // Each user's render/queue operation is independent after the batch reads and
+    // dedupe gate. Bound the fan-out so a full page does not create 200 concurrent
+    // provider/queue operations; failures remain isolated to their user.
+    let nextSend = 0;
+    const sendWorker = async (): Promise<void> => {
+      for (;;) {
+        const item = toSend[nextSend++];
+        if (!item) return;
+        try {
+          await sendTemplatedEmail({
+            to: item.candidate.email,
+            userId: item.candidate.id,
+            template: "weekly-review",
+            props: {
+              loggedThisWeek: item.stats.loggedThisWeek,
+              loggedLastWeek: item.stats.loggedLastWeek,
+            },
+          });
+          sent += 1;
+        } catch (err) {
+          failed += 1;
+          logger.error({ err, userId: item.candidate.id }, "weekly-review send failed");
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(SEND_CONCURRENCY, toSend.length) }, () => sendWorker())
+    );
 
     cursor = page[page.length - 1]!.id;
     if (page.length < PAGE_SIZE) break;
   }
 
-  if (sent > 0 || skippedLogged > 0 || skippedDuplicate > 0) {
+  if (
+    sent > 0 ||
+    skippedLogged > 0 ||
+    skippedDuplicate > 0 ||
+    skippedUnsupportedTimezone > 0 ||
+    failed > 0
+  ) {
     logger.info(
-      { sent, skippedLogged, skippedDuplicate, targetLocalHour: TARGET_LOCAL_HOUR },
+      {
+        sent,
+        skippedLogged,
+        skippedDuplicate,
+        skippedUnsupportedTimezone,
+        failed,
+        targetLocalHour: TARGET_LOCAL_HOUR,
+      },
       "weekly-review run complete"
     );
   }

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -59,4 +59,26 @@ export async function hasRecentSend(
     )
     .limit(1);
   return row !== undefined;
+}
+/** Return the users with a recent send for one template in a single indexed query. */
+export async function listRecentSends(
+  userIds: string[],
+  template: string,
+  sinceDate: Date,
+  tx: Executor = db
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+
+  const rows = await tx
+    .select({ userId: emailLogs.userId })
+    .from(emailLogs)
+    .where(
+      and(
+        inArray(emailLogs.userId, userIds),
+        eq(emailLogs.template, template),
+        gte(emailLogs.createdAt, sinceDate)
+      )
+    );
+
+  return new Set(rows.flatMap((row) => (row.userId ? [row.userId] : [])));
 }

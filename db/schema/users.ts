@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { citext, idPk, timestamps } from "./_shared";
@@ -70,6 +71,10 @@ export const users = pgTable(
     // Backs the admin user list's keyset pagination (R5-4/I16) — ORDER BY
     // (created_at desc, id desc) with a `(created_at, id) < cursor` seek.
     createdAtIdx: index("users_created_at_id_idx").on(t.createdAt, t.id),
+    weeklyReviewEligibilityIdx: index("users_weekly_review_eligibility_idx")
+      .on(t.timezone, t.id)
+      .concurrently()
+      .where(sql`${t.deletedAt} is null`),
   })
 );
 
