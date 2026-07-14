@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -33,4 +33,52 @@ export async function listForUser(userId: string, tx: Executor = db): Promise<Em
     .from(emailLogs)
     .where(eq(emailLogs.userId, userId))
     .orderBy(desc(emailLogs.createdAt));
+}
+
+/**
+ * Dedupe guard for scheduled sends (e.g. weekly-review): true if `template`
+ * was already logged for this user since `sinceDate`. A cron that reprocesses
+ * the same user twice (manual retrigger, a timezone bucket matching more than
+ * once around a DST transition) should not double-send.
+ */
+export async function hasRecentSend(
+  userId: string,
+  template: string,
+  sinceDate: Date,
+  tx: Executor = db
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: emailLogs.id })
+    .from(emailLogs)
+    .where(
+      and(
+        eq(emailLogs.userId, userId),
+        eq(emailLogs.template, template),
+        gte(emailLogs.createdAt, sinceDate)
+      )
+    )
+    .limit(1);
+  return row !== undefined;
+}
+/** Return the users with a recent send for one template in a single indexed query. */
+export async function listRecentSends(
+  userIds: string[],
+  template: string,
+  sinceDate: Date,
+  tx: Executor = db
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+
+  const rows = await tx
+    .select({ userId: emailLogs.userId })
+    .from(emailLogs)
+    .where(
+      and(
+        inArray(emailLogs.userId, userIds),
+        eq(emailLogs.template, template),
+        gte(emailLogs.createdAt, sinceDate)
+      )
+    );
+
+  return new Set(rows.flatMap((row) => (row.userId ? [row.userId] : [])));
 }

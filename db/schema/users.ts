@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { citext, idPk, timestamps } from "./_shared";
@@ -57,6 +58,9 @@ export const users = pgTable(
 
     onboardingStep: integer("onboarding_step").notNull().default(1),
     onboardingSkipped: boolean("onboarding_skipped").notNull().default(false),
+    // Set once, the moment onboardingStep first crosses COMPLETE_ONBOARDING_STEP
+    // (user.service.ts::updateProfile) — never overwritten by later profile edits.
+    onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     // Throttled liveness stamp (auth middleware). Written via raw SQL so it never
     // trips updated_at's $onUpdate. Powers last-active and DAU/MAU.
@@ -67,6 +71,10 @@ export const users = pgTable(
     // Backs the admin user list's keyset pagination (R5-4/I16) — ORDER BY
     // (created_at desc, id desc) with a `(created_at, id) < cursor` seek.
     createdAtIdx: index("users_created_at_id_idx").on(t.createdAt, t.id),
+    weeklyReviewEligibilityIdx: index("users_weekly_review_eligibility_idx")
+      .on(t.timezone, t.id)
+      .concurrently()
+      .where(sql`${t.deletedAt} is null`),
   })
 );
 

@@ -17,11 +17,13 @@ const { issueSession, principalOf } = vi.hoisted(() => ({
   principalOf: vi.fn((identity: unknown) => identity),
 }));
 const { resolveUser } = vi.hoisted(() => ({ resolveUser: vi.fn() }));
+const { sendWelcomeEmail } = vi.hoisted(() => ({ sendWelcomeEmail: vi.fn() }));
 
 vi.mock("../../src/auth/oauth/apple.client", () => ({ verifyAppleIdentityToken }));
 vi.mock("../../src/repositories", () => ({ accountRepo, authIdentityRepo }));
 vi.mock("../../src/auth/session.service", () => ({ issueSession, principalOf }));
 vi.mock("../../src/services/identity.service", () => ({ resolveUser }));
+vi.mock("../../src/auth/emails", () => ({ sendWelcomeEmail }));
 // db.transaction runs its callback with a sentinel tx the mocked repos ignore.
 vi.mock("../../db", () => ({ db: { transaction: (cb: (tx: unknown) => unknown) => cb("tx") } }));
 
@@ -38,6 +40,7 @@ describe("completeAppleSignIn", () => {
     });
     accountRepo.findByProvider.mockResolvedValue({ userId: "u-existing" });
     authIdentityRepo.findById.mockResolvedValue({ id: "u-existing", email: "a@b.co" });
+    resolveUser.mockResolvedValue({ user: { id: "u-existing" }, created: false });
 
     const tokens = await completeAppleSignIn("tok", undefined);
 
@@ -46,6 +49,7 @@ describe("completeAppleSignIn", () => {
     expect(accountRepo.create).not.toHaveBeenCalled();
     expect(resolveUser).toHaveBeenCalled();
     expect(tokens.accessToken).toBe("access");
+    expect(sendWelcomeEmail).not.toHaveBeenCalled();
   });
 
   it("provisions and links a first-time account when Apple supplies an email", async () => {
@@ -56,6 +60,7 @@ describe("completeAppleSignIn", () => {
     });
     accountRepo.findByProvider.mockResolvedValue(null);
     authIdentityRepo.upsertByEmail.mockResolvedValue({ id: "u-new", email: "new@user.co" });
+    resolveUser.mockResolvedValue({ user: { id: "u-new" }, created: true });
 
     await completeAppleSignIn("tok", "Ada Lovelace");
 
@@ -67,6 +72,7 @@ describe("completeAppleSignIn", () => {
       expect.objectContaining({ providerId: "apple", accountId: "apple-2", userId: "u-new" }),
       "tx"
     );
+    expect(sendWelcomeEmail).toHaveBeenCalledWith("new@user.co", "u-new");
   });
 
   it("rejects a first-time sign-in with no email to provision against", async () => {

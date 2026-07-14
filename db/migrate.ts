@@ -1,43 +1,118 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs/promises";
+import os from "node:os";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { readMigrationFiles, type MigrationMeta } from "drizzle-orm/migrator";
 import pg from "pg";
 import { env } from "../src/env";
 import { logger } from "../src/lib/logger";
 
 /**
  * Forward-only migration runner for CI, the Coolify pre-deploy step, and the
- * test harness. Uses drizzle-orm's programmatic migrator (not drizzle-kit) so
- * the production image carries no dev tooling. Applies db/migrations/*.sql in
- * journal order — the hand-authored bootstrap (CREATE EXTENSION citext) first,
- * then the generated schema — and is idempotent: applied migrations are skipped.
- *
- * The folder is resolved from the working directory, which is the app root in
- * every context (`tsx db/migrate.ts` in CI, `node dist/migrate.js` from /app in
- * the image, vitest from the repo root), so the same `db/migrations` path holds.
+ * test harness. Normal migrations use Drizzle's transactional migrator. A
+ * migration containing CREATE INDEX CONCURRENTLY is applied statement-by-
+ * statement outside a transaction because PostgreSQL forbids that DDL inside
+ * one; the migration is recorded in the same Drizzle ledger afterward.
  */
 
-// Stable, arbitrary key for the migration critical section. Every booter uses
-// the same value so they contend on one lock.
 const MIGRATION_LOCK_KEY = 4011982;
+const MIGRATIONS_FOLDER = "db/migrations";
+const MIGRATIONS_SCHEMA = "drizzle";
+const MIGRATIONS_TABLE = "__drizzle_migrations";
 
-export async function runMigrations(): Promise<void> {
+interface JournalEntry {
+  idx: number;
+  version: string;
+  when: number;
+  tag: string;
+  breakpoints: boolean;
+}
+
+interface MigrationJournal {
+  version: string;
+  dialect: string;
+  entries: JournalEntry[];
+}
+
+function isConcurrentIndexMigration(migration: MigrationMeta): boolean {
+  return migration.sql.some((statement) => /create\s+index\s+concurrently/i.test(statement));
+}
+
+async function applyOutsideTransaction(pool: pg.Pool, migration: MigrationMeta): Promise<void> {
+  for (const statement of migration.sql) {
+    if (statement.trim()) await pool.query(statement);
+  }
+  await pool.query(
+    `insert into "${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}" ("hash", "created_at") values ($1, $2)`,
+    [migration.hash, migration.folderMillis]
+  );
+}
+
+async function appliedMigrationHashes(pool: pg.Pool): Promise<Set<string>> {
+  const result = await pool.query<{ hash: string }>(
+    'select "hash" from "drizzle"."__drizzle_migrations"'
+  );
+  return new Set(result.rows.map((row) => row.hash));
+}
+
+async function runMigrations(): Promise<void> {
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 1 });
   const db = drizzle(pool);
-  // A dedicated connection holds the advisory lock so it never competes with the
-  // migrator for the (max:1) pool connection.
   const lockClient = new pg.Client({ connectionString: env.DATABASE_URL });
+  const migrationsFolder = path.resolve(MIGRATIONS_FOLDER);
+
   try {
     await lockClient.connect();
-    // Serialize concurrent booters. Under a rolling deploy several API replicas
-    // start at once and each calls runMigrations(); without this they race on the
-    // non-idempotent DDL (e.g. CREATE TYPE) and all but one crash with a duplicate
-    // error. The lock makes the loser wait, after which the migrator sees every
-    // migration already applied and no-ops. Session-scoped: auto-released if the
-    // process dies mid-migration, so a crash can't wedge the lock.
     await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
-    await migrate(db, { migrationsFolder: "db/migrations" });
+
+    const journal = JSON.parse(
+      await fs.readFile(path.join(migrationsFolder, "meta", "_journal.json"), "utf8")
+    ) as MigrationJournal;
+    const migrations = readMigrationFiles({ migrationsFolder });
+    const concurrentIndex = migrations.findIndex(isConcurrentIndexMigration);
+
+    if (concurrentIndex < 0) {
+      await migrate(db, { migrationsFolder });
+    } else {
+      const tempFolder = await fs.mkdtemp(path.join(os.tmpdir(), "thrivo-migrations-"));
+      try {
+        const priorEntries = journal.entries.slice(0, concurrentIndex);
+        await fs.mkdir(path.join(tempFolder, "meta"), { recursive: true });
+        await fs.writeFile(
+          path.join(tempFolder, "meta", "_journal.json"),
+          JSON.stringify({ ...journal, entries: priorEntries })
+        );
+        for (const entry of priorEntries) {
+          await fs.copyFile(
+            path.join(migrationsFolder, `${entry.tag}.sql`),
+            path.join(tempFolder, `${entry.tag}.sql`)
+          );
+        }
+
+        // Creates the ledger and applies any pending transactional migrations
+        // before the first concurrent-index migration.
+        await migrate(db, { migrationsFolder: tempFolder });
+
+        const appliedHashes = await appliedMigrationHashes(pool);
+        let index = concurrentIndex;
+        while (index < migrations.length && isConcurrentIndexMigration(migrations[index]!)) {
+          const migration = migrations[index]!;
+          if (!appliedHashes.has(migration.hash)) {
+            await applyOutsideTransaction(pool, migration);
+            appliedHashes.add(migration.hash);
+          }
+          index += 1;
+        }
+
+        // Applies any ordinary migrations after the concurrent migration(s).
+        await migrate(db, { migrationsFolder });
+      } finally {
+        await fs.rm(tempFolder, { recursive: true, force: true });
+      }
+    }
+
     logger.info("migrations applied");
   } finally {
     try {
@@ -50,8 +125,6 @@ export async function runMigrations(): Promise<void> {
   }
 }
 
-// Auto-run only when executed as the entrypoint (CLI / bundled dist), not when
-// imported (e.g. the test harness calls runMigrations() itself).
 const isMain = (() => {
   try {
     return (
@@ -68,3 +141,5 @@ if (isMain) {
     process.exit(1);
   });
 }
+
+export { runMigrations };

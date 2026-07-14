@@ -5,6 +5,8 @@ import { RateLimitedError } from "../lib/errors";
 import { estimateNutritionViaModel } from "../integrations/anthropic/estimate";
 import type { EstimateFoodPayload, Nutrients } from "../../contracts/src/foods";
 import { env } from "../env";
+import { isPremium } from "./entitlement.service";
+import type { User } from "../repositories/user.repository";
 
 function cacheKey(payload: EstimateFoodPayload): string {
   const normalized = JSON.stringify({
@@ -21,12 +23,18 @@ function canonicalText(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-async function enforceRateLimit(userId: string): Promise<void> {
+async function enforceRateLimit(user: User): Promise<void> {
   const redis = getRedis();
-  const key = `estimate-rl:${userId}`;
+  const key = `estimate-rl:${user.id}`;
   const n = await redis.incr(key);
   if (n === 1) await redis.expire(key, env.AI_ESTIMATE_RATE_LIMIT_WINDOW_SECONDS);
-  if (n > env.AI_ESTIMATE_RATE_LIMIT_MAX) {
+  // Metered Anthropic spend, not a flat-cost feature — free gets a materially
+  // tighter cap than premium, not the same allowance (unlike weight/water
+  // tracking, which is deliberately free; see DECISION_LOG.md ADR-0014).
+  const max = isPremium(user)
+    ? env.AI_ESTIMATE_RATE_LIMIT_MAX
+    : env.AI_ESTIMATE_RATE_LIMIT_MAX_FREE;
+  if (n > max) {
     throw new RateLimitedError("Estimate limit reached — try again later");
   }
 }
@@ -39,11 +47,11 @@ async function enforceRateLimit(userId: string): Promise<void> {
  * through (fail closed on cost).
  */
 export async function estimateNutrition(
-  userId: string,
+  user: User,
   payload: EstimateFoodPayload
 ): Promise<Nutrients> {
   return cacheAside(cacheKey(payload), env.AI_ESTIMATE_CACHE_TTL_SECONDS, async () => {
-    await enforceRateLimit(userId);
+    await enforceRateLimit(user);
     return estimateNutritionViaModel(payload);
   });
 }

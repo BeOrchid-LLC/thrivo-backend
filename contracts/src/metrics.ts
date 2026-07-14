@@ -55,7 +55,7 @@ export const updateWaterPayloadSchema = z.object({
 });
 export type UpdateWaterPayload = z.infer<typeof updateWaterPayloadSchema>;
 
-export const chartMetricSchema = z.enum(["calories", "water", "weight"]);
+export const chartMetricSchema = z.enum(["calories", "water", "weight", "protein", "carbs", "fat"]);
 export type ChartMetric = z.infer<typeof chartMetricSchema>;
 
 export const chartPeriodSchema = z.enum(["7d", "14d", "1m", "1q", "6m", "1y", "all"]);
@@ -138,7 +138,7 @@ export const chartResponseSchema = apiSuccessSchema(
     chart: z.object({
       metric: chartMetricSchema,
       period: chartPeriodSchema,
-      unit: z.enum(["kcal", "ml", "kg"]),
+      unit: z.enum(["kcal", "ml", "kg", "g"]),
       from: localDaySchema,
       to: localDaySchema,
       points: z.array(chartPointSchema),

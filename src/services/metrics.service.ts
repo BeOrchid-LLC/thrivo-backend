@@ -144,12 +144,15 @@ export async function getMetricChart(
       ? await caloriesPoints(user.id, from, to, period)
       : metric === "water"
         ? await waterPoints(user.id, from, to, period)
-        : await weightPoints(user.id, from, to, period);
+        : metric === "weight"
+          ? await weightPoints(user.id, from, to, period)
+          : await macroPoints(user.id, from, to, period, metric);
 
   return {
     metric,
     period,
-    unit: metric === "calories" ? "kcal" : metric === "water" ? "ml" : "kg",
+    unit:
+      metric === "calories" ? "kcal" : metric === "water" ? "ml" : metric === "weight" ? "kg" : "g",
     from,
     to,
     points,
@@ -288,6 +291,38 @@ async function weightPoints(userId: string, from: string, to: string, period: Ch
       .map(([date, value]) => ({ date, value }));
   }
   return fillDailyPoints(from, to, values, null);
+}
+
+async function macroPoints(
+  userId: string,
+  from: string,
+  to: string,
+  period: ChartPeriod,
+  metric: "protein" | "carbs" | "fat"
+) {
+  const rows = await dailySummaryRepo.listRange(userId, from, to);
+  const values = new Map(
+    rows.map((row) => [
+      row.localDate,
+      metric === "protein"
+        ? numberFromDb(row.totalProteinG)
+        : metric === "carbs"
+          ? numberFromDb(row.totalCarbsG)
+          : numberFromDb(row.totalFatG),
+    ])
+  );
+  if (period === "all") {
+    return rows.map((row) => ({
+      date: row.localDate,
+      value:
+        metric === "protein"
+          ? numberFromDb(row.totalProteinG)
+          : metric === "carbs"
+            ? numberFromDb(row.totalCarbsG)
+            : numberFromDb(row.totalFatG),
+    }));
+  }
+  return fillDailyPoints(from, to, values, 0);
 }
 
 function latestWeightByDay(rows: Array<{ localDate: string; weightKg: string; recordedAt: Date }>) {

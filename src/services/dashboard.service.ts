@@ -3,7 +3,7 @@ import {
   type MacroSummary,
   type StreakSummary,
 } from "../../contracts/src/dashboard";
-import { type FoodLogEntry, type HistoryDay } from "../../contracts/src/foods";
+import { type DailyTotals, type FoodLogEntry, type HistoryDay } from "../../contracts/src/foods";
 import { type Water } from "../../contracts/src/metrics";
 import { cacheAside } from "../lib/cache";
 import { foodLogRepo, dailySummaryRepo, streakRepo, waterIntakeRepo } from "../repositories";
@@ -108,7 +108,7 @@ export async function getWaterState(user: User, day: string): Promise<Water> {
       remainingMl,
       progressPercent,
       glassMl: GLASS_ML,
-      glasses: Math.floor(totalMl / GLASS_ML),
+      glasses: Math.round(totalMl / GLASS_ML),
       targetGlasses: TARGET_GLASSES,
       entries: entries.map((entry) => ({
         id: entry.id,
@@ -126,6 +126,22 @@ export async function getFoodEntriesForDay(user: User, day: string): Promise<Foo
     const logs = await foodLogRepo.listLogsForDay(user.id, day);
     return logs.map(toFoodLogEntry);
   });
+}
+
+export async function getFoodLogDayDetail(user: User, day: string, today?: string) {
+  const { lockBefore } = resolveHistoryWindow({ today });
+  const locked = !isPremium(user) && day < lockBefore;
+  const entries = locked ? [] : await getFoodEntriesForDay(user, day);
+
+  return {
+    day,
+    entries,
+    isEmptyDay: entries.length === 0,
+    isLocked: locked,
+    lockReason: locked ? ("free_history_limit" as const) : null,
+    historyLimitDays: FREE_HISTORY_LIMIT_DAYS,
+    totals: totalsFromEntries(day, entries),
+  };
 }
 
 export interface HistoryWindow {
@@ -212,6 +228,19 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
     consumedAt: log.consumedAt.toISOString(),
     loggedAt: log.loggedAt.toISOString(),
   };
+}
+
+function totalsFromEntries(day: string, entries: FoodLogEntry[]): DailyTotals {
+  return entries.reduce<DailyTotals>(
+    (totals, entry) => ({
+      day,
+      calories: totals.calories + entry.nutrients.calories,
+      proteinG: totals.proteinG + entry.nutrients.proteinG,
+      carbsG: totals.carbsG + entry.nutrients.carbsG,
+      fatG: totals.fatG + entry.nutrients.fatG,
+    }),
+    { day, calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
+  );
 }
 
 function buildHydrationAlert(totalMl: number, targetMl: number, now: Date): Water["alert"] {

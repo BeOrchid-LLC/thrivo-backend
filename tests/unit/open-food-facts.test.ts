@@ -9,8 +9,8 @@ import {
   OFF_USER_AGENT,
 } from "../../src/integrations/open-food-facts";
 
-function jsonResponse(body: unknown, ok = true) {
-  return { ok, status: ok ? 200 : 500, json: async () => body };
+function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 500) {
+  return { ok, status, json: async () => body };
 }
 
 describe("open food facts integration", () => {
@@ -20,12 +20,42 @@ describe("open food facts integration", () => {
 
   it("sends a descriptive User-Agent header on barcode lookup", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ status: 1, product: { code: "123", product_name: "Test" } })
+      jsonResponse({ code: "123", errors: [], product: { code: "123", product_name: "Test" } })
     );
     await fetchOpenFoodFactsProduct("123");
 
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers["User-Agent"]).toBe(OFF_USER_AGENT);
+  });
+
+  it("returns the product on the real v3 shape (no top-level status field)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        code: "3017620422003",
+        errors: [],
+        product: {
+          code: "3017620422003",
+          product_name: "Nutella",
+          serving_quantity: 40,
+          serving_size: "1 serving (40g)",
+          nutriments: {
+            "energy-kcal_serving": 180,
+            proteins_serving: 10,
+            carbohydrates_serving: 20,
+            fat_serving: 5,
+          },
+        },
+      })
+    );
+    const product = await fetchOpenFoodFactsProduct("3017620422003");
+    expect(product).not.toBeNull();
+    expect(product?.name).toBe("Nutella");
+  });
+
+  it("returns null (not a throw) when OFF responds 404 for an unknown barcode", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ code: "0", errors: [{}] }, false, 404));
+    const product = await fetchOpenFoodFactsProduct("00000000000");
+    expect(product).toBeNull();
   });
 
   it("sends a descriptive User-Agent header on search", async () => {
@@ -72,7 +102,6 @@ describe("normalizeProduct basis selection (I2 / ADR-0022 D1)", () => {
   it("picks per_serving only when the full *_serving set AND a serving_quantity are present", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
-        status: 1,
         product: {
           code: "1",
           product_name: "Protein Bar",
@@ -102,7 +131,6 @@ describe("normalizeProduct basis selection (I2 / ADR-0022 D1)", () => {
   it("falls back to per_100g when the *_serving set is only partially present", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
-        status: 1,
         product: {
           code: "2",
           product_name: "Mixed Product",
@@ -133,7 +161,6 @@ describe("normalizeProduct basis selection (I2 / ADR-0022 D1)", () => {
   it("treats a missing serving_quantity as disqualifying the per_serving basis", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
-        status: 1,
         product: {
           code: "3",
           product_name: "No Serving Quantity",
@@ -157,7 +184,6 @@ describe("normalizeProduct basis selection (I2 / ADR-0022 D1)", () => {
   it("rejects a product with neither a full *_serving nor a full *_100g set", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
-        status: 1,
         product: {
           code: "4",
           product_name: "Incomplete Product",

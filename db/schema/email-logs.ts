@@ -17,7 +17,9 @@ export const emailLogs = pgTable(
     ...timestamps,
   },
   (t) => ({
-    byUser: index("email_logs_user_idx").on(t.userId),
+    byUserTemplateCreated: index("email_logs_user_template_created_idx")
+      .on(t.userId, t.template, t.createdAt)
+      .concurrently(),
     byStatusCreated: index("email_logs_status_created_idx").on(t.status, t.createdAt),
   })
 );

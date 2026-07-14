@@ -58,7 +58,10 @@ function buildTargetPatch(user: User, patch: Partial<NewUserRow>): Partial<NewUs
   const heightCm = numberFromDb((patch.heightCm ?? user.heightCm) as string | null);
   const weightKg = numberFromDb((patch.weightKg ?? user.weightKg) as string | null);
   const activityLevel = (patch.activityLevel ?? user.activityLevel) as ActivityLevel | null;
-  const manualDailyTargetKcal = patch.manualDailyTargetKcal ?? user.manualDailyTargetKcal;
+  const manualDailyTargetKcal =
+    patch.manualDailyTargetKcal === undefined
+      ? user.manualDailyTargetKcal
+      : patch.manualDailyTargetKcal;
 
   if (manualDailyTargetKcal) {
     return {
@@ -143,6 +146,17 @@ export async function updateUserProfile(
   ) {
     // Sync expired-trial users whose accountStatus wasn't written yet (edge case).
     patch.accountStatus = "free_plan";
+  }
+
+  // Stamp the moment onboarding first completes — any of the branches above can
+  // be what pushes onboardingStep over the threshold. Set once; never overwritten
+  // by a later profile edit that happens to also touch onboarding fields.
+  if (
+    !user.onboardingCompletedAt &&
+    !isUserOnboarded(user) &&
+    isUserOnboarded({ ...user, ...patch })
+  ) {
+    patch.onboardingCompletedAt = now;
   }
 
   const updated = await userRepo.updateProfile(user.id, patch);

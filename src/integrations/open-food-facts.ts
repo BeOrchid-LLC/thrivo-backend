@@ -27,7 +27,6 @@ export interface OpenFoodFactsSearchResult {
 }
 
 interface OffResponse {
-  status?: number;
   product?: {
     code?: string;
     product_name?: string;
@@ -70,9 +69,10 @@ export async function fetchOpenFoodFactsProduct(
       signal: controller.signal,
       headers: { Accept: "application/json", "User-Agent": OFF_USER_AGENT },
     });
+    if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Open Food Facts lookup failed with ${res.status}`);
     const body = (await res.json()) as OffResponse;
-    if (body.status !== 1 || !body.product) return null;
+    if (!body.product) return null;
     return normalizeProduct(barcode, body.product);
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {

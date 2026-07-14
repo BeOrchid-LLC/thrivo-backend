@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lte, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -9,6 +9,12 @@ import {
 } from "../../db/schema";
 
 export type DailySummary = DailySummaryRow;
+
+export interface WeeklyReviewWindow {
+  userId: string;
+  lastWeekStart: string;
+  today: string;
+}
 
 /**
  * Serialize concurrent recomputes for a single (user, day) rollup. Transaction-
@@ -96,6 +102,24 @@ export async function upsertForDay(
   return row;
 }
 
+/**
+ * Average daily calorie total over the trailing `days` days — the admin
+ * user-detail stat card. `null` (not 0) when there are zero rows in range,
+ * so the UI can render "—" instead of a misleading "0 kcal avg".
+ */
+export async function getAvgDailyKcal(
+  userId: string,
+  days = 30,
+  tx: Executor = db
+): Promise<number | null> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [row] = await tx
+    .select({ avg: sql<number | null>`avg(${dailySummaries.totalCalories})::int` })
+    .from(dailySummaries)
+    .where(and(eq(dailySummaries.userId, userId), gte(dailySummaries.localDate, since)));
+  return row?.avg ?? null;
+}
+
 export async function listRange(
   userId: string,
   fromDate: string,
@@ -113,6 +137,29 @@ export async function listRange(
       )
     )
     .orderBy(dailySummaries.localDate);
+}
+
+/** One set-based read for all daily rows needed by a weekly-review page. */
+export async function listForWeeklyReview(
+  windows: WeeklyReviewWindow[],
+  tx: Executor = db
+): Promise<Array<Pick<DailySummary, "userId" | "localDate">>> {
+  if (windows.length === 0) return [];
+
+  return tx
+    .select({ userId: dailySummaries.userId, localDate: dailySummaries.localDate })
+    .from(dailySummaries)
+    .where(
+      or(
+        ...windows.map((window) =>
+          and(
+            eq(dailySummaries.userId, window.userId),
+            gte(dailySummaries.localDate, window.lastWeekStart),
+            lte(dailySummaries.localDate, window.today)
+          )
+        )
+      )
+    );
 }
 
 /**

@@ -25,8 +25,7 @@ import { requireAuth } from "../middleware/require-auth";
 import type { AppEnv } from "../types/http";
 
 /**
- * `/api/v1/auth` — the hand-rolled auth router (public sign-in endpoints).
- * Mounted ahead of the legacy BetterAuth catch-all so these specific routes win.
+ * `/api/v1/auth` — the hand-rolled auth router (public sign-in endpoints, ADR-0026).
  */
 export const authRouter = new Hono<AppEnv>();
 

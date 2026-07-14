@@ -71,7 +71,11 @@ export const envSchema = z
       .int()
       .positive()
       .default(60 * 60 * 24),
+    // Premium cap. Free users get AI_ESTIMATE_RATE_LIMIT_MAX_FREE instead — this
+    // is metered Anthropic spend, not a flat-cost feature, so the free tier gets
+    // a materially tighter cap rather than the same allowance as premium.
     AI_ESTIMATE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+    AI_ESTIMATE_RATE_LIMIT_MAX_FREE: z.coerce.number().int().positive().default(5),
     AI_ESTIMATE_RATE_LIMIT_WINDOW_SECONDS: z.coerce
       .number()
       .int()

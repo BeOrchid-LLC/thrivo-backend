@@ -104,8 +104,40 @@ export const adminUserSubscriptionSchema = z.object({
   priceLabel: z.string().nullable(),
   renewsAt: z.string().nullable(),
   cancelAtPeriodEnd: z.boolean(),
+  // Derived from subscription_events, not new `subscriptions` columns — that
+  // table is current-state-only and can't answer "when did this happen".
+  trialStartedAt: z.string().nullable(),
+  trialConvertedAt: z.string().nullable(),
+  firstChargeAt: z.string().nullable(),
+  firstChargeAmountCents: z.number().int().nullable(),
+  /** Sum of subscription_events.priceAmountCents. Null (not 0) means "no
+   *  priced events yet", not "$0 of revenue". */
+  revenueToDateCents: z.number().int().nullable(),
+  /** Always null today — no Stripe webhook path exists in this codebase,
+   *  only RevenueCat. Present so the frontend has a stable field to render "—". */
+  stripeCustomerId: z.string().nullable(),
+  rcAppUserId: z.string().nullable(),
 });
 export type AdminUserSubscription = z.infer<typeof adminUserSubscriptionSchema>;
+
+/** Receiving-end only as of this contract version — populated once a future
+ *  mobile-app task reports it; null for every user until then. */
+export const adminUserDeviceSchema = z.object({
+  platform: z.enum(["ios", "android"]).nullable(),
+  osVersion: z.string().nullable(),
+  deviceModel: z.string().nullable(),
+});
+export type AdminUserDevice = z.infer<typeof adminUserDeviceSchema>;
+
+export const adminUserStatsSchema = z.object({
+  currentStreakDays: z.number().int(),
+  totalFoodLogs: z.number().int(),
+  totalWeightLogs: z.number().int(),
+  totalCheckIns: z.number().int(),
+  /** Null (not 0) when there's no daily_summaries data in the averaging window. */
+  avgDailyKcal: z.number().int().nullable(),
+});
+export type AdminUserStats = z.infer<typeof adminUserStatsSchema>;
 
 /** Full user record for admin list + detail — every users column except authSubjectId. */
 export const adminUserDetailSchema = userProfileSchema
@@ -117,9 +149,18 @@ export const adminUserDetailSchema = userProfileSchema
     updatedAt: z.coerce.date(),
     status: adminUserStatusSchema,
     lastActiveAt: z.string().nullable(),
+    // Kept at the top level for backward compat with existing readers (e.g.
+    // the users list table); also nested under `stats` alongside the 2 new
+    // counts for the user-detail page's stat-cards row.
     totalFoodLogs: z.number().int(),
     currentStreakDays: z.number().int(),
     subscription: adminUserSubscriptionSchema.nullable(),
+    device: adminUserDeviceSchema.nullable(),
+    /** The upgrade-prompt trigger that led to conversion (e.g. "3-day streak"),
+     *  from the most recent `user_events` upgrade_prompt_shown row. Null until
+     *  that event type is ever fired (future mobile-app instrumentation). */
+    convertedViaTrigger: z.string().nullable(),
+    stats: adminUserStatsSchema,
   })
   .omit({ createdAt: true })
   .extend({
@@ -151,6 +192,89 @@ export type AdminRefundPayload = z.infer<typeof adminRefundPayloadSchema>;
 /** Response for CSV/export endpoints — a signed download URL. */
 export const adminExportResponseSchema = z.object({ url: z.string().url() });
 export type AdminExportResponse = z.infer<typeof adminExportResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Admin user-detail timeline
+// ---------------------------------------------------------------------------
+
+export const adminTimelineEntryTypeSchema = z.enum([
+  "account_created",
+  "onboarding_completed",
+  "upgrade_prompt_shown",
+  "trial_started",
+  "trial_converted",
+  "trial_cancelled",
+  "renewed",
+  "expired",
+  "next_charge_scheduled",
+]);
+export type AdminTimelineEntryType = z.infer<typeof adminTimelineEntryTypeSchema>;
+
+export const adminTimelineEntrySchema = z.object({
+  type: adminTimelineEntryTypeSchema,
+  title: z.string(),
+  subtitle: z.string().nullable(),
+  occurredAt: z.string(),
+  /** "scheduled" only for the synthesized next_charge_scheduled entry — a
+   *  future point, never a stored row. Everything else is "completed". */
+  status: z.enum(["completed", "scheduled"]),
+});
+export type AdminTimelineEntry = z.infer<typeof adminTimelineEntrySchema>;
+
+export const adminUserTimelineResponseSchema = z.object({
+  timeline: z.array(adminTimelineEntrySchema),
+});
+export type AdminUserTimelineResponse = z.infer<typeof adminUserTimelineResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Admin user-detail activity tabs
+// ---------------------------------------------------------------------------
+
+export const adminActivityTypeSchema = z.enum(["food_logs", "check_ins", "weight_logs"]);
+export type AdminActivityType = z.infer<typeof adminActivityTypeSchema>;
+
+/** No `meal` field — food_logs has no meal column in the schema. */
+export const adminActivityFoodLogItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  localDate: z.string(),
+  servingQty: z.number().nullable(),
+  servingUnit: z.string().nullable(),
+  kcal: z.number().int(),
+});
+export type AdminActivityFoodLogItem = z.infer<typeof adminActivityFoodLogItemSchema>;
+
+export const adminActivityCheckInItemSchema = z.object({
+  id: z.string(),
+  localDate: z.string(),
+  mood: z.string(),
+  note: z.string().nullable(),
+});
+export type AdminActivityCheckInItem = z.infer<typeof adminActivityCheckInItemSchema>;
+
+export const adminActivityWeightLogItemSchema = z.object({
+  id: z.string(),
+  localDate: z.string(),
+  weightKg: z.number(),
+  note: z.string().nullable(),
+});
+export type AdminActivityWeightLogItem = z.infer<typeof adminActivityWeightLogItemSchema>;
+
+export const adminActivityItemSchema = z.union([
+  adminActivityFoodLogItemSchema,
+  adminActivityCheckInItemSchema,
+  adminActivityWeightLogItemSchema,
+]);
+export type AdminActivityItem = z.infer<typeof adminActivityItemSchema>;
+
+/** One call = one type's items, so a plain array is enough — the client
+ *  already knows which type it asked for via the `type` query param. */
+export const adminUserActivityResponseSchema = z.object({
+  items: z.array(adminActivityItemSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+});
+export type AdminUserActivityResponse = z.infer<typeof adminUserActivityResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Admin route contracts
@@ -195,9 +319,41 @@ export const adminRoutes = {
     path: "/api/v1/admin/users/:id",
     auth: "admin",
   },
+  getUserTimeline: {
+    method: "GET",
+    path: "/api/v1/admin/users/:id/timeline",
+    auth: "admin",
+  },
+  getUserActivity: {
+    method: "GET",
+    path: "/api/v1/admin/users/:id/activity",
+    auth: "admin",
+  },
   getDashboardMetrics: {
     method: "GET",
     path: "/api/v1/admin/metrics/dashboard",
+    auth: "admin",
+  },
+
+  // Overview page — one route per independently-fetched section.
+  getOverviewMetrics: {
+    method: "GET",
+    path: "/api/v1/admin/overview/metrics",
+    auth: "admin",
+  },
+  getOverviewRevenueTrend: {
+    method: "GET",
+    path: "/api/v1/admin/overview/revenue-trend",
+    auth: "admin",
+  },
+  getOverviewTrialPipeline: {
+    method: "GET",
+    path: "/api/v1/admin/overview/trial-pipeline",
+    auth: "admin",
+  },
+  getOverviewPlanBreakdown: {
+    method: "GET",
+    path: "/api/v1/admin/overview/plan-breakdown",
     auth: "admin",
   },
   cancelSubscription: {

@@ -16,6 +16,12 @@ import * as authIdentityRepo from "./auth-identity.repository";
 import * as foodLogRepo from "./food-log.repository";
 import * as streakRepo from "./streak.repository";
 import * as subscriptionRepo from "./subscription.repository";
+import * as subscriptionEventRepo from "./subscription-event.repository";
+import * as weightEntryRepo from "./weight-entry.repository";
+import * as checkInRepo from "./check-in.repository";
+import * as dailySummaryRepo from "./daily-summary.repository";
+import * as userDeviceRepo from "./user-device.repository";
+import * as userEventRepo from "./user-event.repository";
 import * as adminAuditLogRepo from "./admin-audit-log.repository";
 import type { AuditActor } from "./admin-audit-log.repository";
 import type { AdminUser, AdminUserDetail } from "../../contracts/src/admin";
@@ -23,6 +29,7 @@ import {
   toAdminSubscription,
   toAdminUserDetail,
   type AdminUserAggregates,
+  type AdminUserDetailExtras,
 } from "../mappers/admin-user.mapper";
 import { clampLimit, decodeCursor, encodeCursor } from "../lib/pagination";
 
@@ -76,6 +83,68 @@ async function loadAggregatesForUsers(
   }
 
   return map;
+}
+
+function extractTrigger(metadata: unknown): string | null {
+  if (metadata && typeof metadata === "object" && "trigger" in metadata) {
+    const trigger = (metadata as { trigger: unknown }).trigger;
+    return typeof trigger === "string" ? trigger : null;
+  }
+  return null;
+}
+
+/**
+ * Single-user-only extras for the admin user-detail page — device info,
+ * conversion trigger, weight/check-in counts, avg kcal, and the extended
+ * subscription fields derived from `subscription_events` history. NOT called
+ * from `listUsers`: these queries are only worth paying for on the one-user
+ * detail page, not fanned out across a whole page of the users list.
+ */
+async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> {
+  const subscriptionRow = await subscriptionRepo.getByUser(userId);
+
+  const [
+    totalWeightLogs,
+    totalCheckIns,
+    avgDailyKcal,
+    revenueToDateCents,
+    subscriptionEvents,
+    device,
+    upgradePrompt,
+  ] = await Promise.all([
+    weightEntryRepo.countByUserId(userId),
+    checkInRepo.countByUserId(userId),
+    dailySummaryRepo.getAvgDailyKcal(userId),
+    subscriptionEventRepo.sumPriceAmountCentsByUser(userId),
+    subscriptionEventRepo.listByUser(userId),
+    userDeviceRepo.getByUser(userId),
+    userEventRepo.findLatestByType(userId, "upgrade_prompt_shown"),
+  ]);
+
+  const trialStarted = subscriptionEvents.find((e) => e.eventType === "trial_started") ?? null;
+  const trialConverted = subscriptionEvents.find((e) => e.eventType === "trial_converted") ?? null;
+  const firstPriced = subscriptionEvents.find((e) => e.priceAmountCents !== null) ?? null;
+
+  return {
+    device: device
+      ? { platform: device.platform, osVersion: device.osVersion, deviceModel: device.deviceModel }
+      : null,
+    convertedViaTrigger: extractTrigger(upgradePrompt?.metadata),
+    totalWeightLogs,
+    totalCheckIns,
+    avgDailyKcal,
+    subscriptionExtras: subscriptionRow
+      ? {
+          trialStartedAt: trialStarted?.occurredAt.toISOString() ?? null,
+          trialConvertedAt: trialConverted?.occurredAt.toISOString() ?? null,
+          firstChargeAt: firstPriced?.occurredAt.toISOString() ?? null,
+          firstChargeAmountCents: firstPriced?.priceAmountCents ?? null,
+          revenueToDateCents,
+          stripeCustomerId: null,
+          rcAppUserId: subscriptionRow.rcAppUserId,
+        }
+      : null,
+  };
 }
 
 function buildStatusWhere(status: string | undefined) {
@@ -151,8 +220,11 @@ export async function findById(id: string): Promise<AdminUserDetail | null> {
   const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   if (!row) return null;
 
-  const aggregatesByUser = await loadAggregatesForUsers([row.id]);
-  return toAdminUserDetail(row, aggregatesByUser.get(row.id) ?? emptyAggregates());
+  const [aggregatesByUser, extras] = await Promise.all([
+    loadAggregatesForUsers([row.id]),
+    findDetailExtras(row.id),
+  ]);
+  return toAdminUserDetail(row, aggregatesByUser.get(row.id) ?? emptyAggregates(), extras);
 }
 
 /**

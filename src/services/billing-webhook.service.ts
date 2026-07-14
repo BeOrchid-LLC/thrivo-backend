@@ -3,9 +3,10 @@ import { z } from "zod";
 import { env } from "../env";
 import { logger } from "../lib/logger";
 import { ForbiddenError } from "../lib/errors";
-import { userRepo, webhookEventRepo } from "../repositories";
-import type { SubProvider, SubStatus } from "../../db/schema";
+import { subscriptionRepo, userRepo, webhookEventRepo } from "../repositories";
+import type { SubProvider, SubscriptionEventType, SubStatus } from "../../db/schema";
 import { persistSubscriptionAndMirror } from "./subscription.service";
+import { sendTemplatedEmail } from "./email.service";
 
 /**
  * RevenueCat v1 webhook envelope — only the fields we consume. Unknown fields are
@@ -22,6 +23,11 @@ const revenueCatEventSchema = z.object({
     purchased_at_ms: z.number().nullish(),
     expiration_at_ms: z.number().nullish(),
     event_timestamp_ms: z.number().nullish(),
+    // Price in the purchase currency — null/0 (free trial)/negative (refund)
+    // are all valid per RevenueCat's docs. Used to populate subscription_events'
+    // priceAmountCents/currency (revenue-to-date, first charge) going forward.
+    price_in_purchased_currency: z.number().nullish(),
+    currency: z.string().nullish(),
   }),
 });
 
@@ -42,6 +48,25 @@ export function signatureMatches(header: string | undefined, secret: string | un
 
 function isAuthorized(header: string | undefined): boolean {
   return signatureMatches(header, env.REVENUECAT_WEBHOOK_AUTH);
+}
+
+/**
+ * A5-5: confirmation that a cancellation was received. Fired only for the
+ * CANCELLATION event itself (auto-renew turned off), not for EXPIRATION —
+ * the user already saw the cancel flow in-app/in-store; this just confirms it
+ * landed, per the "honest, no-surprises" brand promise (~60s of the action).
+ */
+async function sendCancellationEmail(email: string, userId: string): Promise<void> {
+  await sendTemplatedEmail({
+    to: email,
+    userId,
+    template: "notification",
+    props: {
+      title: "Your Thrivo cancellation is confirmed",
+      body: "Auto-renew is off. You'll keep premium access until the end of your current billing period, then move to the free plan automatically — no further charges.",
+      cta: { label: "Manage subscription", url: "https://thrivo.fit/app/subscription" },
+    },
+  });
 }
 
 export function mapStore(store: string | null | undefined): SubProvider {
@@ -67,6 +92,45 @@ export function mapStatus(type: string, periodType: string | null | undefined): 
     default:
       return null; // TRANSFER, SUBSCRIBER_ALIAS, TEST, etc. — recorded, not applied
   }
+}
+
+/**
+ * Classify a RevenueCat event into a `subscription_events` row type, or `null`
+ * if it's not part of the trial funnel (e.g. a non-trial CANCELLATION, or a
+ * BILLING_ISSUE). `previousStatus` is the subscription's status *before* this
+ * event was applied — required to tell a fresh RENEWAL apart from a trial
+ * converting, and a trial CANCELLATION apart from a regular one.
+ */
+/**
+ * Convert RevenueCat's `price_in_purchased_currency` (float, purchase
+ * currency) to integer cents. Null/non-number stays null — never fabricated
+ * as 0 — since RevenueCat itself sends null for "unknown" (distinct from an
+ * actual $0 free-trial event, which arrives as the number 0).
+ */
+export function extractPriceFields(event: {
+  price_in_purchased_currency?: number | null;
+  currency?: string | null;
+}): { priceAmountCents: number | null; currency: string | null } {
+  const priceAmountCents =
+    typeof event.price_in_purchased_currency === "number"
+      ? Math.round(event.price_in_purchased_currency * 100)
+      : null;
+  return { priceAmountCents, currency: event.currency ?? null };
+}
+
+export function classifySubscriptionEvent(
+  type: string,
+  periodType: string | null | undefined,
+  previousStatus: SubStatus | null
+): SubscriptionEventType | null {
+  if (type === "INITIAL_PURCHASE" && periodType === "TRIAL") return "trial_started";
+  if (type === "EXPIRATION") return "expired";
+  if (type === "CANCELLATION") return previousStatus === "trialing" ? "trial_cancelled" : null;
+  if (type === "RENEWAL" || type === "PRODUCT_CHANGE" || type === "UNCANCELLATION") {
+    if (previousStatus === "trialing" && periodType !== "TRIAL") return "trial_converted";
+    if (type === "RENEWAL" && previousStatus !== "trialing") return "renewed";
+  }
+  return null;
 }
 
 /**
@@ -129,23 +193,50 @@ export async function handleRevenueCatWebhook(
 
     const eventAt = event.event_timestamp_ms ? new Date(event.event_timestamp_ms) : new Date();
     const periodEnd = event.expiration_at_ms ? new Date(event.expiration_at_ms) : null;
-    const applied = await persistSubscriptionAndMirror(user.id, {
-      userId: user.id,
-      rcAppUserId: event.app_user_id,
-      provider: mapStore(event.store),
-      productId: event.product_id ?? null,
-      status,
-      trialEnd: status === "trialing" ? periodEnd : (user.trialEndsAt ?? null),
-      currentPeriodStart: event.purchased_at_ms ? new Date(event.purchased_at_ms) : null,
-      currentPeriodEnd: periodEnd,
-      cancelAtPeriodEnd: status === "canceled",
-      lastEventAt: eventAt,
-    });
+    const previousSub = await subscriptionRepo.getByUser(user.id);
+    const funnelEventType = classifySubscriptionEvent(
+      event.type,
+      event.period_type,
+      previousSub?.status ?? null
+    );
+    const applied = await persistSubscriptionAndMirror(
+      user.id,
+      {
+        userId: user.id,
+        rcAppUserId: event.app_user_id,
+        provider: mapStore(event.store),
+        productId: event.product_id ?? null,
+        status,
+        trialEnd: status === "trialing" ? periodEnd : (user.trialEndsAt ?? null),
+        currentPeriodStart: event.purchased_at_ms ? new Date(event.purchased_at_ms) : null,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: status === "canceled",
+        lastEventAt: eventAt,
+      },
+      funnelEventType
+        ? {
+            userId: user.id,
+            eventType: funnelEventType,
+            productId: event.product_id ?? null,
+            occurredAt: eventAt,
+            rawEventId: ledger.id,
+            ...extractPriceFields(event),
+          }
+        : undefined
+    );
 
     // `applied === null` ⇒ the atomic write's monotonic guard dropped this event
     // as stale/out-of-order — same externally-visible outcome as an ignored event
     // type, just decided by the DB instead of the mapping above.
     await webhookEventRepo.markProcessed(ledger.id, "processed");
+
+    // Only the CANCELLATION event itself, and only when it actually applied —
+    // never on EXPIRATION (already communicated via the trial-ending reminder)
+    // and never on a stale/out-of-order event the monotonic guard dropped.
+    if (applied && event.type === "CANCELLATION" && user.email) {
+      await sendCancellationEmail(user.email, user.id);
+    }
+
     return applied ? "processed" : "ignored";
   } catch (err) {
     logger.error({ err, eventId: event.id, type: event.type }, "revenuecat webhook failed");

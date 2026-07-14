@@ -1,9 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
 import { db } from "../../db";
-import { auth_user, session, verification } from "../../db/schema";
+import { auth_user, emailLogs, session, verification } from "../../db/schema";
 import { sha256Hex } from "../../src/auth/crypto";
 import { newId } from "../../src/lib/ids";
 
@@ -78,6 +78,34 @@ describe.skipIf(!run)("integration: magic link", () => {
     });
     expect(me.status).toBe(200);
     expect(((await me.json()) as JsonBody).data.email).toBe(email);
+  });
+
+  it("sends a welcome email once on first verify, not on a returning sign-in (A5-5)", async () => {
+    const app = buildApp();
+    const email = "welcome@test.thrivo.fit";
+    const firstToken = "welcome-token-first";
+    await seedToken(email, firstToken, new Date(Date.now() + 60_000));
+
+    const first = await post(app, "/api/v1/auth/magic-link/verify", { token: firstToken });
+    expect(first.status).toBe(200);
+
+    const welcomeLogs = await db
+      .select()
+      .from(emailLogs)
+      .where(and(eq(emailLogs.toEmail, email), eq(emailLogs.template, "notification")));
+    expect(welcomeLogs).toHaveLength(1);
+
+    // A returning user (already provisioned) must not get a second welcome email.
+    const secondToken = "welcome-token-second";
+    await seedToken(email, secondToken, new Date(Date.now() + 60_000));
+    const second = await post(app, "/api/v1/auth/magic-link/verify", { token: secondToken });
+    expect(second.status).toBe(200);
+
+    const stillOne = await db
+      .select()
+      .from(emailLogs)
+      .where(and(eq(emailLogs.toEmail, email), eq(emailLogs.template, "notification")));
+    expect(stillOne).toHaveLength(1);
   });
 
   it("rotates the refresh token and invalidates the old one (rotation-on-use)", async () => {

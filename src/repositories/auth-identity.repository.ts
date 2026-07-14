@@ -21,11 +21,12 @@ export async function findByEmail(email: string, tx: Executor = db): Promise<Aut
 }
 
 /**
- * The auth identity for an email, creating it if absent. This is OUR identity
- * table now (BetterAuth's `auth_user`, reused) — `id` is the stable
- * `AuthPrincipal.subjectId` that `users.auth_subject_id` links to. An auth flow
- * only calls this once it has verified ownership of the email, so we promote
- * `emailVerified` to true when a verifying flow (magic link / OAuth) confirms it.
+ * The auth identity for an email, creating it if absent. `auth_user` predates
+ * the hand-rolled provider (ADR-0026) but is ours to own now, not a vendor
+ * table — `id` is the stable `AuthPrincipal.subjectId` that
+ * `users.auth_subject_id` links to. An auth flow only calls this once it has
+ * verified ownership of the email, so we promote `emailVerified` to true when
+ * a verifying flow (magic link / OAuth) confirms it.
  */
 export async function upsertByEmail(
   input: { email: string; name: string; emailVerified: boolean; image?: string | null },

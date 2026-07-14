@@ -10,9 +10,11 @@ export type { OtpConsumeResult };
 // load-bearing guard: this endpoint is public on api.thrivo.fit, and an
 // unthrottled issue both emails a human and consumes shared Resend quota,
 // which can take down user-facing sign-in email as collateral (I6).
+export const ADMIN_OTP_TTL_SEC = 300;
+
 const adminOtp = createOtp({
   namespace: "admin-otp",
-  ttlSec: 300,
+  ttlSec: ADMIN_OTP_TTL_SEC,
   throttle: { max: 5, windowSec: 15 * 60 },
 });
 

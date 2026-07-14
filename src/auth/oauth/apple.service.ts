@@ -10,6 +10,7 @@ import {
   type SessionContext,
 } from "../session.service";
 import { resolveUser } from "../../services/identity.service";
+import { sendWelcomeEmail } from "../emails";
 import { verifyAppleIdentityToken } from "./apple.client";
 
 const PROVIDER = "apple";
@@ -35,7 +36,10 @@ export async function completeAppleSignIn(
 ): Promise<IssuedTokens> {
   const claims = await verifyAppleIdentityToken(identityToken);
 
-  return db.transaction(async (tx) => {
+  let created = false;
+  let newUserId = "";
+  let welcomeEmail = "";
+  const tokens = await db.transaction(async (tx) => {
     const linked = await accountRepo.findByProvider(PROVIDER, claims.sub, tx);
     if (linked) {
       const identity = await authIdentityRepo.findById(linked.userId, tx);
@@ -70,7 +74,15 @@ export async function completeAppleSignIn(
       tx
     );
 
-    await resolveUser(principalOf(identity), tx);
+    const resolved = await resolveUser(principalOf(identity), tx);
+    created = resolved.created;
+    newUserId = resolved.user.id;
+    welcomeEmail = claims.email;
     return issueSession(principalOf(identity), ctx, tx);
   });
+
+  // Fired after commit, never inside the transaction — see identity.service.ts.
+  if (created) await sendWelcomeEmail(welcomeEmail, newUserId);
+
+  return tokens;
 }

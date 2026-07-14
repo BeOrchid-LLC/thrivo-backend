@@ -3,7 +3,7 @@ import { authed, createSession } from "../helpers/auth";
 import { closeDb, resetDb } from "../helpers/db";
 import { makeTestApp } from "../helpers/app";
 import { makeFoodLog, makeWaterEntry, makeWeightEntry } from "../helpers/factories";
-import { userRepo } from "../../src/repositories";
+import { dailySummaryRepo, userRepo } from "../../src/repositories";
 
 const run = process.env.RUN_DB_TESTS === "1";
 
@@ -47,6 +47,30 @@ describe.skipIf(!run)("integration: progress metrics", () => {
     expect(chart.status).toBe(403);
     const body = await chart.json();
     expect(body.error.code).toBe("PREMIUM_REQUIRED");
+  });
+
+  it("returns macro chart points from daily summaries", async () => {
+    const app = makeTestApp();
+    const session = await createSession();
+    const user = await userRepo.findActiveByEmail(session.email);
+    expect(user).not.toBeNull();
+    await dailySummaryRepo.upsertForDay({
+      userId: user!.id,
+      localDate: "2026-06-27",
+      totalCalories: 1600,
+      totalProteinG: "120",
+      totalCarbsG: "150",
+      totalFatG: "55",
+    });
+
+    const chart = await app.request(
+      "/api/v1/metrics/chart?date=2026-06-28&metric=protein&period=7d",
+      { headers: authed(session) }
+    );
+    expect(chart.status).toBe(200);
+    const body = await chart.json();
+    expect(body.data.chart.unit).toBe("g");
+    expect(body.data.chart.points).toContainEqual({ date: "2026-06-27", value: 120 });
   });
 
   it("saves weight entries for free users and upserts a local day", async () => {

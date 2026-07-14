@@ -62,7 +62,7 @@ export const updateProfilePayloadSchema = z.object({
   sex: sexSchema.optional(),
   activityLevel: activityLevelSchema.optional(),
   unitSystem: z.enum(["metric", "imperial"]).optional(),
-  manualDailyTargetKcal: z.number().int().positive().optional(),
+  manualDailyTargetKcal: z.number().int().positive().nullable().optional(),
   notifyTimes: z
     .array(z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/))
     .max(3)

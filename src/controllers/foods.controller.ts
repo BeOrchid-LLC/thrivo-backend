@@ -18,7 +18,7 @@ import {
 import { readIdempotencyKey } from "../lib/idempotency";
 import { respondOk } from "../lib/response";
 import { getValidatedInput } from "../middleware/validate";
-import { getFoodEntriesForDay, getHistoryDays } from "../services/dashboard.service";
+import { getFoodLogDayDetail, getHistoryDays } from "../services/dashboard.service";
 import { estimateNutrition } from "../services/estimate.service";
 import {
   addFavorite,
@@ -104,9 +104,9 @@ export async function removeFoodLog(c: Context<AppEnv>) {
 
 export async function getFoodLogDay(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  const { date } = foodLogDayQuerySchema.parse(getValidatedInput(c, "query"));
-  const entries = await getFoodEntriesForDay(user, date);
-  return respondOk(c, { day: date, entries, isEmptyDay: entries.length === 0 });
+  const { date, today } = foodLogDayQuerySchema.parse(getValidatedInput(c, "query"));
+  const detail = await getFoodLogDayDetail(user, date, today);
+  return respondOk(c, detail);
 }
 
 export async function getFoodLogHistory(c: Context<AppEnv>) {
@@ -146,7 +146,7 @@ export async function deleteFavorite(c: Context<AppEnv>) {
 export async function estimateFoodEntry(c: Context<AppEnv>) {
   const user = c.get("user")!;
   const input = estimateFoodPayloadSchema.parse(getValidatedInput(c, "json"));
-  const nutrients = await estimateNutrition(user.id, input);
+  const nutrients = await estimateNutrition(user, input);
   const estimate = {
     name: input.name,
     servingUnit: input.portionMeasure,

@@ -1,7 +1,7 @@
 import { db } from "../../db";
 import { authIdentityRepo } from "../repositories";
 import { resolveUser } from "../services/identity.service";
-import { sendAuthOtp } from "./emails";
+import { sendAuthOtp, sendWelcomeEmail } from "./emails";
 import { createOtp, type OtpConsumeResult } from "../lib/otp";
 import {
   issueSession,
@@ -27,7 +27,7 @@ export async function issueAuthOtp(email: string): Promise<void> {
   const normalized = normalizeEmail(email);
   const code = await authOtp.issue(normalized);
   if (!code) return; // throttled — stay silent (no enumeration)
-  await sendAuthOtp(normalized, code, "sign-in");
+  await sendAuthOtp(normalized, code, "sign-in", AUTH_OTP_TTL_SEC);
 }
 
 export async function consumeAuthOtp(email: string, code: string): Promise<AuthOtpConsumeResult> {
@@ -43,14 +43,21 @@ export async function verifyAuthOtp(
   const result = await consumeAuthOtp(normalized, code);
   if (!result.ok) return { result };
 
+  let created = false;
+  let newUserId = "";
   const tokens = await db.transaction(async (tx) => {
     const identity = await authIdentityRepo.upsertByEmail(
       { email: normalized, name: normalized.split("@")[0] ?? "Thrivo user", emailVerified: true },
       tx
     );
-    await resolveUser(principalOf(identity), tx);
+    const resolved = await resolveUser(principalOf(identity), tx);
+    created = resolved.created;
+    newUserId = resolved.user.id;
     return issueSession(principalOf(identity), ctx, tx);
   });
+
+  // Fired after commit, never inside the transaction — see identity.service.ts.
+  if (created) await sendWelcomeEmail(normalized, newUserId);
 
   return { result, tokens };
 }

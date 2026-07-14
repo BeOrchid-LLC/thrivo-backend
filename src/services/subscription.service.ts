@@ -7,10 +7,10 @@ import type {
   SubscriptionState,
 } from "../../contracts/src/subscriptions";
 import { db } from "../../db";
-import type { NewSubscriptionRow, UserRow } from "../../db/schema";
+import type { NewSubscriptionEventRow, NewSubscriptionRow, UserRow } from "../../db/schema";
 import { billingAdapter } from "../integrations/billing";
 import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from "../lib/errors";
-import { subscriptionRepo, userRepo } from "../repositories";
+import { subscriptionEventRepo, subscriptionRepo, userRepo } from "../repositories";
 import type { Subscription } from "../repositories/subscription.repository";
 import { getEffectiveSettings } from "./settings.service";
 
@@ -220,10 +220,15 @@ export async function cancelSubscription(
  * the write itself; a `null` return means the incoming event was stale/out-of-order
  * and was dropped, so the user mirror is left untouched — the subscription row and
  * `users.tier` never move independently.
+ *
+ * `event`, when provided, is appended to `subscription_events` in the same
+ * transaction — only the webhook path passes it, so the funnel table only ever
+ * records externally-confirmed transitions, never optimistic in-app writes.
  */
 export async function persistSubscriptionAndMirror(
   userId: string,
-  subscription: NewSubscriptionRow
+  subscription: NewSubscriptionRow,
+  event?: NewSubscriptionEventRow
 ): Promise<Subscription | null> {
   return db.transaction(async (tx) => {
     const row = await subscriptionRepo.upsertFromWebhook(subscription, tx);
@@ -238,8 +243,19 @@ export async function persistSubscriptionAndMirror(
       },
       tx
     );
+    if (event) await subscriptionEventRepo.insert(event, tx);
     return row;
   });
 }
 
 export const subscriptionPlans = PLANS;
+
+/**
+ * Cents equivalent of each plan's `priceLabel` display string, kept manually
+ * in sync since `priceLabel` is customer-facing text, not a computable value.
+ * Used by admin analytics (MRR/ARR, plan breakdown), which need arithmetic.
+ */
+export const PLAN_PRICE_CENTS: Record<SubscriptionPlan, number> = {
+  monthly: 1499,
+  annual: 15000,
+};

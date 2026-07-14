@@ -7,7 +7,8 @@ import type { AppEnv } from "../types/http";
 /**
  * Gate admin routes: reads the httpOnly `admin_session` JWT cookie, verifies it,
  * and enforces the `admin` role. Sets `c.var.adminUser` for downstream handlers.
- * No BetterAuth dependency — the admin OTP flow issues this cookie directly.
+ * Independent of the user-facing auth stack (`src/auth/`) — the admin OTP flow
+ * issues this cookie directly.
  */
 export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
   const token = getCookie(c, ADMIN_COOKIE);

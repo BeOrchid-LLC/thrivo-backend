@@ -3,7 +3,12 @@ import { setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import { respondOk } from "../lib/response";
 import { ForbiddenError } from "../lib/errors";
-import { isAllowedAdminEmail, issueAdminOtp, consumeAdminOtp } from "../admin/otp.service";
+import {
+  isAllowedAdminEmail,
+  issueAdminOtp,
+  consumeAdminOtp,
+  ADMIN_OTP_TTL_SEC,
+} from "../admin/otp.service";
 import {
   signAdminSession,
   ADMIN_COOKIE,
@@ -43,7 +48,7 @@ export async function postAdminRequestOtp(c: Context<AppEnv>) {
       await sendTemplatedEmail({
         to: email,
         template: "otp",
-        props: { code, purpose: "sign-in" },
+        props: { code, purpose: "sign-in", expiresInMinutes: Math.round(ADMIN_OTP_TTL_SEC / 60) },
       });
     }
   }

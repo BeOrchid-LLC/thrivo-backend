@@ -7,7 +7,10 @@ vi.mock("../../src/env", async (importOriginal) => {
   return { ...mod, env: { ...mod.env, REVENUECAT_WEBHOOK_AUTH: "test-webhook-secret" } };
 });
 
+import { and, eq } from "drizzle-orm";
 import { buildApp } from "../../src/app";
+import { db } from "../../db";
+import { emailLogs } from "../../db/schema";
 import { subscriptionRepo, userRepo } from "../../src/repositories";
 import { createSession } from "../helpers/auth";
 import { closeDb, resetDb } from "../helpers/db";
@@ -85,6 +88,44 @@ describe.skipIf(!run)("integration: revenuecat webhook", () => {
     const res2 = await post(app, event);
     expect(res2.status).toBe(200);
     expect(((await res2.json()) as OutcomeBody).data.outcome).toBe("duplicate");
+  });
+
+  it("sends a cancellation confirmation email only for CANCELLATION, not EXPIRATION (A5-5)", async () => {
+    const app = buildApp();
+    const session = await createSession();
+    const user = await userRepo.findActiveByEmail(session.email);
+
+    // Establish an active subscription first so CANCELLATION has something to cancel.
+    await post(app, rcEvent({ app_user_id: user!.id, type: "INITIAL_PURCHASE" }));
+
+    const cancelRes = await post(
+      app,
+      rcEvent({
+        app_user_id: user!.id,
+        type: "CANCELLATION",
+        event_timestamp_ms: Date.now() + 1000,
+      })
+    );
+    expect(cancelRes.status).toBe(200);
+
+    const cancelLogs = await db
+      .select()
+      .from(emailLogs)
+      .where(and(eq(emailLogs.toEmail, user!.email!), eq(emailLogs.template, "notification")));
+    expect(cancelLogs).toHaveLength(1);
+
+    // EXPIRATION must not trigger a second cancellation-style email.
+    const expireRes = await post(
+      app,
+      rcEvent({ app_user_id: user!.id, type: "EXPIRATION", event_timestamp_ms: Date.now() + 2000 })
+    );
+    expect(expireRes.status).toBe(200);
+
+    const afterExpiration = await db
+      .select()
+      .from(emailLogs)
+      .where(and(eq(emailLogs.toEmail, user!.email!), eq(emailLogs.template, "notification")));
+    expect(afterExpiration).toHaveLength(1);
   });
 
   it("drops a stale out-of-order event so newer entitlement is never reverted", async () => {

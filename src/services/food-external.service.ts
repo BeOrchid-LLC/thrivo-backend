@@ -31,8 +31,14 @@ async function enforceFixedWindowLimit(
   message: string
 ): Promise<void> {
   const redis = getRedis();
-  const n = await redis.incr(key);
-  if (n === 1) await redis.expire(key, windowSec);
+  let n: number;
+  try {
+    n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, windowSec);
+  } catch (err) {
+    logger.warn({ err, key }, "rate limit check failed, allowing request");
+    return;
+  }
   if (n > max) throw new RateLimitedError(message);
 }
 
