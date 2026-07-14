@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { z } from "zod";
 import { respondOk } from "../lib/response";
-import { NotFoundError } from "../lib/errors";
+import { NotFoundError, ValidationError } from "../lib/errors";
 import { getClientIp } from "../lib/request-ip";
 import { adminUserRepo } from "../repositories";
 import { adminActivityTypeSchema } from "../../contracts/src/admin";
@@ -47,7 +47,11 @@ const activityQuerySchema = z.object({
 /** GET /admin/users/:id/activity?type=food_logs|check_ins|weight_logs&limit= */
 export async function getAdminUserActivity(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
-  const { type, limit } = activityQuerySchema.parse(c.req.query());
+  const parsed = activityQuerySchema.safeParse(c.req.query());
+  if (!parsed.success) {
+    throw new ValidationError("Validation failed", parsed.error.flatten());
+  }
+  const { type, limit } = parsed.data;
   const page = await getUserActivity(id, type, limit);
   return respondOk(c, page);
 }

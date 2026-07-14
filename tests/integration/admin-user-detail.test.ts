@@ -109,10 +109,11 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     const user = await userRepo.findActiveByEmail(session.email);
     const cookie = await adminCookie();
 
+    const trialStartedAt = new Date(user!.createdAt.getTime() + 1_000);
     await subscriptionEventRepo.insert({
       userId: user!.id,
       eventType: "trial_started",
-      occurredAt: new Date("2026-06-16T08:05:00.000Z"),
+      occurredAt: trialStartedAt,
     });
 
     const res = await app.request(`/api/v1/admin/users/${user!.id}/timeline`, {
@@ -133,7 +134,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     expect(missing.status).toBe(404);
   });
 
-  it("GET /admin/users/:id/activity returns correctly-shaped pages for all 3 types and 400s on a bad type", async () => {
+  it("GET /admin/users/:id/activity returns correctly-shaped pages for all 3 types and rejects a bad type with 422", async () => {
     const app = buildApp();
     const session = await createSession();
     const user = await userRepo.findActiveByEmail(session.email);
@@ -160,7 +161,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     const bad = await app.request(`/api/v1/admin/users/${user!.id}/activity?type=not_a_type`, {
       headers: { Cookie: cookie },
     });
-    expect(bad.status).toBe(400);
+    expect(bad.status).toBe(422);
   });
 
   it("rejects unauthenticated requests on all 3 user-detail routes", async () => {
