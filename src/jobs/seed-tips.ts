@@ -1,5 +1,6 @@
 import { tipRepo } from "../repositories";
 import type { NewTipRow } from "../../db/schema";
+import { logger } from "../lib/logger";
 
 /**
  * Starter psychology-tip bank so the daily nudge works the moment the worker
@@ -27,7 +28,12 @@ export const STARTER_TIPS: NewTipRow[] = [
 /** Idempotent — seeds the starter bank only when the tips table is empty. */
 export async function seedStarterTips(): Promise<number> {
   const existing = await tipRepo.countAll();
-  if (existing > 0) return 0;
+  logger.info({ existing }, "starter tips count checked");
+  if (existing > 0) {
+    logger.info("starter tips seed skipped: bank already populated");
+    return 0;
+  }
   await tipRepo.insertMany(STARTER_TIPS);
+  logger.info({ inserted: STARTER_TIPS.length }, "starter tips inserted");
   return STARTER_TIPS.length;
 }

@@ -33,17 +33,51 @@ const WORKER_CONCURRENCY: Partial<Record<QueueName, number>> = {
   [QUEUE_NAMES.nudges]: 5,
 };
 
+function jobLogContext(queue: QueueName, job: Job): Record<string, unknown> {
+  return {
+    queue,
+    jobId: job.id,
+    jobName: job.name,
+    attempt: job.attemptsMade + 1,
+    maxAttempts: job.opts.attempts ?? 1,
+  };
+}
+
 function startWorker(name: QueueName): void {
   const handler = handlers[name];
+  const concurrency = WORKER_CONCURRENCY[name] ?? 1;
+  logger.info({ queue: name, concurrency, hasHandler: Boolean(handler) }, "worker queue starting");
+
   const worker = new Worker(
     name,
     async (job: Job) => {
-      if (handler) return handler(job);
-      logger.info({ queue: name, jobId: job.id, jobName: job.name }, "job received (stub handler)");
+      const context = jobLogContext(name, job);
+      const startedAt = Date.now();
+      logger.info(context, "worker job started");
+
+      if (handler) {
+        await handler(job);
+      } else {
+        logger.info(context, "worker job skipped: no handler registered");
+      }
+
+      logger.info({ ...context, durationMs: Date.now() - startedAt }, "worker job completed");
     },
-    { connection: redisConnectionOptions, concurrency: WORKER_CONCURRENCY[name] ?? 1 }
+    { connection: redisConnectionOptions, concurrency }
   );
-  worker.on("failed", (job, err) => logger.error({ err, jobId: job?.id }, "job failed"));
+  worker.on("ready", () => logger.info({ queue: name, concurrency }, "worker queue ready"));
+  worker.on("stalled", (jobId) => logger.warn({ queue: name, jobId }, "worker job stalled"));
+  worker.on("error", (err) => logger.error({ queue: name, err }, "worker queue error"));
+  worker.on("failed", (job, err) => {
+    if (!job) {
+      logger.error({ queue: name, err }, "worker job failed without job details");
+      return;
+    }
+    logger.error(
+      { ...jobLogContext(name, job), attemptsMade: job.attemptsMade, err },
+      "worker job failed and was returned to the queue"
+    );
+  });
   workers.push(worker);
 }
 
@@ -55,15 +89,42 @@ async function registerSchedulers(): Promise<void> {
     { pattern: "0 3 * * *", tz: "UTC" },
     { name: "reconcile-daily-summaries", data: {} }
   );
+  logger.info(
+    {
+      queue: QUEUE_NAMES.maintenance,
+      schedulerId: "reconcile-daily-summaries",
+      pattern: "0 3 * * *",
+      timezone: "UTC",
+    },
+    "worker scheduler registered"
+  );
   await maintenance.upsertJobScheduler(
     "reconcile-subscriptions",
     { pattern: "30 3 * * *", tz: "UTC" },
     { name: "reconcile-subscriptions", data: {} }
   );
+  logger.info(
+    {
+      queue: QUEUE_NAMES.maintenance,
+      schedulerId: "reconcile-subscriptions",
+      pattern: "30 3 * * *",
+      timezone: "UTC",
+    },
+    "worker scheduler registered"
+  );
   await maintenance.upsertJobScheduler(
     "trial-reminder",
     { pattern: "0 9 * * *", tz: "UTC" },
     { name: "trial-reminder", data: {} }
+  );
+  logger.info(
+    {
+      queue: QUEUE_NAMES.maintenance,
+      schedulerId: "trial-reminder",
+      pattern: "0 9 * * *",
+      timezone: "UTC",
+    },
+    "worker scheduler registered"
   );
   // After reconcile-subscriptions (03:30 UTC) so today's expirations are
   // already reflected in `subscriptions.status` before the snapshot reads it.
@@ -72,10 +133,28 @@ async function registerSchedulers(): Promise<void> {
     { pattern: "0 4 * * *", tz: "UTC" },
     { name: "snapshot-mrr", data: {} }
   );
+  logger.info(
+    {
+      queue: QUEUE_NAMES.maintenance,
+      schedulerId: "snapshot-mrr",
+      pattern: "0 4 * * *",
+      timezone: "UTC",
+    },
+    "worker scheduler registered"
+  );
   await getQueue(QUEUE_NAMES.nudges).upsertJobScheduler(
     "send-daily-nudges",
     { pattern: "0 8 * * *", tz: "UTC" },
     { name: "send-daily-nudges", data: {} }
+  );
+  logger.info(
+    {
+      queue: QUEUE_NAMES.nudges,
+      schedulerId: "send-daily-nudges",
+      pattern: "0 8 * * *",
+      timezone: "UTC",
+    },
+    "worker scheduler registered"
   );
   // Hourly, not daily: each run only touches the timezone bucket currently at
   // TARGET_LOCAL_HOUR (weekly-review.ts), so the send lands near each user's
@@ -85,22 +164,37 @@ async function registerSchedulers(): Promise<void> {
     { pattern: "0 * * * *", tz: "UTC" },
     { name: "weekly-review", data: {} }
   );
-  logger.info("schedulers registered");
+  logger.info(
+    {
+      queue: QUEUE_NAMES.maintenance,
+      schedulerId: "weekly-review",
+      pattern: "0 * * * *",
+      timezone: "UTC",
+    },
+    "worker scheduler registered"
+  );
+  logger.info("worker scheduler registration complete");
 }
 
 async function main(): Promise<void> {
-  logger.info("thrivo-worker starting");
+  logger.info({ queues: Object.values(QUEUE_NAMES) }, "thrivo-worker starting");
   for (const name of Object.values(QUEUE_NAMES)) startWorker(name);
+  logger.info("worker starter-tip seed starting");
   const seeded = await seedStarterTips();
-  if (seeded > 0) logger.info({ seeded }, "starter tips seeded");
+  logger.info({ seeded }, "worker starter-tip seed complete");
   await registerSchedulers();
+  logger.info({ queueCount: workers.length }, "thrivo-worker ready");
 }
 
 async function shutdown(signal: string): Promise<void> {
-  logger.info({ signal }, "thrivo-worker shutting down");
+  logger.info({ signal, queueCount: workers.length }, "thrivo-worker shutdown starting");
   await Promise.all(workers.map((w) => w.close()));
+  logger.info("worker queues closed");
   await closeRedis();
+  logger.info("worker redis connection closed");
   await closeDb();
+  logger.info("worker database connection closed");
+  logger.info({ signal }, "thrivo-worker shutdown complete");
   process.exit(0);
 }
 
