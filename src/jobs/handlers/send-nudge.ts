@@ -19,8 +19,9 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
 export async function handleSendNudge(job: Job): Promise<void> {
   const route = routes[job.name];
   if (!route) {
-    logger.warn({ jobName: job.name }, "unknown nudges job");
+    logger.warn({ jobId: job.id, jobName: job.name }, "unknown nudges job");
     return;
   }
+  logger.info({ jobId: job.id, jobName: job.name }, "nudge job dispatching");
   return route(job);
 }

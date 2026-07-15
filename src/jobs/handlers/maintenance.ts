@@ -22,8 +22,9 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
 export async function handleMaintenance(job: Job): Promise<void> {
   const route = routes[job.name];
   if (!route) {
-    logger.warn({ jobName: job.name }, "unknown maintenance job");
+    logger.warn({ jobId: job.id, jobName: job.name }, "unknown maintenance job");
     return;
   }
+  logger.info({ jobId: job.id, jobName: job.name }, "maintenance job dispatching");
   return route(job);
 }
