@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { foodLogs, type FoodLogRow, type NewFoodLogRow } from "../../db/schema";
@@ -205,6 +205,20 @@ export async function deleteLogForUser(
 /** Every log snapshot that still points at a given catalog item — the R1-5 backfill's repair set. */
 export async function listByFoodItemId(foodItemId: string, tx: Executor = db): Promise<FoodLog[]> {
   return tx.select().from(foodLogs).where(eq(foodLogs.foodItemId, foodItemId));
+}
+
+/** Keyset page of diary rows missing a catalog link (food-log foodItemId backfill). */
+export async function listNullFoodItemIdAfter(
+  afterId: string | null,
+  limit: number,
+  tx: Executor = db
+): Promise<FoodLog[]> {
+  return tx
+    .select()
+    .from(foodLogs)
+    .where(and(isNull(foodLogs.foodItemId), afterId ? gt(foodLogs.id, afterId) : undefined))
+    .orderBy(asc(foodLogs.id))
+    .limit(limit);
 }
 
 /** Total food-log count for a single user — the admin user-detail stat card. */
