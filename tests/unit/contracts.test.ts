@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   errorCodeSchema,
   estimateFoodPayloadSchema,
+  foodSearchQuerySchema,
   foodSearchResponseSchema,
   logFoodPayloadSchema,
   foodLogEntrySchema,
@@ -245,32 +246,51 @@ describe("@beorchid-llc/thrivo-contracts", () => {
     ).toBe(false);
   });
 
-  it("validates transient search results and external snapshot log payloads", () => {
+  it("validates catalog search pages and external snapshot log payloads", () => {
     const search = foodSearchResponseSchema.parse({
       success: true,
       responseCode: 200,
       message: "Success",
       data: {
         cached: false,
+        phase: "local",
+        nextCursor: "external:1",
         items: [
           {
-            externalId: "off:1234567890123",
+            id: "018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2",
             name: "Greek yoghurt",
             brand: "Acme",
             barcode: "1234567890123",
+            source: "authoritative",
             servingLabel: "100g",
             servingGrams: 100,
             nutrients: { calories: 90, proteinG: 9, carbsG: 4, fatG: 3 },
-            source: "openfoodfacts",
+            servingOptions: [],
+            isPersonal: false,
+            isEstimated: false,
+            isFavorite: false,
           },
         ],
       },
     });
-    expect(search.data.items[0]?.externalId).toBe("off:1234567890123");
+    expect(search.data.items[0]?.id).toBe("018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2");
+    expect(search.data.phase).toBe("local");
+    expect(search.data.nextCursor).toBe("external:1");
+
+    const snapshot = {
+      externalId: "off:1234567890123",
+      name: "Greek yoghurt",
+      brand: "Acme",
+      barcode: "1234567890123",
+      servingLabel: "100g",
+      servingGrams: 100,
+      nutrients: { calories: 90, proteinG: 9, carbsG: 4, fatG: 3 },
+      source: "openfoodfacts" as const,
+    };
 
     expect(
       logFoodPayloadSchema.parse({
-        externalFood: search.data.items[0],
+        externalFood: snapshot,
         day: "2026-06-28",
         servings: 1,
         servingUnit: "100g",
@@ -280,11 +300,16 @@ describe("@beorchid-llc/thrivo-contracts", () => {
     expect(
       logFoodPayloadSchema.safeParse({
         foodItemId: "018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2",
-        externalFood: search.data.items[0],
+        externalFood: snapshot,
         day: "2026-06-28",
         servings: 1,
       }).success
     ).toBe(false);
+
+    expect(foodSearchQuerySchema.safeParse({ q: "ch", limit: 11 }).success).toBe(false);
+    expect(foodSearchQuerySchema.parse({ q: "chicken", cursor: "local:10" }).cursor).toBe(
+      "local:10"
+    );
   });
 
   it("validates profile update payloads", () => {

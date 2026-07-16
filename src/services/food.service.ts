@@ -3,7 +3,7 @@ import type { Executor } from "../../db/tx";
 import type {
   FoodItem,
   FoodLogEntry,
-  FoodSearchResult,
+  FoodSearchPhase,
   ServingOption,
   UpsertFoodPayload,
   LogFoodPayload,
@@ -28,11 +28,112 @@ import { recordQualifyingDay } from "./streak.service";
 import type { FoodLog } from "../repositories/food-log.repository";
 import type { FoodItemRow, FoodNutrientRow, FoodServingRow } from "../../db/schema";
 import type { User } from "../repositories/user.repository";
-import { fetchOpenFoodFactsProduct } from "../integrations/open-food-facts";
+import {
+  fetchOpenFoodFactsProduct,
+  type OpenFoodFactsProduct,
+  type OpenFoodFactsSearchResult,
+} from "../integrations/open-food-facts";
 import { invalidateFoodDashboardCache } from "./dashboard-cache.service";
 import { enforceBarcodeLookupLimit, searchExternalFoods } from "./food-external.service";
 
 const DEFAULT_TARGET_CALORIES = 1800;
+const DEFAULT_SEARCH_PAGE_SIZE = 10;
+
+type SearchCursor = { phase: "local"; offset: number } | { phase: "external"; page: number };
+
+function encodeSearchCursor(cursor: SearchCursor): string {
+  return cursor.phase === "local" ? `local:${cursor.offset}` : `external:${cursor.page}`;
+}
+
+function decodeSearchCursor(raw: string | undefined): SearchCursor {
+  if (!raw) return { phase: "local", offset: 0 };
+
+  const match = /^(local|external):(\d+)$/.exec(raw);
+  if (!match) throw new ValidationError("Invalid search cursor");
+
+  const phase = match[1] as SearchCursor["phase"];
+  const value = Number(match[2]);
+  if (!Number.isFinite(value) || value < 0) throw new ValidationError("Invalid search cursor");
+
+  if (phase === "local") return { phase: "local", offset: value };
+  if (value < 1) throw new ValidationError("Invalid search cursor");
+  return { phase: "external", page: value };
+}
+
+function offSearchHitToProduct(hit: OpenFoodFactsSearchResult): OpenFoodFactsProduct | null {
+  if (!hit.barcode) return null;
+
+  return {
+    barcode: hit.barcode,
+    name: hit.name,
+    brand: hit.brand,
+    basis: hit.basis,
+    servingLabel: hit.servingLabel,
+    servingGrams: hit.servingGrams,
+    nutrients: hit.nutrients,
+  };
+}
+
+/**
+ * Idempotent OFF → `food_items` materialize. Shared by barcode lookup and
+ * catalog-first search fill so both paths write the same authoritative shape.
+ * Concurrent inserts on the same barcode re-read the winner via the active
+ * barcode unique index rather than failing the request.
+ */
+export async function upsertOffProduct(product: OpenFoodFactsProduct): Promise<FoodItemRow> {
+  return db.transaction(async (tx) => {
+    const existing = await foodItemRepo.findActiveByBarcode(product.barcode, tx);
+    if (existing) return existing;
+
+    try {
+      const item = await foodItemRepo.insertItem(
+        {
+          tier: "authoritative",
+          status: "active",
+          origin: "openfoodfacts",
+          originRef: product.barcode,
+          barcode: product.barcode,
+          name: product.name,
+          brand: product.brand,
+        },
+        tx
+      );
+      await foodItemRepo.upsertNutrients(
+        {
+          foodItemId: item.id,
+          basis: product.basis,
+          servingLabel: product.servingLabel,
+          // The reference amount is only ever servingGrams when the whole product
+          // was normalized on that basis (ADR-0022/D1) — a per_100g product may
+          // still carry a display-only servingGrams hint that isn't the divisor.
+          servingG: product.basis === "per_serving" ? String(product.servingGrams) : null,
+          kcal: String(product.nutrients.calories),
+          proteinG: String(product.nutrients.proteinG),
+          carbsG: String(product.nutrients.carbsG),
+          fatG: String(product.nutrients.fatG),
+          dataCompleteness: "0.7",
+        },
+        tx
+      );
+      if (product.servingGrams) {
+        await foodItemRepo.insertServing(
+          {
+            foodItemId: item.id,
+            label: product.servingLabel,
+            grams: String(product.servingGrams),
+            isDefault: true,
+          },
+          tx
+        );
+      }
+      return item;
+    } catch (err) {
+      const raced = await foodItemRepo.findActiveByBarcode(product.barcode, tx);
+      if (raced) return raced;
+      throw err;
+    }
+  });
+}
 
 export async function lookupFood(user: User, barcode: string): Promise<FoodItem | null> {
   const cached = await foodItemRepo.findActiveByBarcode(barcode);
@@ -48,61 +149,58 @@ export async function lookupFood(user: User, barcode: string): Promise<FoodItem 
   }
   if (!upstream) return null;
 
-  const created = await db.transaction(async (tx) => {
-    const existing = await foodItemRepo.findActiveByBarcode(barcode, tx);
-    if (existing) return existing;
-    const item = await foodItemRepo.insertItem(
-      {
-        tier: "authoritative",
-        status: "active",
-        origin: "openfoodfacts",
-        originRef: barcode,
-        barcode,
-        name: upstream.name,
-        brand: upstream.brand,
-      },
-      tx
-    );
-    await foodItemRepo.upsertNutrients(
-      {
-        foodItemId: item.id,
-        basis: upstream.basis,
-        servingLabel: upstream.servingLabel,
-        // The reference amount is only ever servingGrams when the whole product
-        // was normalized on that basis (ADR-0022/D1) — a per_100g product may
-        // still carry a display-only servingGrams hint that isn't the divisor.
-        servingG: upstream.basis === "per_serving" ? String(upstream.servingGrams) : null,
-        kcal: String(upstream.nutrients.calories),
-        proteinG: String(upstream.nutrients.proteinG),
-        carbsG: String(upstream.nutrients.carbsG),
-        fatG: String(upstream.nutrients.fatG),
-        dataCompleteness: "0.7",
-      },
-      tx
-    );
-    if (upstream.servingGrams) {
-      await foodItemRepo.insertServing(
-        {
-          foodItemId: item.id,
-          label: upstream.servingLabel,
-          grams: String(upstream.servingGrams),
-          isDefault: true,
-        },
-        tx
-      );
-    }
-    return item;
-  });
-
+  const created = await upsertOffProduct(upstream);
   return toFoodItem(created.id, user.id);
 }
 
 export async function searchFoods(
   user: User,
   query: string,
-  limit: number
-): Promise<{ items: FoodSearchResult[]; cached: boolean }> {
-  return searchExternalFoods(user.id, query, limit);
+  limit = DEFAULT_SEARCH_PAGE_SIZE,
+  cursorRaw?: string
+): Promise<{
+  items: FoodItem[];
+  nextCursor: string | null;
+  phase: FoodSearchPhase;
+  cached: boolean;
+}> {
+  const pageSize = Math.min(Math.max(1, limit), DEFAULT_SEARCH_PAGE_SIZE);
+  const cursor = decodeSearchCursor(cursorRaw);
+
+  if (cursor.phase === "local") {
+    const rows = await foodItemRepo.searchVisibleByText(user.id, query, pageSize, cursor.offset);
+    const items = await toFoodItemsPreservingOrder(
+      rows.map((row) => row.id),
+      user.id
+    );
+    const nextCursor =
+      rows.length === pageSize
+        ? encodeSearchCursor({ phase: "local", offset: cursor.offset + pageSize })
+        : encodeSearchCursor({ phase: "external", page: 1 });
+
+    return { items, nextCursor, phase: "local", cached: false };
+  }
+
+  const { items: offHits, cached } = await searchExternalFoods(
+    user.id,
+    query,
+    pageSize,
+    cursor.page
+  );
+  const ids: string[] = [];
+  for (const hit of offHits) {
+    const product = offSearchHitToProduct(hit);
+    if (!product) continue;
+    const row = await upsertOffProduct(product);
+    ids.push(row.id);
+  }
+  const items = await toFoodItemsPreservingOrder(ids, user.id);
+  const nextCursor =
+    offHits.length === pageSize
+      ? encodeSearchCursor({ phase: "external", page: cursor.page + 1 })
+      : null;
+
+  return { items, nextCursor, phase: "external", cached };
 }
 
 export async function getFoodDetail(user: User, id: string): Promise<FoodItem> {
@@ -441,13 +539,48 @@ async function toFoodItem(
   userId?: string,
   fallbackIsFavorite = false
 ): Promise<FoodItem | null> {
-  const item = await foodItemRepo.findById(id);
-  if (!item) return null;
-  const nutrient = await foodItemRepo.getNutrients(id);
-  if (!nutrient) return null;
-  const servings = await foodItemRepo.getServings(id);
-  const favoriteIds = userId ? await foodFavoriteRepo.listMatchingIdsForUser(userId, [id]) : null;
-  return mapFoodItem(item, nutrient, servings, favoriteIds?.has(id) ?? fallbackIsFavorite);
+  const items = await toFoodItemsPreservingOrder([id], userId, fallbackIsFavorite);
+  return items[0] ?? null;
+}
+
+/** Batch-map catalog ids to API FoodItems, preserving input order and skipping orphans. */
+async function toFoodItemsPreservingOrder(
+  ids: string[],
+  userId?: string,
+  fallbackIsFavorite = false
+): Promise<FoodItem[]> {
+  if (ids.length === 0) return [];
+
+  const [rows, servings, favoriteIds] = await Promise.all([
+    foodItemRepo.findManyWithNutrients(ids),
+    foodItemRepo.getServingsForItems(ids),
+    userId
+      ? foodFavoriteRepo.listMatchingIdsForUser(userId, ids)
+      : Promise.resolve(null as Set<string> | null),
+  ]);
+
+  const rowById = new Map(rows.map((row) => [row.item.id, row]));
+  const servingsByItem = new Map<string, FoodServingRow[]>();
+  for (const serving of servings) {
+    const list = servingsByItem.get(serving.foodItemId);
+    if (list) list.push(serving);
+    else servingsByItem.set(serving.foodItemId, [serving]);
+  }
+
+  const items: FoodItem[] = [];
+  for (const id of ids) {
+    const row = rowById.get(id);
+    if (!row) continue;
+    items.push(
+      mapFoodItem(
+        row.item,
+        row.nutrient,
+        servingsByItem.get(id) ?? [],
+        favoriteIds?.has(id) ?? fallbackIsFavorite
+      )
+    );
+  }
+  return items;
 }
 
 function mapFoodItem(

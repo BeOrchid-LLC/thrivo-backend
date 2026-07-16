@@ -148,9 +148,13 @@ export const foodLookupResponseSchema = apiSuccessSchema(
 
 export const foodSearchQuerySchema = z.object({
   q: z.string().trim().min(2).max(80),
-  limit: z.coerce.number().int().positive().max(25).optional(),
+  /** Page size; catalog search defaults to 10 and caps at 10 for infinite-scroll batches. */
+  limit: z.coerce.number().int().positive().max(10).optional(),
+  /** Opaque cursor: `local:<offset>` or `external:<page>` (1-based OFF page). */
+  cursor: z.string().trim().min(1).max(64).optional(),
 });
 
+/** Legacy OFF search hit shape — still used by externalFood log snapshots. */
 export const foodSearchResultSchema = z.object({
   externalId: z.string(),
   name: z.string(),
@@ -163,8 +167,17 @@ export const foodSearchResultSchema = z.object({
 });
 export type FoodSearchResult = z.infer<typeof foodSearchResultSchema>;
 
+export const foodSearchPhaseSchema = z.enum(["local", "external"]);
+export type FoodSearchPhase = z.infer<typeof foodSearchPhaseSchema>;
+
 export const foodSearchResponseSchema = apiSuccessSchema(
-  z.object({ items: z.array(foodSearchResultSchema), cached: z.boolean() })
+  z.object({
+    items: z.array(foodItemSchema),
+    nextCursor: z.string().nullable(),
+    phase: foodSearchPhaseSchema,
+    /** True when this page's OFF fill came from the Redis search cache. */
+    cached: z.boolean(),
+  })
 );
 
 export const foodDetailParamsSchema = z.object({ id: idSchema });
