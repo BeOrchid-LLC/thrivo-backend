@@ -3,21 +3,53 @@ import {
   type MacroSummary,
   type StreakSummary,
 } from "../../contracts/src/dashboard";
-import { type DailyTotals, type FoodLogEntry, type HistoryDay } from "../../contracts/src/foods";
-import { type Water } from "../../contracts/src/metrics";
+import {
+  type DailyTotals,
+  type FoodLogEntry,
+  type FoodLogHistoryLockedRange,
+  type HistoryDay,
+} from "../../contracts/src/foods";
+import {
+  type ChartPeriod,
+  type Water,
+  type WaterHistoryDay,
+  type WaterHistoryLockedRange,
+} from "../../contracts/src/metrics";
 import { cacheAside } from "../lib/cache";
-import { foodLogRepo, dailySummaryRepo, streakRepo, waterIntakeRepo } from "../repositories";
+import {
+  foodFavoriteRepo,
+  foodLogRepo,
+  dailySummaryRepo,
+  streakRepo,
+  waterIntakeRepo,
+} from "../repositories";
 import type { FoodLog } from "../repositories/food-log.repository";
 import type { User } from "../repositories/user.repository";
 import { isPremium } from "./entitlement.service";
 import { dashboardCacheKeys } from "./dashboard-cache.service";
+import { localHourFor } from "../lib/local-date";
 
 const CACHE_TTL_SECONDS = 60;
 const HISTORY_CACHE_TTL_SECONDS = 30;
 const DEFAULT_TARGET_CALORIES = 1800;
 const GLASS_ML = 250;
 const TARGET_GLASSES = 8;
+const HYDRATION_DAY_START_HOUR = 8;
+const HYDRATION_EVENING_TARGET_HOUR = 20;
+const HYDRATION_DAY_END_HOUR = 22;
+const HYDRATION_EVENING_TARGET_PROGRESS = 0.75;
+const HYDRATION_ALERT_TOLERANCE_PERCENT = 5;
 export const FREE_HISTORY_LIMIT_DAYS = 7;
+const WATER_HISTORY_PERIOD_DAYS: Record<Exclude<ChartPeriod, "all">, number> = {
+  "7d": 7,
+  "14d": 14,
+  "1m": 30,
+  "1q": 90,
+  "6m": 180,
+  "1y": 365,
+};
+type HistoryPeriod = ChartPeriod;
+const FOOD_HISTORY_PERIOD_DAYS = WATER_HISTORY_PERIOD_DAYS;
 
 function toNumber(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -116,7 +148,68 @@ export async function getWaterState(user: User, day: string): Promise<Water> {
         day: entry.localDate,
         recordedAt: entry.recordedAt.toISOString(),
       })),
-      alert: buildHydrationAlert(totalMl, targetMl, new Date()),
+      alert: buildHydrationAlert(totalMl, targetMl, localHourFor(user.timezone)),
+    };
+  });
+}
+
+export async function getWaterHistory(
+  user: User,
+  options: { date: string; period: ChartPeriod; today?: string }
+): Promise<{
+  period: ChartPeriod;
+  date: string;
+  from: string;
+  to: string;
+  days: WaterHistoryDay[];
+  lockedRange: WaterHistoryLockedRange | null;
+  historyLimitDays: number;
+}> {
+  const { from, to } = waterHistoryRange(options.period, options.date);
+  const { lockBefore } = resolveHistoryWindow({ from, to, today: options.today ?? options.date });
+  const premium = isPremium(user);
+  const visibleFrom = !premium && from < lockBefore ? lockBefore : from;
+  const lockedRange =
+    !premium && from < lockBefore
+      ? ({
+          from,
+          to: minDay(addDays(lockBefore, -1), to),
+          lockReason: "free_history_limit",
+        } satisfies WaterHistoryLockedRange)
+      : null;
+  const key = `${dashboardCacheKeys.waterHistory(user.id)}:${premium ? "premium" : "free"}:${options.period}:${from}:${to}:${options.today ?? options.date}`;
+
+  return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, async () => {
+    const entries =
+      visibleFrom <= to
+        ? await waterIntakeRepo.listEntriesByLocalDateRange(user.id, visibleFrom, to)
+        : [];
+    const groupedByDate = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      const rows = groupedByDate.get(entry.localDate) ?? [];
+      rows.push(entry);
+      groupedByDate.set(entry.localDate, rows);
+    }
+
+    const days = Array.from(groupedByDate.entries()).map(([day, dayEntries]) => ({
+      day,
+      totalMl: dayEntries.reduce((total, entry) => total + entry.amountMl, 0),
+      entries: dayEntries.map((entry) => ({
+        id: entry.id,
+        amountMl: entry.amountMl,
+        day: entry.localDate,
+        recordedAt: entry.recordedAt.toISOString(),
+      })),
+    }));
+
+    return {
+      period: options.period,
+      date: options.date,
+      from,
+      to,
+      days,
+      lockedRange,
+      historyLimitDays: FREE_HISTORY_LIMIT_DAYS,
     };
   });
 }
@@ -124,7 +217,8 @@ export async function getWaterState(user: User, day: string): Promise<Water> {
 export async function getFoodEntriesForDay(user: User, day: string): Promise<FoodLogEntry[]> {
   return cacheAside(dashboardCacheKeys.meals(user.id, day), CACHE_TTL_SECONDS, async () => {
     const logs = await foodLogRepo.listLogsForDay(user.id, day);
-    return logs.map(toFoodLogEntry);
+    const favoriteIds = await favoriteIdsForLogs(user.id, logs);
+    return logs.map((log) => toFoodLogEntry(log, favoriteIds));
   });
 }
 
@@ -177,14 +271,40 @@ export function resolveHistoryWindow(
 
 export async function getHistoryDays(
   user: User,
-  options: { from?: string; to?: string; today?: string }
-): Promise<{ days: HistoryDay[]; historyLimitDays: number }> {
-  const { today, to, from, lockBefore } = resolveHistoryWindow(options);
+  options: { from?: string; to?: string; today?: string; date?: string; period?: HistoryPeriod }
+): Promise<{
+  period: HistoryPeriod;
+  date: string;
+  from: string;
+  to: string;
+  days: HistoryDay[];
+  lockedRange: FoodLogHistoryLockedRange | null;
+  historyLimitDays: number;
+}> {
+  const period = options.period ?? "1m";
+  const date = options.date ?? options.to ?? options.today ?? isoDay(new Date());
+  const periodRange = foodHistoryRange(period, date);
+  const { today, to, from, lockBefore } = resolveHistoryWindow({
+    from: options.from ?? periodRange.from,
+    to: options.to ?? periodRange.to,
+    today: options.today ?? date,
+  });
   const premium = isPremium(user);
   const key = `${dashboardCacheKeys.history(user.id)}:${premium ? "premium" : "free"}:${from}:${to}:${today}`;
+  const visibleFrom = !premium && from < lockBefore ? lockBefore : from;
+  const lockedRange =
+    !premium && from < lockBefore
+      ? ({
+          from,
+          to: minDay(addDays(lockBefore, -1), to),
+          lockReason: "free_history_limit",
+        } satisfies FoodLogHistoryLockedRange)
+      : null;
 
   return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, async () => {
-    const logs = await foodLogRepo.listLogsByLocalDateRange(user.id, from, to);
+    const logs =
+      visibleFrom <= to ? await foodLogRepo.listLogsByLocalDateRange(user.id, visibleFrom, to) : [];
+    const favoriteIds = await favoriteIdsForLogs(user.id, logs);
     const groupedByDate = new Map<string, FoodLog[]>();
     for (const log of logs) {
       const rows = groupedByDate.get(log.localDate) ?? [];
@@ -195,20 +315,19 @@ export async function getHistoryDays(
     const days: HistoryDay[] = Array.from(groupedByDate.entries())
       .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
       .map(([day, dayLogs]) => {
-        const locked = !premium && day < lockBefore;
         return {
           day,
-          isLocked: locked,
-          lockReason: locked ? "free_history_limit" : null,
-          entries: locked ? [] : dayLogs.map(toFoodLogEntry),
+          isLocked: false,
+          lockReason: null,
+          entries: dayLogs.map((log) => toFoodLogEntry(log, favoriteIds)),
         };
       });
 
-    return { days, historyLimitDays: FREE_HISTORY_LIMIT_DAYS };
+    return { period, date, from, to, days, lockedRange, historyLimitDays: FREE_HISTORY_LIMIT_DAYS };
   });
 }
 
-function toFoodLogEntry(log: FoodLog): FoodLogEntry {
+function toFoodLogEntry(log: FoodLog, favoriteIds: ReadonlySet<string> = new Set()): FoodLogEntry {
   return {
     id: log.id,
     foodItemId: log.foodItemId,
@@ -219,6 +338,7 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
     source: log.source,
     barcode: log.barcode,
     isEstimated: log.foodItemId === null && log.source === "manual",
+    isFavorite: log.foodItemId ? favoriteIds.has(log.foodItemId) : false,
     nutrients: {
       calories: log.kcal,
       proteinG: toNumber(log.proteinG),
@@ -228,6 +348,13 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
     consumedAt: log.consumedAt.toISOString(),
     loggedAt: log.loggedAt.toISOString(),
   };
+}
+
+async function favoriteIdsForLogs(userId: string, logs: readonly FoodLog[]): Promise<Set<string>> {
+  return foodFavoriteRepo.listMatchingIdsForUser(
+    userId,
+    logs.map((log) => log.foodItemId).filter((id): id is string => Boolean(id))
+  );
 }
 
 function totalsFromEntries(day: string, entries: FoodLogEntry[]): DailyTotals {
@@ -243,18 +370,54 @@ function totalsFromEntries(day: string, entries: FoodLogEntry[]): DailyTotals {
   );
 }
 
-function buildHydrationAlert(totalMl: number, targetMl: number, now: Date): Water["alert"] {
+export function buildHydrationAlert(
+  totalMl: number,
+  targetMl: number,
+  localHour: number
+): Water["alert"] {
   if (targetMl <= 0 || totalMl >= targetMl) return null;
-  const hour = now.getHours();
-  const expectedProgress = Math.min(Math.max((hour - 6) / 14, 0), 1);
-  const expectedMl = Math.round(targetMl * expectedProgress);
-  if (hour < 12 || totalMl >= expectedMl || totalMl / targetMl >= 0.75) return null;
-  const remainingMl = Math.max(targetMl - totalMl, 0);
+  const progressPercent = Math.min(Math.round((totalMl / targetMl) * 100), 100);
+  const expectedProgressPercent = Math.round(expectedHydrationProgress(localHour) * 100);
+  if (expectedProgressPercent <= 0) return null;
+  if (progressPercent + HYDRATION_ALERT_TOLERANCE_PERCENT >= expectedProgressPercent) return null;
+  const targetProgressPercent =
+    localHour < HYDRATION_EVENING_TARGET_HOUR
+      ? Math.round(HYDRATION_EVENING_TARGET_PROGRESS * 100)
+      : 100;
+  const targetHour =
+    localHour < HYDRATION_EVENING_TARGET_HOUR
+      ? HYDRATION_EVENING_TARGET_HOUR
+      : HYDRATION_DAY_END_HOUR;
+
   return {
     title: "Drink up",
-    message: `You're behind your hydration pace. Try to drink ${remainingMl.toLocaleString()}ml more today.`,
+    message: `It's ${formatHour(localHour)} and you've only hit ${progressPercent}% of your daily goal. Try to reach ${targetProgressPercent}% by ${formatHour(targetHour)}.`,
     severity: "warning",
   };
+}
+
+function expectedHydrationProgress(localHour: number): number {
+  if (localHour < HYDRATION_DAY_START_HOUR) return 0;
+  if (localHour <= HYDRATION_EVENING_TARGET_HOUR) {
+    const elapsed = localHour - HYDRATION_DAY_START_HOUR;
+    const window = HYDRATION_EVENING_TARGET_HOUR - HYDRATION_DAY_START_HOUR;
+    return (elapsed / window) * HYDRATION_EVENING_TARGET_PROGRESS;
+  }
+  if (localHour <= HYDRATION_DAY_END_HOUR) {
+    const elapsed = localHour - HYDRATION_EVENING_TARGET_HOUR;
+    const window = HYDRATION_DAY_END_HOUR - HYDRATION_EVENING_TARGET_HOUR;
+    return (
+      HYDRATION_EVENING_TARGET_PROGRESS +
+      (elapsed / window) * (1 - HYDRATION_EVENING_TARGET_PROGRESS)
+    );
+  }
+  return 1;
+}
+
+function formatHour(hour: number): string {
+  const normalized = hour % 24;
+  const display = normalized % 12 || 12;
+  return `${display} ${normalized < 12 ? "AM" : "PM"}`;
 }
 
 function isoDay(date: Date): string {
@@ -265,4 +428,18 @@ function addDays(day: string, delta: number): string {
   const date = new Date(`${day}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + delta);
   return isoDay(date);
+}
+
+function waterHistoryRange(period: ChartPeriod, toDay: string): { from: string; to: string } {
+  if (period === "all") return { from: "1970-01-01", to: toDay };
+  return { from: addDays(toDay, 1 - WATER_HISTORY_PERIOD_DAYS[period]), to: toDay };
+}
+
+function foodHistoryRange(period: HistoryPeriod, toDay: string): { from: string; to: string } {
+  if (period === "all") return { from: "1970-01-01", to: toDay };
+  return { from: addDays(toDay, 1 - FOOD_HISTORY_PERIOD_DAYS[period]), to: toDay };
+}
+
+function minDay(a: string, b: string): string {
+  return a <= b ? a : b;
 }

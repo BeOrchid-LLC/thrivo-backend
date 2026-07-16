@@ -93,6 +93,11 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       path: "/api/v1/metrics/water/:id",
       auth: "user",
     });
+    expect(metricRoutes.waterUpdate).toEqual({
+      method: "PATCH",
+      path: "/api/v1/metrics/water/:id",
+      auth: "user",
+    });
     expect(metricRoutes.chartGet).toEqual({
       method: "GET",
       path: "/api/v1/metrics/chart",
@@ -217,6 +222,7 @@ describe("@beorchid-llc/thrivo-contracts", () => {
 
     expect(entry.consumedAt).toBe("2026-06-27T12:00:00.000Z");
     expect("meal" in entry).toBe(false);
+    expect(entry.isFavorite).toBe(false);
   });
 
   it("validates describe-meal estimate payloads", () => {

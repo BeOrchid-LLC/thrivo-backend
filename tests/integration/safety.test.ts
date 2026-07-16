@@ -24,6 +24,7 @@ import {
   getFoodEntriesForDay,
   getFoodLogDayDetail,
   getHistoryDays,
+  getWaterHistory,
   getWaterState,
 } from "../../src/services/dashboard.service";
 
@@ -217,7 +218,11 @@ describe.skipIf(!run)("integration: safety invariants", () => {
         to: new Date().toISOString().slice(0, 10),
       });
 
-      expect(freeHistory.days[0]).toMatchObject({ day: "2026-05-01", isLocked: true, entries: [] });
+      expect(freeHistory.lockedRange).toMatchObject({
+        from: "2026-05-01",
+        lockReason: "free_history_limit",
+      });
+      expect(freeHistory.days).toEqual([]);
       expect(JSON.stringify(freeHistory)).not.toContain("Private old meal");
       expect(premiumHistory.days[0]?.entries[0]?.name).toBe("Visible old meal");
     });
@@ -240,6 +245,36 @@ describe.skipIf(!run)("integration: safety invariants", () => {
       });
       expect(JSON.stringify(freeDetail)).not.toContain("Private old meal");
       expect(premiumDetail.entries[0]?.name).toBe("Visible old meal");
+    });
+
+    it("returns one locked water-history range for free users instead of older entries", async () => {
+      const freeUser = await makeUser({ tier: "free" });
+      const premiumUser = await makeUser({ tier: "premium" });
+      await makeWaterEntry(freeUser.id, { localDate: "2026-06-01", amountMl: 1234 });
+      await makeWaterEntry(freeUser.id, { localDate: "2026-06-28", amountMl: 500 });
+      await makeWaterEntry(premiumUser.id, { localDate: "2026-06-01", amountMl: 1250 });
+
+      const freeHistory = await getWaterHistory(freeUser, {
+        date: "2026-06-28",
+        period: "1m",
+        today: "2026-06-28",
+      });
+      const premiumHistory = await getWaterHistory(premiumUser, {
+        date: "2026-06-28",
+        period: "1m",
+        today: "2026-06-28",
+      });
+
+      expect(freeHistory.lockedRange).toMatchObject({
+        from: "2026-05-30",
+        to: "2026-06-21",
+        lockReason: "free_history_limit",
+      });
+      expect(freeHistory.days).toHaveLength(1);
+      expect(freeHistory.days[0]).toMatchObject({ day: "2026-06-28", totalMl: 500 });
+      expect(JSON.stringify(freeHistory)).not.toContain("1234");
+      expect(premiumHistory.lockedRange).toBeNull();
+      expect(premiumHistory.days[0]).toMatchObject({ day: "2026-06-01", totalMl: 1250 });
     });
   });
 });

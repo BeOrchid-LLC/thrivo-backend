@@ -8,6 +8,7 @@ import {
   progressQuerySchema,
   updateWaterParamsSchema,
   updateWaterPayloadSchema,
+  waterHistoryQuerySchema,
   waterQuerySchema,
   weightQuerySchema,
 } from "../../contracts/src/metrics";
@@ -17,7 +18,10 @@ import { respondOk } from "../lib/response";
 import { getValidatedInput } from "../middleware/validate";
 import { waterIntakeRepo } from "../repositories";
 import { invalidateWaterDashboardCache } from "../services/dashboard-cache.service";
-import { getWaterState } from "../services/dashboard.service";
+import {
+  getWaterHistory as getWaterHistoryState,
+  getWaterState,
+} from "../services/dashboard.service";
 import {
   deleteWeight as deleteWeightEntry,
   getMetricChart,
@@ -68,6 +72,13 @@ export async function getWater(c: Context<AppEnv>) {
   const { date } = waterQuerySchema.parse(getValidatedInput(c, "query"));
   const water = await getWaterState(user, date);
   return respondOk(c, { water });
+}
+
+export async function getWaterHistory(c: Context<AppEnv>) {
+  const user = c.get("user")!;
+  const query = waterHistoryQuerySchema.parse(getValidatedInput(c, "query"));
+  const history = await getWaterHistoryState(user, query);
+  return respondOk(c, { history });
 }
 
 export async function addWater(c: Context<AppEnv>) {
