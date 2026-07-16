@@ -36,7 +36,7 @@ const DEFAULT_TARGET_CALORIES = 1800;
 
 export async function lookupFood(user: User, barcode: string): Promise<FoodItem | null> {
   const cached = await foodItemRepo.findActiveByBarcode(barcode);
-  if (cached && canSeeFood(user, cached)) return toFoodItem(cached.id);
+  if (cached && canSeeFood(user, cached)) return toFoodItem(cached.id, user.id);
 
   let upstream;
   try {
@@ -94,7 +94,7 @@ export async function lookupFood(user: User, barcode: string): Promise<FoodItem 
     return item;
   });
 
-  return toFoodItem(created.id);
+  return toFoodItem(created.id, user.id);
 }
 
 export async function searchFoods(
@@ -108,7 +108,7 @@ export async function searchFoods(
 export async function getFoodDetail(user: User, id: string): Promise<FoodItem> {
   const item = await foodItemRepo.findById(id);
   if (!item || !canSeeFood(user, item)) throw new NotFoundError("Food not found");
-  const mapped = await toFoodItem(id);
+  const mapped = await toFoodItem(id, user.id);
   if (!mapped) throw new NotFoundError("Food not found");
   return mapped;
 }
@@ -134,7 +134,7 @@ export async function createPersonalFood(
     await writeNutrition(created.id, payload, tx);
     return created;
   });
-  const mapped = await toFoodItem(item.id);
+  const mapped = await toFoodItem(item.id, user.id);
   if (!mapped) throw new NotFoundError("Food not found");
   return mapped;
 }
@@ -163,7 +163,7 @@ export async function updatePersonalFood(
     return row;
   });
   if (!updated) throw new NotFoundError("Food not found");
-  const mapped = await toFoodItem(updated.id);
+  const mapped = await toFoodItem(updated.id, user.id);
   if (!mapped) throw new NotFoundError("Food not found");
   return mapped;
 }
@@ -196,7 +196,9 @@ export async function listFavorites(user: User): Promise<FoodItem[]> {
   for (const favorite of favorites) {
     const row = rowById.get(favorite.foodItemId);
     if (!row) continue; // orphaned favorite (item since removed) — same skip as the old .filter(null)
-    items.push(mapFoodItem(row.item, row.nutrient, servingsByItem.get(favorite.foodItemId) ?? []));
+    items.push(
+      mapFoodItem(row.item, row.nutrient, servingsByItem.get(favorite.foodItemId) ?? [], true)
+    );
   }
   return items;
 }
@@ -205,14 +207,14 @@ export async function listFavorites(user: User): Promise<FoodItem[]> {
 export async function addFavorite(user: User, foodItemId: string): Promise<FoodItem> {
   const item = await getFoodDetail(user, foodItemId);
   await foodFavoriteRepo.addFavorite({ userId: user.id, foodItemId, lastUsedAt: new Date() });
-  return item;
+  return { ...item, isFavorite: true };
 }
 
 /** Returns the removed item so the client can patch its list in place instead of re-fetching (R5-1/I13). */
 export async function removeFavorite(user: User, foodItemId: string): Promise<FoodItem | null> {
-  const item = await toFoodItem(foodItemId);
+  const item = await toFoodItem(foodItemId, user.id, true);
   await foodFavoriteRepo.removeFavorite(user.id, foodItemId);
-  return item;
+  return item ? { ...item, isFavorite: false } : null;
 }
 
 export async function logFood(user: User, payload: LogFoodPayload, idempotencyKey?: string | null) {
@@ -279,7 +281,7 @@ export async function logFood(user: User, payload: LogFoodPayload, idempotencyKe
     return { log, totals };
   });
   await invalidateFoodDashboardCache(user.id, payload.day);
-  return mutationResult(log, totals);
+  return mutationResult(user, log, totals);
 }
 
 async function logExternalFood(
@@ -318,7 +320,7 @@ async function logExternalFood(
     return { log, totals };
   });
   await invalidateFoodDashboardCache(user.id, payload.day);
-  return mutationResult(log, totals);
+  return mutationResult(user, log, totals);
 }
 
 export async function logEstimate(
@@ -355,7 +357,7 @@ export async function logEstimate(
     return { log, totals };
   });
   await invalidateFoodDashboardCache(user.id, payload.day);
-  return mutationResult(log, totals);
+  return mutationResult(user, log, totals);
 }
 
 export async function updateFoodLog(user: User, id: string, payload: UpdateLogPayload) {
@@ -382,7 +384,7 @@ export async function updateFoodLog(user: User, id: string, payload: UpdateLogPa
     return { updated, totals };
   });
   await invalidateFoodDashboardCache(user.id, updated.localDate);
-  return mutationResult(updated, totals);
+  return mutationResult(user, updated, totals);
 }
 
 export async function deleteFoodLog(user: User, id: string) {
@@ -397,7 +399,8 @@ export async function deleteFoodLog(user: User, id: string) {
 
 export async function recentFoods(user: User, limit = 20): Promise<FoodLogEntry[]> {
   const logs = await foodLogRepo.listRecentLogs(user.id, limit);
-  return logs.map(toFoodLogEntry);
+  const favoriteIds = await favoriteIdsForLogs(user.id, logs);
+  return logs.map((log) => toFoodLogEntry(log, favoriteIds));
 }
 
 async function writeNutrition(
@@ -433,19 +436,25 @@ async function writeNutrition(
   }
 }
 
-async function toFoodItem(id: string): Promise<FoodItem | null> {
+async function toFoodItem(
+  id: string,
+  userId?: string,
+  fallbackIsFavorite = false
+): Promise<FoodItem | null> {
   const item = await foodItemRepo.findById(id);
   if (!item) return null;
   const nutrient = await foodItemRepo.getNutrients(id);
   if (!nutrient) return null;
   const servings = await foodItemRepo.getServings(id);
-  return mapFoodItem(item, nutrient, servings);
+  const favoriteIds = userId ? await foodFavoriteRepo.listMatchingIdsForUser(userId, [id]) : null;
+  return mapFoodItem(item, nutrient, servings, favoriteIds?.has(id) ?? fallbackIsFavorite);
 }
 
 function mapFoodItem(
   item: FoodItemRow,
   nutrient: FoodNutrientRow,
-  servings: FoodServingRow[]
+  servings: FoodServingRow[],
+  isFavorite = false
 ): FoodItem {
   const servingGrams = toNumber(nutrient.servingG);
   return {
@@ -465,6 +474,7 @@ function mapFoodItem(
     servingOptions: buildServingOptions(nutrient.servingLabel ?? "serving", servingGrams, servings),
     isPersonal: item.tier === "personal",
     isEstimated: false,
+    isFavorite,
   };
 }
 
@@ -509,14 +519,15 @@ function inferMeasure(label: string): ServingOption["measure"] {
 
 type DailyTotals = Awaited<ReturnType<typeof dailyTotals>>;
 
-function mutationResult(log: FoodLog, totals: DailyTotals) {
+async function mutationResult(user: User, log: FoodLog, totals: DailyTotals) {
+  const favoriteIds = await favoriteIdsForLogs(user.id, [log]);
   return {
-    entry: toFoodLogEntry(log),
+    entry: toFoodLogEntry(log, favoriteIds),
     totals,
   };
 }
 
-function toFoodLogEntry(log: FoodLog): FoodLogEntry {
+function toFoodLogEntry(log: FoodLog, favoriteIds: ReadonlySet<string> = new Set()): FoodLogEntry {
   return {
     id: log.id,
     foodItemId: log.foodItemId,
@@ -527,6 +538,7 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
     source: log.source,
     barcode: log.barcode,
     isEstimated: log.foodItemId === null && log.source === "manual",
+    isFavorite: log.foodItemId ? favoriteIds.has(log.foodItemId) : false,
     nutrients: {
       calories: log.kcal,
       proteinG: toNumber(log.proteinG),
@@ -536,6 +548,13 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
     consumedAt: log.consumedAt.toISOString(),
     loggedAt: log.loggedAt.toISOString(),
   };
+}
+
+async function favoriteIdsForLogs(userId: string, logs: readonly FoodLog[]): Promise<Set<string>> {
+  return foodFavoriteRepo.listMatchingIdsForUser(
+    userId,
+    logs.map((log) => log.foodItemId).filter((id): id is string => Boolean(id))
+  );
 }
 
 /** Exported for the R1-5 backfill script, which must re-run recompute through this exact

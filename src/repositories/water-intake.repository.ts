@@ -52,6 +52,25 @@ export async function listEntriesForDay(
     .orderBy(desc(waterIntake.recordedAt));
 }
 
+export async function listEntriesByLocalDateRange(
+  userId: string,
+  fromDate: string,
+  toDate: string,
+  tx: Executor = db
+): Promise<WaterIntake[]> {
+  return tx
+    .select()
+    .from(waterIntake)
+    .where(
+      and(
+        eq(waterIntake.userId, userId),
+        gte(waterIntake.localDate, fromDate),
+        lte(waterIntake.localDate, toDate)
+      )
+    )
+    .orderBy(desc(waterIntake.localDate), desc(waterIntake.recordedAt));
+}
+
 export async function listTotalsRange(
   userId: string,
   fromDate: string,

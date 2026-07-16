@@ -69,6 +69,40 @@ export const chartQuerySchema = z.object({
   period: chartPeriodSchema,
 });
 
+export const waterHistoryQuerySchema = z.object({
+  date: localDaySchema,
+  period: chartPeriodSchema.default("7d"),
+  today: localDaySchema.optional(),
+});
+
+export const waterHistoryDaySchema = z.object({
+  day: localDaySchema,
+  totalMl: z.number().int().nonnegative(),
+  entries: z.array(waterEntrySchema),
+});
+export type WaterHistoryDay = z.infer<typeof waterHistoryDaySchema>;
+
+export const waterHistoryLockedRangeSchema = z.object({
+  from: localDaySchema,
+  to: localDaySchema,
+  lockReason: z.enum(["free_history_limit"]),
+});
+export type WaterHistoryLockedRange = z.infer<typeof waterHistoryLockedRangeSchema>;
+
+export const waterHistoryResponseSchema = apiSuccessSchema(
+  z.object({
+    history: z.object({
+      period: chartPeriodSchema,
+      date: localDaySchema,
+      from: localDaySchema,
+      to: localDaySchema,
+      days: z.array(waterHistoryDaySchema),
+      lockedRange: waterHistoryLockedRangeSchema.nullable(),
+      historyLimitDays: z.number().int(),
+    }),
+  })
+);
+
 export const weightQuerySchema = z.object({ date: localDaySchema });
 
 export const weightEntrySchema = z.object({
@@ -188,6 +222,11 @@ export const metricRoutes = {
   waterGet: {
     method: "GET",
     path: "/api/v1/metrics/water",
+    auth: "user",
+  },
+  waterHistoryGet: {
+    method: "GET",
+    path: "/api/v1/metrics/water/history",
     auth: "user",
   },
   waterAdd: {
