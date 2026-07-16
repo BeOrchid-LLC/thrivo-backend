@@ -62,6 +62,7 @@ const result = {
   name: "Greek yoghurt",
   brand: "Acme",
   barcode: "1234567890123",
+  basis: "per_100g" as const,
   servingLabel: "100g",
   servingGrams: 100,
   nutrients: { calories: 90, proteinG: 9, carbsG: 4, fatG: 3 },
@@ -82,7 +83,12 @@ describe("food external search service", () => {
     expect(first).toEqual({ items: [result], cached: false });
     expect(repeat).toEqual({ items: [result], cached: true });
     expect(searchOpenFoodFactsProducts).toHaveBeenCalledTimes(1);
-    expect(searchOpenFoodFactsProducts).toHaveBeenCalledWith("greek yoghurt", 20);
+    expect(searchOpenFoodFactsProducts).toHaveBeenCalledWith("greek yoghurt", 20, 1);
+  });
+
+  it("passes the requested OFF page through on cache miss", async () => {
+    await searchExternalFoods("u1", "oats", 10, 3);
+    expect(searchOpenFoodFactsProducts).toHaveBeenCalledWith("oats", 10, 3);
   });
 
   it("rate-limits uncached upstream searches per user", async () => {

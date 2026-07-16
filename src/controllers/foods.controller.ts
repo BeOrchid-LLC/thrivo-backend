@@ -46,8 +46,8 @@ export async function lookupFoodByBarcode(c: Context<AppEnv>) {
 
 export async function searchFoodItems(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  const { q, limit } = foodSearchQuerySchema.parse(getValidatedInput(c, "query"));
-  const result = await searchFoods(user, q, limit ?? 20);
+  const { q, limit, cursor } = foodSearchQuerySchema.parse(getValidatedInput(c, "query"));
+  const result = await searchFoods(user, q, limit ?? 10, cursor);
   return respondOk(c, result);
 }
 

@@ -19,8 +19,8 @@ export function normalizeFoodSearchQuery(query: string): string {
   return query.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function searchCacheKey(query: string, limit: number): string {
-  const digest = createHash("sha256").update(`${query}|${limit}`).digest("hex");
+function searchCacheKey(query: string, limit: number, page: number): string {
+  const digest = createHash("sha256").update(`${query}|${limit}|${page}`).digest("hex");
   return `v1:food-search:${digest}`;
 }
 
@@ -81,10 +81,12 @@ async function writeSearchCache(
 export async function searchExternalFoods(
   userId: string,
   query: string,
-  limit: number
+  limit: number,
+  page = 1
 ): Promise<SearchResultEnvelope> {
   const normalized = normalizeFoodSearchQuery(query);
-  const key = searchCacheKey(normalized, limit);
+  const pageNumber = Math.max(1, page);
+  const key = searchCacheKey(normalized, limit, pageNumber);
   const cached = await readSearchCache(key);
   if (cached) {
     return { items: cached, cached: true };
@@ -97,7 +99,7 @@ export async function searchExternalFoods(
       env.FOOD_SEARCH_RATE_LIMIT_WINDOW_SECONDS,
       "Food search limit reached - try again later"
     );
-    const items = await searchOpenFoodFactsProducts(normalized, limit);
+    const items = await searchOpenFoodFactsProducts(normalized, limit, pageNumber);
     // Never cache an empty result — a transient upstream miss must not poison
     // this query for the full TTL; the per-user rate limiter above already
     // bounds the cost of a genuinely-no-match query being retried.

@@ -20,6 +20,8 @@ export interface OpenFoodFactsSearchResult {
   name: string;
   brand: string | null;
   barcode: string | null;
+  /** Carried through so search materialize can upsert without a second OFF fetch. */
+  basis: OpenFoodFactsProduct["basis"];
   servingLabel: string;
   servingGrams: number | null;
   nutrients: OpenFoodFactsProduct["nutrients"];
@@ -86,7 +88,8 @@ export async function fetchOpenFoodFactsProduct(
 
 export async function searchOpenFoodFactsProducts(
   query: string,
-  limit: number
+  limit: number,
+  page = 1
 ): Promise<OpenFoodFactsSearchResult[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OFF_TIMEOUT_MS);
@@ -97,6 +100,7 @@ export async function searchOpenFoodFactsProducts(
       action: "process",
       json: "1",
       page_size: String(limit),
+      page: String(Math.max(1, page)),
       fields: SEARCH_FIELDS,
     });
     const res = await fetch(`${OFF_SEARCH_ENDPOINT}?${params.toString()}`, {
@@ -214,6 +218,7 @@ function normalizeSearchResult(
     name: normalized.name,
     brand: normalized.brand,
     barcode: normalized.barcode,
+    basis: normalized.basis,
     servingLabel: normalized.servingLabel,
     servingGrams: normalized.servingGrams,
     nutrients: normalized.nutrients,

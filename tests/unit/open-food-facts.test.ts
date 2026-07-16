@@ -58,6 +58,16 @@ describe("open food facts integration", () => {
     expect(product).toBeNull();
   });
 
+  it("sends page and page_size on search", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ products: [] }));
+    await searchOpenFoodFactsProducts("chicken", 10, 2);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("page_size=10");
+    expect(String(url)).toContain("page=2");
+    expect(init.headers["User-Agent"]).toBe(OFF_USER_AGENT);
+  });
+
   it("sends a descriptive User-Agent header on search", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ products: [] }));
     await searchOpenFoodFactsProducts("chicken", 20);
@@ -91,6 +101,7 @@ describe("open food facts integration", () => {
     const results = await searchOpenFoodFactsProducts("a", 20);
     expect(results).toHaveLength(1);
     expect(results[0].externalId).toBe("off:1");
+    expect(results[0].basis).toBe("per_100g");
   });
 });
 

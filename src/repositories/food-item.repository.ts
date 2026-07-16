@@ -52,6 +52,7 @@ export async function searchVisibleByText(
   userId: string,
   query: string,
   limit = 20,
+  offset = 0,
   tx: Executor = db
 ): Promise<FoodItem[]> {
   const tsQuery = sql`plainto_tsquery('simple', ${query})`;
@@ -69,7 +70,8 @@ export async function searchVisibleByText(
       sql`case when ${foodItems.ownerUserId} = ${userId} then 0 else 1 end`,
       sql`ts_rank(${foodItems.searchText}, ${tsQuery}) desc`
     )
-    .limit(limit);
+    .limit(limit)
+    .offset(offset);
 }
 
 export async function insertItem(input: NewFoodItemRow, tx: Executor = db): Promise<FoodItem> {
