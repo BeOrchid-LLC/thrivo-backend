@@ -46,9 +46,12 @@ describe.skipIf(!run)("integration: favorites (R5-1 / I13)", () => {
       body: JSON.stringify({ foodItemId: item.id }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { data: { item: { id: string; name: string } } };
+    const body = (await res.json()) as {
+      data: { item: { id: string; name: string; isFavorite: boolean } };
+    };
     expect(body.data.item.id).toBe(item.id);
     expect(body.data.item.name).toBe("Oatmeal");
+    expect(body.data.item.isFavorite).toBe(true);
     expect(body.data).not.toHaveProperty("items");
   });
 
@@ -68,8 +71,11 @@ describe.skipIf(!run)("integration: favorites (R5-1 / I13)", () => {
       headers: authed(session),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { item: { id: string } | null } };
+    const body = (await res.json()) as {
+      data: { item: { id: string; isFavorite: boolean } | null };
+    };
     expect(body.data.item?.id).toBe(item.id);
+    expect(body.data.item?.isFavorite).toBe(false);
   });
 
   it("GET /favorites preserves most-used-then-most-recent ordering across many favorites", async () => {

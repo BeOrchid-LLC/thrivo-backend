@@ -49,6 +49,7 @@ export const foodItemSchema = z.object({
   servingOptions: z.array(servingOptionSchema),
   isPersonal: z.boolean(),
   isEstimated: z.boolean(),
+  isFavorite: z.boolean().default(false),
 });
 export type FoodItem = z.infer<typeof foodItemSchema>;
 
@@ -62,6 +63,7 @@ export const foodLogEntrySchema = z.object({
   source: foodSourceSchema,
   barcode: z.string().nullable(),
   isEstimated: z.boolean(),
+  isFavorite: z.boolean().default(false),
   nutrients: nutrientsSchema,
   consumedAt: isoDateSchema,
   loggedAt: isoDateSchema,
@@ -97,6 +99,8 @@ export const foodLogHistoryQuerySchema = z.object({
   cursor: z.string().optional(),
   from: localDaySchema.optional(),
   to: localDaySchema.optional(),
+  date: localDaySchema.optional(),
+  period: z.enum(["7d", "14d", "1m", "1q", "6m", "1y", "all"]).optional(),
   // The client's local day (ADR-0022/D3) — the free-history lock boundary is
   // computed in this frame, never server-UTC. Optional for backward
   // compatibility with clients that haven't upgraded yet; falls back to `to`
@@ -106,15 +110,27 @@ export const foodLogHistoryQuerySchema = z.object({
 
 export const historyDaySchema = z.object({
   day: localDaySchema,
-  isLocked: z.boolean(),
-  lockReason: z.enum(["free_history_limit"]).nullable(),
+  isLocked: z.boolean().default(false),
+  lockReason: z.enum(["free_history_limit"]).nullable().default(null),
   entries: z.array(foodLogEntrySchema),
 });
 export type HistoryDay = z.infer<typeof historyDaySchema>;
 
+export const foodLogHistoryLockedRangeSchema = z.object({
+  from: localDaySchema,
+  to: localDaySchema,
+  lockReason: z.enum(["free_history_limit"]),
+});
+export type FoodLogHistoryLockedRange = z.infer<typeof foodLogHistoryLockedRangeSchema>;
+
 export const foodLogHistoryResponseSchema = apiSuccessSchema(
   z.object({
+    period: z.enum(["7d", "14d", "1m", "1q", "6m", "1y", "all"]),
+    date: localDaySchema,
+    from: localDaySchema,
+    to: localDaySchema,
     days: z.array(historyDaySchema),
+    lockedRange: foodLogHistoryLockedRangeSchema.nullable(),
     historyLimitDays: z.number().int(),
   })
 );

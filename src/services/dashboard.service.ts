@@ -3,7 +3,12 @@ import {
   type MacroSummary,
   type StreakSummary,
 } from "../../contracts/src/dashboard";
-import { type DailyTotals, type FoodLogEntry, type HistoryDay } from "../../contracts/src/foods";
+import {
+  type DailyTotals,
+  type FoodLogEntry,
+  type FoodLogHistoryLockedRange,
+  type HistoryDay,
+} from "../../contracts/src/foods";
 import {
   type ChartPeriod,
   type Water,
@@ -11,7 +16,13 @@ import {
   type WaterHistoryLockedRange,
 } from "../../contracts/src/metrics";
 import { cacheAside } from "../lib/cache";
-import { foodLogRepo, dailySummaryRepo, streakRepo, waterIntakeRepo } from "../repositories";
+import {
+  foodFavoriteRepo,
+  foodLogRepo,
+  dailySummaryRepo,
+  streakRepo,
+  waterIntakeRepo,
+} from "../repositories";
 import type { FoodLog } from "../repositories/food-log.repository";
 import type { User } from "../repositories/user.repository";
 import { isPremium } from "./entitlement.service";
@@ -37,6 +48,8 @@ const WATER_HISTORY_PERIOD_DAYS: Record<Exclude<ChartPeriod, "all">, number> = {
   "6m": 180,
   "1y": 365,
 };
+type HistoryPeriod = ChartPeriod;
+const FOOD_HISTORY_PERIOD_DAYS = WATER_HISTORY_PERIOD_DAYS;
 
 function toNumber(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -204,7 +217,8 @@ export async function getWaterHistory(
 export async function getFoodEntriesForDay(user: User, day: string): Promise<FoodLogEntry[]> {
   return cacheAside(dashboardCacheKeys.meals(user.id, day), CACHE_TTL_SECONDS, async () => {
     const logs = await foodLogRepo.listLogsForDay(user.id, day);
-    return logs.map(toFoodLogEntry);
+    const favoriteIds = await favoriteIdsForLogs(user.id, logs);
+    return logs.map((log) => toFoodLogEntry(log, favoriteIds));
   });
 }
 
@@ -257,14 +271,40 @@ export function resolveHistoryWindow(
 
 export async function getHistoryDays(
   user: User,
-  options: { from?: string; to?: string; today?: string }
-): Promise<{ days: HistoryDay[]; historyLimitDays: number }> {
-  const { today, to, from, lockBefore } = resolveHistoryWindow(options);
+  options: { from?: string; to?: string; today?: string; date?: string; period?: HistoryPeriod }
+): Promise<{
+  period: HistoryPeriod;
+  date: string;
+  from: string;
+  to: string;
+  days: HistoryDay[];
+  lockedRange: FoodLogHistoryLockedRange | null;
+  historyLimitDays: number;
+}> {
+  const period = options.period ?? "1m";
+  const date = options.date ?? options.to ?? options.today ?? isoDay(new Date());
+  const periodRange = foodHistoryRange(period, date);
+  const { today, to, from, lockBefore } = resolveHistoryWindow({
+    from: options.from ?? periodRange.from,
+    to: options.to ?? periodRange.to,
+    today: options.today ?? date,
+  });
   const premium = isPremium(user);
   const key = `${dashboardCacheKeys.history(user.id)}:${premium ? "premium" : "free"}:${from}:${to}:${today}`;
+  const visibleFrom = !premium && from < lockBefore ? lockBefore : from;
+  const lockedRange =
+    !premium && from < lockBefore
+      ? ({
+          from,
+          to: minDay(addDays(lockBefore, -1), to),
+          lockReason: "free_history_limit",
+        } satisfies FoodLogHistoryLockedRange)
+      : null;
 
   return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, async () => {
-    const logs = await foodLogRepo.listLogsByLocalDateRange(user.id, from, to);
+    const logs =
+      visibleFrom <= to ? await foodLogRepo.listLogsByLocalDateRange(user.id, visibleFrom, to) : [];
+    const favoriteIds = await favoriteIdsForLogs(user.id, logs);
     const groupedByDate = new Map<string, FoodLog[]>();
     for (const log of logs) {
       const rows = groupedByDate.get(log.localDate) ?? [];
@@ -275,20 +315,19 @@ export async function getHistoryDays(
     const days: HistoryDay[] = Array.from(groupedByDate.entries())
       .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
       .map(([day, dayLogs]) => {
-        const locked = !premium && day < lockBefore;
         return {
           day,
-          isLocked: locked,
-          lockReason: locked ? "free_history_limit" : null,
-          entries: locked ? [] : dayLogs.map(toFoodLogEntry),
+          isLocked: false,
+          lockReason: null,
+          entries: dayLogs.map((log) => toFoodLogEntry(log, favoriteIds)),
         };
       });
 
-    return { days, historyLimitDays: FREE_HISTORY_LIMIT_DAYS };
+    return { period, date, from, to, days, lockedRange, historyLimitDays: FREE_HISTORY_LIMIT_DAYS };
   });
 }
 
-function toFoodLogEntry(log: FoodLog): FoodLogEntry {
+function toFoodLogEntry(log: FoodLog, favoriteIds: ReadonlySet<string> = new Set()): FoodLogEntry {
   return {
     id: log.id,
     foodItemId: log.foodItemId,
@@ -299,6 +338,7 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
     source: log.source,
     barcode: log.barcode,
     isEstimated: log.foodItemId === null && log.source === "manual",
+    isFavorite: log.foodItemId ? favoriteIds.has(log.foodItemId) : false,
     nutrients: {
       calories: log.kcal,
       proteinG: toNumber(log.proteinG),
@@ -308,6 +348,13 @@ function toFoodLogEntry(log: FoodLog): FoodLogEntry {
     consumedAt: log.consumedAt.toISOString(),
     loggedAt: log.loggedAt.toISOString(),
   };
+}
+
+async function favoriteIdsForLogs(userId: string, logs: readonly FoodLog[]): Promise<Set<string>> {
+  return foodFavoriteRepo.listMatchingIdsForUser(
+    userId,
+    logs.map((log) => log.foodItemId).filter((id): id is string => Boolean(id))
+  );
 }
 
 function totalsFromEntries(day: string, entries: FoodLogEntry[]): DailyTotals {
@@ -386,6 +433,11 @@ function addDays(day: string, delta: number): string {
 function waterHistoryRange(period: ChartPeriod, toDay: string): { from: string; to: string } {
   if (period === "all") return { from: "1970-01-01", to: toDay };
   return { from: addDays(toDay, 1 - WATER_HISTORY_PERIOD_DAYS[period]), to: toDay };
+}
+
+function foodHistoryRange(period: HistoryPeriod, toDay: string): { from: string; to: string } {
+  if (period === "all") return { from: "1970-01-01", to: toDay };
+  return { from: addDays(toDay, 1 - FOOD_HISTORY_PERIOD_DAYS[period]), to: toDay };
 }
 
 function minDay(a: string, b: string): string {

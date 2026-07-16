@@ -222,6 +222,7 @@ describe("@beorchid-llc/thrivo-contracts", () => {
 
     expect(entry.consumedAt).toBe("2026-06-27T12:00:00.000Z");
     expect("meal" in entry).toBe(false);
+    expect(entry.isFavorite).toBe(false);
   });
 
   it("validates describe-meal estimate payloads", () => {

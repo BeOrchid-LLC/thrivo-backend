@@ -218,7 +218,11 @@ describe.skipIf(!run)("integration: safety invariants", () => {
         to: new Date().toISOString().slice(0, 10),
       });
 
-      expect(freeHistory.days[0]).toMatchObject({ day: "2026-05-01", isLocked: true, entries: [] });
+      expect(freeHistory.lockedRange).toMatchObject({
+        from: "2026-05-01",
+        lockReason: "free_history_limit",
+      });
+      expect(freeHistory.days).toEqual([]);
       expect(JSON.stringify(freeHistory)).not.toContain("Private old meal");
       expect(premiumHistory.days[0]?.entries[0]?.name).toBe("Visible old meal");
     });
