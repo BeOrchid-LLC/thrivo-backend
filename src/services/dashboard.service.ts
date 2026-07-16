@@ -4,7 +4,12 @@ import {
   type StreakSummary,
 } from "../../contracts/src/dashboard";
 import { type DailyTotals, type FoodLogEntry, type HistoryDay } from "../../contracts/src/foods";
-import { type Water } from "../../contracts/src/metrics";
+import {
+  type ChartPeriod,
+  type Water,
+  type WaterHistoryDay,
+  type WaterHistoryLockedRange,
+} from "../../contracts/src/metrics";
 import { cacheAside } from "../lib/cache";
 import { foodLogRepo, dailySummaryRepo, streakRepo, waterIntakeRepo } from "../repositories";
 import type { FoodLog } from "../repositories/food-log.repository";
@@ -24,6 +29,14 @@ const HYDRATION_DAY_END_HOUR = 22;
 const HYDRATION_EVENING_TARGET_PROGRESS = 0.75;
 const HYDRATION_ALERT_TOLERANCE_PERCENT = 5;
 export const FREE_HISTORY_LIMIT_DAYS = 7;
+const WATER_HISTORY_PERIOD_DAYS: Record<Exclude<ChartPeriod, "all">, number> = {
+  "7d": 7,
+  "14d": 14,
+  "1m": 30,
+  "1q": 90,
+  "6m": 180,
+  "1y": 365,
+};
 
 function toNumber(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -123,6 +136,67 @@ export async function getWaterState(user: User, day: string): Promise<Water> {
         recordedAt: entry.recordedAt.toISOString(),
       })),
       alert: buildHydrationAlert(totalMl, targetMl, localHourFor(user.timezone)),
+    };
+  });
+}
+
+export async function getWaterHistory(
+  user: User,
+  options: { date: string; period: ChartPeriod; today?: string }
+): Promise<{
+  period: ChartPeriod;
+  date: string;
+  from: string;
+  to: string;
+  days: WaterHistoryDay[];
+  lockedRange: WaterHistoryLockedRange | null;
+  historyLimitDays: number;
+}> {
+  const { from, to } = waterHistoryRange(options.period, options.date);
+  const { lockBefore } = resolveHistoryWindow({ from, to, today: options.today ?? options.date });
+  const premium = isPremium(user);
+  const visibleFrom = !premium && from < lockBefore ? lockBefore : from;
+  const lockedRange =
+    !premium && from < lockBefore
+      ? ({
+          from,
+          to: minDay(addDays(lockBefore, -1), to),
+          lockReason: "free_history_limit",
+        } satisfies WaterHistoryLockedRange)
+      : null;
+  const key = `${dashboardCacheKeys.waterHistory(user.id)}:${premium ? "premium" : "free"}:${options.period}:${from}:${to}:${options.today ?? options.date}`;
+
+  return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, async () => {
+    const entries =
+      visibleFrom <= to
+        ? await waterIntakeRepo.listEntriesByLocalDateRange(user.id, visibleFrom, to)
+        : [];
+    const groupedByDate = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      const rows = groupedByDate.get(entry.localDate) ?? [];
+      rows.push(entry);
+      groupedByDate.set(entry.localDate, rows);
+    }
+
+    const days = Array.from(groupedByDate.entries()).map(([day, dayEntries]) => ({
+      day,
+      totalMl: dayEntries.reduce((total, entry) => total + entry.amountMl, 0),
+      entries: dayEntries.map((entry) => ({
+        id: entry.id,
+        amountMl: entry.amountMl,
+        day: entry.localDate,
+        recordedAt: entry.recordedAt.toISOString(),
+      })),
+    }));
+
+    return {
+      period: options.period,
+      date: options.date,
+      from,
+      to,
+      days,
+      lockedRange,
+      historyLimitDays: FREE_HISTORY_LIMIT_DAYS,
     };
   });
 }
@@ -307,4 +381,13 @@ function addDays(day: string, delta: number): string {
   const date = new Date(`${day}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + delta);
   return isoDay(date);
+}
+
+function waterHistoryRange(period: ChartPeriod, toDay: string): { from: string; to: string } {
+  if (period === "all") return { from: "1970-01-01", to: toDay };
+  return { from: addDays(toDay, 1 - WATER_HISTORY_PERIOD_DAYS[period]), to: toDay };
+}
+
+function minDay(a: string, b: string): string {
+  return a <= b ? a : b;
 }

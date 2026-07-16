@@ -8,6 +8,7 @@ export const dashboardCacheKeys = {
   macros: (userId: string, day: string) => dayKey(userId, day, "macros"),
   meals: (userId: string, day: string) => dayKey(userId, day, "meals"),
   water: (userId: string, day: string) => dayKey(userId, day, "water"),
+  waterHistory: (userId: string) => `user:${userId}:water-history`,
   streak: (userId: string) => `user:${userId}:streak`,
   history: (userId: string) => `user:${userId}:history`,
 };
@@ -23,7 +24,7 @@ export async function invalidateFoodDashboardCache(userId: string, day: string):
 }
 
 export async function invalidateWaterDashboardCache(userId: string, day: string): Promise<void> {
-  await cacheDel(dashboardCacheKeys.water(userId, day));
+  await cacheDel(dashboardCacheKeys.water(userId, day), dashboardCacheKeys.waterHistory(userId));
 }
 
 export async function invalidateProfileTargetCache(userId: string): Promise<void> {
@@ -36,5 +37,5 @@ export async function invalidateProfileTargetCache(userId: string): Promise<void
 }
 
 export async function invalidateEntitlementCache(userId: string): Promise<void> {
-  await cacheDel(dashboardCacheKeys.history(userId));
+  await cacheDel(dashboardCacheKeys.history(userId), dashboardCacheKeys.waterHistory(userId));
 }
