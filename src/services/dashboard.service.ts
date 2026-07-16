@@ -337,7 +337,7 @@ function toFoodLogEntry(log: FoodLog, favoriteIds: ReadonlySet<string> = new Set
     servingUnit: log.servingUnit,
     source: log.source,
     barcode: log.barcode,
-    isEstimated: log.foodItemId === null && log.source === "manual",
+    isEstimated: log.source === "manual",
     isFavorite: log.foodItemId ? favoriteIds.has(log.foodItemId) : false,
     nutrients: {
       calories: log.kcal,

@@ -429,6 +429,7 @@ export async function logEstimate(
   const consumedAt = payload.consumedAt ? new Date(payload.consumedAt) : new Date();
   const now = new Date();
   const { log, totals } = await db.transaction(async (tx) => {
+    const item = await ensurePersonalEstimateItem(user, payload, tx);
     const log = await foodLogRepo.createLog(
       {
         userId: user.id,
@@ -437,7 +438,7 @@ export async function logEstimate(
         consumedAt,
         localDate: payload.day,
         source: "manual",
-        foodItemId: null,
+        foodItemId: item.id,
         servingId: null,
         barcode: null,
         name: payload.name,
@@ -456,6 +457,50 @@ export async function logEstimate(
   });
   await invalidateFoodDashboardCache(user.id, payload.day);
   return mutationResult(user, log, totals);
+}
+
+/**
+ * Creates (or reuses) a personal catalog row for a describe-meal estimate so the
+ * log gets a durable foodItemId and the item shows up in that user's local search.
+ * Nutrients are stored per unit of `quantity` so re-logs scale cleanly.
+ */
+async function ensurePersonalEstimateItem(
+  user: User,
+  payload: LogEstimatePayload,
+  tx: Executor
+): Promise<FoodItemRow> {
+  const existing = await foodItemRepo.findPersonalEstimateByName(user.id, payload.name, tx);
+  if (existing) return existing;
+
+  const quantity = payload.quantity || 1;
+  const servingLabel = payload.servingUnit ?? payload.portionMeasure;
+  const created = await foodItemRepo.insertItem(
+    {
+      tier: "personal",
+      status: "active",
+      origin: "personal",
+      originRef: "estimate",
+      name: payload.name,
+      createdBy: user.id,
+      ownerUserId: user.id,
+    },
+    tx
+  );
+  await foodItemRepo.upsertNutrients(
+    {
+      foodItemId: created.id,
+      basis: "per_serving",
+      servingLabel,
+      servingG: null,
+      kcal: String(payload.nutrients.calories / quantity),
+      proteinG: String(payload.nutrients.proteinG / quantity),
+      carbsG: String(payload.nutrients.carbsG / quantity),
+      fatG: String(payload.nutrients.fatG / quantity),
+      dataCompleteness: "0.4",
+    },
+    tx
+  );
+  return created;
 }
 
 export async function updateFoodLog(user: User, id: string, payload: UpdateLogPayload) {
@@ -606,7 +651,7 @@ function mapFoodItem(
     },
     servingOptions: buildServingOptions(nutrient.servingLabel ?? "serving", servingGrams, servings),
     isPersonal: item.tier === "personal",
-    isEstimated: false,
+    isEstimated: item.originRef === "estimate",
     isFavorite,
   };
 }
@@ -670,7 +715,7 @@ function toFoodLogEntry(log: FoodLog, favoriteIds: ReadonlySet<string> = new Set
     servingUnit: log.servingUnit,
     source: log.source,
     barcode: log.barcode,
-    isEstimated: log.foodItemId === null && log.source === "manual",
+    isEstimated: log.source === "manual",
     isFavorite: log.foodItemId ? favoriteIds.has(log.foodItemId) : false,
     nutrients: {
       calories: log.kcal,

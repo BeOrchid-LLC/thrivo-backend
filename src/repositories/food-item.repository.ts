@@ -79,6 +79,49 @@ export async function insertItem(input: NewFoodItemRow, tx: Executor = db): Prom
   return row;
 }
 
+/** Personal describe-meal items are tagged `origin_ref = estimate` for isEstimated + reuse. */
+export async function findPersonalEstimateByName(
+  userId: string,
+  name: string,
+  tx: Executor = db
+): Promise<FoodItem | null> {
+  const [row] = await tx
+    .select()
+    .from(foodItems)
+    .where(
+      and(
+        eq(foodItems.status, "active"),
+        eq(foodItems.tier, "personal"),
+        eq(foodItems.ownerUserId, userId),
+        eq(foodItems.originRef, "estimate"),
+        sql`lower(${foodItems.name}) = lower(${name})`
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** Active personal item owned by the user with an exact case-insensitive name match. */
+export async function findPersonalByName(
+  userId: string,
+  name: string,
+  tx: Executor = db
+): Promise<FoodItem | null> {
+  const [row] = await tx
+    .select()
+    .from(foodItems)
+    .where(
+      and(
+        eq(foodItems.status, "active"),
+        eq(foodItems.tier, "personal"),
+        eq(foodItems.ownerUserId, userId),
+        sql`lower(${foodItems.name}) = lower(${name})`
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 export async function updateItem(
   id: string,
   patch: Partial<NewFoodItemRow>,
