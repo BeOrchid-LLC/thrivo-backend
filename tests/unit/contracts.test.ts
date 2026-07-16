@@ -93,6 +93,11 @@ describe("@beorchid-llc/thrivo-contracts", () => {
       path: "/api/v1/metrics/water/:id",
       auth: "user",
     });
+    expect(metricRoutes.waterUpdate).toEqual({
+      method: "PATCH",
+      path: "/api/v1/metrics/water/:id",
+      auth: "user",
+    });
     expect(metricRoutes.chartGet).toEqual({
       method: "GET",
       path: "/api/v1/metrics/chart",

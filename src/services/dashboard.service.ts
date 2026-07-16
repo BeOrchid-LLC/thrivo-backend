@@ -11,12 +11,18 @@ import type { FoodLog } from "../repositories/food-log.repository";
 import type { User } from "../repositories/user.repository";
 import { isPremium } from "./entitlement.service";
 import { dashboardCacheKeys } from "./dashboard-cache.service";
+import { localHourFor } from "../lib/local-date";
 
 const CACHE_TTL_SECONDS = 60;
 const HISTORY_CACHE_TTL_SECONDS = 30;
 const DEFAULT_TARGET_CALORIES = 1800;
 const GLASS_ML = 250;
 const TARGET_GLASSES = 8;
+const HYDRATION_DAY_START_HOUR = 8;
+const HYDRATION_EVENING_TARGET_HOUR = 20;
+const HYDRATION_DAY_END_HOUR = 22;
+const HYDRATION_EVENING_TARGET_PROGRESS = 0.75;
+const HYDRATION_ALERT_TOLERANCE_PERCENT = 5;
 export const FREE_HISTORY_LIMIT_DAYS = 7;
 
 function toNumber(value: string | number | null | undefined): number {
@@ -116,7 +122,7 @@ export async function getWaterState(user: User, day: string): Promise<Water> {
         day: entry.localDate,
         recordedAt: entry.recordedAt.toISOString(),
       })),
-      alert: buildHydrationAlert(totalMl, targetMl, new Date()),
+      alert: buildHydrationAlert(totalMl, targetMl, localHourFor(user.timezone)),
     };
   });
 }
@@ -243,18 +249,54 @@ function totalsFromEntries(day: string, entries: FoodLogEntry[]): DailyTotals {
   );
 }
 
-function buildHydrationAlert(totalMl: number, targetMl: number, now: Date): Water["alert"] {
+export function buildHydrationAlert(
+  totalMl: number,
+  targetMl: number,
+  localHour: number
+): Water["alert"] {
   if (targetMl <= 0 || totalMl >= targetMl) return null;
-  const hour = now.getHours();
-  const expectedProgress = Math.min(Math.max((hour - 6) / 14, 0), 1);
-  const expectedMl = Math.round(targetMl * expectedProgress);
-  if (hour < 12 || totalMl >= expectedMl || totalMl / targetMl >= 0.75) return null;
-  const remainingMl = Math.max(targetMl - totalMl, 0);
+  const progressPercent = Math.min(Math.round((totalMl / targetMl) * 100), 100);
+  const expectedProgressPercent = Math.round(expectedHydrationProgress(localHour) * 100);
+  if (expectedProgressPercent <= 0) return null;
+  if (progressPercent + HYDRATION_ALERT_TOLERANCE_PERCENT >= expectedProgressPercent) return null;
+  const targetProgressPercent =
+    localHour < HYDRATION_EVENING_TARGET_HOUR
+      ? Math.round(HYDRATION_EVENING_TARGET_PROGRESS * 100)
+      : 100;
+  const targetHour =
+    localHour < HYDRATION_EVENING_TARGET_HOUR
+      ? HYDRATION_EVENING_TARGET_HOUR
+      : HYDRATION_DAY_END_HOUR;
+
   return {
     title: "Drink up",
-    message: `You're behind your hydration pace. Try to drink ${remainingMl.toLocaleString()}ml more today.`,
+    message: `It's ${formatHour(localHour)} and you've only hit ${progressPercent}% of your daily goal. Try to reach ${targetProgressPercent}% by ${formatHour(targetHour)}.`,
     severity: "warning",
   };
+}
+
+function expectedHydrationProgress(localHour: number): number {
+  if (localHour < HYDRATION_DAY_START_HOUR) return 0;
+  if (localHour <= HYDRATION_EVENING_TARGET_HOUR) {
+    const elapsed = localHour - HYDRATION_DAY_START_HOUR;
+    const window = HYDRATION_EVENING_TARGET_HOUR - HYDRATION_DAY_START_HOUR;
+    return (elapsed / window) * HYDRATION_EVENING_TARGET_PROGRESS;
+  }
+  if (localHour <= HYDRATION_DAY_END_HOUR) {
+    const elapsed = localHour - HYDRATION_EVENING_TARGET_HOUR;
+    const window = HYDRATION_DAY_END_HOUR - HYDRATION_EVENING_TARGET_HOUR;
+    return (
+      HYDRATION_EVENING_TARGET_PROGRESS +
+      (elapsed / window) * (1 - HYDRATION_EVENING_TARGET_PROGRESS)
+    );
+  }
+  return 1;
+}
+
+function formatHour(hour: number): string {
+  const normalized = hour % 24;
+  const display = normalized % 12 || 12;
+  return `${display} ${normalized < 12 ? "AM" : "PM"}`;
 }
 
 function isoDay(date: Date): string {
