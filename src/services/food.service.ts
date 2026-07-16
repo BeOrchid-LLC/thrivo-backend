@@ -320,7 +320,16 @@ export async function logFood(user: User, payload: LogFoodPayload, idempotencyKe
     return logExternalFood(user, payload, idempotencyKey);
   }
   if (!payload.foodItemId) throw new ConflictError("Food item is required");
-  const item = await foodItemRepo.findById(payload.foodItemId);
+  return logCatalogFoodById(user, payload.foodItemId, payload, idempotencyKey);
+}
+
+async function logCatalogFoodById(
+  user: User,
+  foodItemId: string,
+  payload: Pick<LogFoodPayload, "day" | "servings" | "servingId" | "servingUnit" | "consumedAt">,
+  idempotencyKey?: string | null
+) {
+  const item = await foodItemRepo.findById(foodItemId);
   if (!item || !canSeeFood(user, item)) throw new NotFoundError("Food not found");
   const nutrient = await foodItemRepo.getNutrients(item.id);
   if (!nutrient) throw new ConflictError("Food has no nutrition data");
@@ -389,36 +398,99 @@ async function logExternalFood(
 ) {
   const snapshot = payload.externalFood;
   if (!snapshot) throw new ConflictError("Food snapshot is required");
-  const consumedAt = payload.consumedAt ? new Date(payload.consumedAt) : new Date();
-  const now = new Date();
-  const { log, totals } = await db.transaction(async (tx) => {
-    const log = await foodLogRepo.createLog(
-      {
-        userId: user.id,
-        idempotencyKey: idempotencyKey ?? null,
-        loggedAt: now,
-        consumedAt,
-        localDate: payload.day,
-        source: "search",
-        barcode: snapshot.barcode ?? null,
-        foodItemId: null,
-        servingId: null,
+
+  // Bridge for pre-0.16 clients: materialize a catalog row, then log by foodItemId.
+  const foodItemId = await resolveExternalSnapshotToFoodItemId(user, snapshot);
+  return logCatalogFoodById(
+    user,
+    foodItemId,
+    {
+      day: payload.day,
+      servings: payload.servings,
+      servingId: payload.servingId,
+      servingUnit: payload.servingUnit ?? snapshot.servingLabel,
+      consumedAt: payload.consumedAt,
+    },
+    idempotencyKey
+  );
+}
+
+/**
+ * Prefer an existing barcode catalog row / OFF upsert; otherwise create a
+ * personal item from the client snapshot so the diary always gets a foodItemId.
+ */
+async function resolveExternalSnapshotToFoodItemId(
+  user: User,
+  snapshot: NonNullable<LogFoodPayload["externalFood"]>
+): Promise<string> {
+  if (snapshot.barcode) {
+    const cached = await foodItemRepo.findActiveByBarcode(snapshot.barcode);
+    if (cached) return cached.id;
+
+    try {
+      const upstream = await fetchOpenFoodFactsProduct(snapshot.barcode);
+      if (upstream) return (await upsertOffProduct(upstream)).id;
+    } catch {
+      // Fall through to snapshot materialize when OFF is unavailable.
+    }
+
+    return (
+      await upsertOffProduct({
+        barcode: snapshot.barcode,
         name: snapshot.name,
-        servingQty: String(payload.servings),
-        servingUnit: payload.servingUnit ?? snapshot.servingLabel,
-        kcal: Math.round(snapshot.nutrients.calories * payload.servings),
-        proteinG: String(snapshot.nutrients.proteinG * payload.servings),
-        carbsG: String(snapshot.nutrients.carbsG * payload.servings),
-        fatG: String(snapshot.nutrients.fatG * payload.servings),
+        brand: snapshot.brand ?? null,
+        basis: snapshot.servingGrams && snapshot.servingGrams > 0 ? "per_serving" : "per_100g",
+        servingLabel: snapshot.servingLabel,
+        servingGrams: snapshot.servingGrams ?? null,
+        nutrients: snapshot.nutrients,
+      })
+    ).id;
+  }
+
+  const existingPersonal = await foodItemRepo.findPersonalByName(user.id, snapshot.name);
+  if (existingPersonal) return existingPersonal.id;
+
+  const created = await db.transaction(async (tx) => {
+    const item = await foodItemRepo.insertItem(
+      {
+        tier: "personal",
+        status: "active",
+        origin: "personal",
+        name: snapshot.name,
+        brand: snapshot.brand ?? null,
+        createdBy: user.id,
+        ownerUserId: user.id,
       },
       tx
     );
-    const totals = await refreshDailySummary(user, payload.day, tx);
-    await recordQualifyingDay(user.id, payload.day, tx);
-    return { log, totals };
+    await foodItemRepo.upsertNutrients(
+      {
+        foodItemId: item.id,
+        basis: "per_serving",
+        servingLabel: snapshot.servingLabel,
+        servingG: snapshot.servingGrams ? String(snapshot.servingGrams) : null,
+        kcal: String(snapshot.nutrients.calories),
+        proteinG: String(snapshot.nutrients.proteinG),
+        carbsG: String(snapshot.nutrients.carbsG),
+        fatG: String(snapshot.nutrients.fatG),
+        dataCompleteness: "0.5",
+      },
+      tx
+    );
+    if (snapshot.servingGrams) {
+      await foodItemRepo.insertServing(
+        {
+          foodItemId: item.id,
+          label: snapshot.servingLabel,
+          grams: String(snapshot.servingGrams),
+          isDefault: true,
+        },
+        tx
+      );
+    }
+    return item;
   });
-  await invalidateFoodDashboardCache(user.id, payload.day);
-  return mutationResult(user, log, totals);
+  return created.id;
 }
 
 export async function logEstimate(
