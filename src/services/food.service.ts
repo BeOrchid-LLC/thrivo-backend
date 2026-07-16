@@ -28,11 +28,75 @@ import { recordQualifyingDay } from "./streak.service";
 import type { FoodLog } from "../repositories/food-log.repository";
 import type { FoodItemRow, FoodNutrientRow, FoodServingRow } from "../../db/schema";
 import type { User } from "../repositories/user.repository";
-import { fetchOpenFoodFactsProduct } from "../integrations/open-food-facts";
+import {
+  fetchOpenFoodFactsProduct,
+  type OpenFoodFactsProduct,
+} from "../integrations/open-food-facts";
 import { invalidateFoodDashboardCache } from "./dashboard-cache.service";
 import { enforceBarcodeLookupLimit, searchExternalFoods } from "./food-external.service";
 
 const DEFAULT_TARGET_CALORIES = 1800;
+
+/**
+ * Idempotent OFF → `food_items` materialize. Shared by barcode lookup and
+ * catalog-first search fill so both paths write the same authoritative shape.
+ * Concurrent inserts on the same barcode re-read the winner via the active
+ * barcode unique index rather than failing the request.
+ */
+export async function upsertOffProduct(product: OpenFoodFactsProduct): Promise<FoodItemRow> {
+  return db.transaction(async (tx) => {
+    const existing = await foodItemRepo.findActiveByBarcode(product.barcode, tx);
+    if (existing) return existing;
+
+    try {
+      const item = await foodItemRepo.insertItem(
+        {
+          tier: "authoritative",
+          status: "active",
+          origin: "openfoodfacts",
+          originRef: product.barcode,
+          barcode: product.barcode,
+          name: product.name,
+          brand: product.brand,
+        },
+        tx
+      );
+      await foodItemRepo.upsertNutrients(
+        {
+          foodItemId: item.id,
+          basis: product.basis,
+          servingLabel: product.servingLabel,
+          // The reference amount is only ever servingGrams when the whole product
+          // was normalized on that basis (ADR-0022/D1) — a per_100g product may
+          // still carry a display-only servingGrams hint that isn't the divisor.
+          servingG: product.basis === "per_serving" ? String(product.servingGrams) : null,
+          kcal: String(product.nutrients.calories),
+          proteinG: String(product.nutrients.proteinG),
+          carbsG: String(product.nutrients.carbsG),
+          fatG: String(product.nutrients.fatG),
+          dataCompleteness: "0.7",
+        },
+        tx
+      );
+      if (product.servingGrams) {
+        await foodItemRepo.insertServing(
+          {
+            foodItemId: item.id,
+            label: product.servingLabel,
+            grams: String(product.servingGrams),
+            isDefault: true,
+          },
+          tx
+        );
+      }
+      return item;
+    } catch (err) {
+      const raced = await foodItemRepo.findActiveByBarcode(product.barcode, tx);
+      if (raced) return raced;
+      throw err;
+    }
+  });
+}
 
 export async function lookupFood(user: User, barcode: string): Promise<FoodItem | null> {
   const cached = await foodItemRepo.findActiveByBarcode(barcode);
@@ -48,52 +112,7 @@ export async function lookupFood(user: User, barcode: string): Promise<FoodItem 
   }
   if (!upstream) return null;
 
-  const created = await db.transaction(async (tx) => {
-    const existing = await foodItemRepo.findActiveByBarcode(barcode, tx);
-    if (existing) return existing;
-    const item = await foodItemRepo.insertItem(
-      {
-        tier: "authoritative",
-        status: "active",
-        origin: "openfoodfacts",
-        originRef: barcode,
-        barcode,
-        name: upstream.name,
-        brand: upstream.brand,
-      },
-      tx
-    );
-    await foodItemRepo.upsertNutrients(
-      {
-        foodItemId: item.id,
-        basis: upstream.basis,
-        servingLabel: upstream.servingLabel,
-        // The reference amount is only ever servingGrams when the whole product
-        // was normalized on that basis (ADR-0022/D1) — a per_100g product may
-        // still carry a display-only servingGrams hint that isn't the divisor.
-        servingG: upstream.basis === "per_serving" ? String(upstream.servingGrams) : null,
-        kcal: String(upstream.nutrients.calories),
-        proteinG: String(upstream.nutrients.proteinG),
-        carbsG: String(upstream.nutrients.carbsG),
-        fatG: String(upstream.nutrients.fatG),
-        dataCompleteness: "0.7",
-      },
-      tx
-    );
-    if (upstream.servingGrams) {
-      await foodItemRepo.insertServing(
-        {
-          foodItemId: item.id,
-          label: upstream.servingLabel,
-          grams: String(upstream.servingGrams),
-          isDefault: true,
-        },
-        tx
-      );
-    }
-    return item;
-  });
-
+  const created = await upsertOffProduct(upstream);
   return toFoodItem(created.id, user.id);
 }
 
