@@ -25,6 +25,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { closeDb, db } from "../db";
 import type { FoodLogRow } from "../db/schema";
 import { fetchOpenFoodFactsProduct } from "../src/integrations/open-food-facts";
@@ -115,7 +116,13 @@ function toNumber(value: string | number | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function inferReferenceGrams(servingUnit: string | null): number | null {
+/**
+ * Best-effort gram basis from the log's stored serving-unit text. Never
+ * fabricates a value — returns `null` (which flags the row for manual
+ * resolution) rather than guessing a servingG that would violate the
+ * per_serving check constraint.
+ */
+export function inferReferenceGrams(servingUnit: string | null): number | null {
   const normalized = servingUnit?.trim().toLowerCase() ?? "";
   if (!normalized) return null;
   if (normalized === "g" || normalized === "gram" || normalized === "grams") return 1;
@@ -292,11 +299,23 @@ async function run(): Promise<void> {
   logger.info({ reportPath, apply: args.apply, checkpoint }, "backfill: run complete");
 }
 
-run()
-  .then(closeDb)
-  .then(() => process.exit(0))
-  .catch(async (err) => {
-    logger.error({ err }, "backfill: failed (progress is checkpointed — re-run to resume)");
-    await closeDb();
-    process.exit(1);
-  });
+const isMain = (() => {
+  try {
+    return (
+      process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+    );
+  } catch {
+    return false;
+  }
+})();
+
+if (isMain) {
+  run()
+    .then(closeDb)
+    .then(() => process.exit(0))
+    .catch(async (err) => {
+      logger.error({ err }, "backfill: failed (progress is checkpointed — re-run to resume)");
+      await closeDb();
+      process.exit(1);
+    });
+}
