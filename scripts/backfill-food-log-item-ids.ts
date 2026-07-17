@@ -121,11 +121,23 @@ function toNumber(value: string | number | null | undefined): number {
  * fabricates a value — returns `null` (which flags the row for manual
  * resolution) rather than guessing a servingG that would violate the
  * per_serving check constraint.
+ *
+ * `serving_unit` stores the log's `portionMeasure`. "weight" is the grams
+ * measure: `serving_qty` already holds grams, so each unit is 1g (mirrors
+ * estimate's `portionMeasure === "weight" ? quantity : …`). The other
+ * measures (serving/cup/tbsp/piece) have no inherent gram weight and stay
+ * flagged.
  */
 export function inferReferenceGrams(servingUnit: string | null): number | null {
   const normalized = servingUnit?.trim().toLowerCase() ?? "";
   if (!normalized) return null;
-  if (normalized === "g" || normalized === "gram" || normalized === "grams") return 1;
+  if (
+    normalized === "g" ||
+    normalized === "gram" ||
+    normalized === "grams" ||
+    normalized === "weight"
+  )
+    return 1;
   const match = /(?:^|[ (])(\d+(?:\.\d+)?)\s*g(?:ram)?s?(?:$|[ )])/i.exec(normalized);
   if (!match) return null;
   const grams = Number(match[1]);
