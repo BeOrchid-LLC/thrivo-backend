@@ -115,6 +115,15 @@ function toNumber(value: string | number | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function inferReferenceGrams(servingUnit: string | null): number | null {
+  const normalized = servingUnit?.trim().toLowerCase() ?? "";
+  if (!normalized) return null;
+  if (normalized === "g" || normalized === "gram" || normalized === "grams") return 1;
+  const match = /(?:^|[ (])(\d+(?:\.\d+)?)\s*g(?:ram)?s?(?:$|[ )])/i.exec(normalized);
+  if (!match) return null;
+  const grams = Number(match[1]);
+  return Number.isFinite(grams) && grams > 0 ? grams : null;
+}
 type ResolveResult =
   | { foodItemId: string; via: "barcode" | "name" | "created" }
   | { foodItemId: null; via: "barcode" | "name" | "created"; pendingWrite: true };
@@ -154,6 +163,11 @@ async function resolveFoodItemId(
     checkpoint.flagged.push({ logId: log.id, reason: "non_positive_servings" });
     return null;
   }
+  const referenceGrams = inferReferenceGrams(log.servingUnit);
+  if (!referenceGrams) {
+    checkpoint.flagged.push({ logId: log.id, reason: "missing_reference_grams" });
+    return null;
+  }
 
   if (!apply) {
     return { foodItemId: null, via: "created", pendingWrite: true };
@@ -178,7 +192,7 @@ async function resolveFoodItemId(
         foodItemId: item.id,
         basis: "per_serving",
         servingLabel: log.servingUnit ?? "serving",
-        servingG: null,
+        servingG: String(referenceGrams),
         kcal: String(log.kcal / quantity),
         proteinG: String(toNumber(log.proteinG) / quantity),
         carbsG: String(toNumber(log.carbsG) / quantity),

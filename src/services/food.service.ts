@@ -61,9 +61,10 @@ function decodeSearchCursor(raw: string | undefined): SearchCursor {
 }
 
 function offSearchHitToProduct(hit: OpenFoodFactsSearchResult): OpenFoodFactsProduct | null {
-  if (!hit.barcode) return null;
+  if (!hit.barcode && !hit.externalId) return null;
 
   return {
+    externalId: hit.externalId,
     barcode: hit.barcode,
     name: hit.name,
     brand: hit.brand,
@@ -81,8 +82,13 @@ function offSearchHitToProduct(hit: OpenFoodFactsSearchResult): OpenFoodFactsPro
  * barcode unique index rather than failing the request.
  */
 export async function upsertOffProduct(product: OpenFoodFactsProduct): Promise<FoodItemRow> {
+  if (!product.barcode && !product.externalId) {
+    throw new ValidationError("External food is missing a stable identity");
+  }
   return db.transaction(async (tx) => {
-    const existing = await foodItemRepo.findActiveByBarcode(product.barcode, tx);
+    const existing = product.barcode
+      ? await foodItemRepo.findActiveByBarcode(product.barcode, tx)
+      : await foodItemRepo.findActiveByOriginRef("openfoodfacts", product.externalId!, tx);
     if (existing) return existing;
 
     try {
@@ -91,7 +97,7 @@ export async function upsertOffProduct(product: OpenFoodFactsProduct): Promise<F
           tier: "authoritative",
           status: "active",
           origin: "openfoodfacts",
-          originRef: product.barcode,
+          originRef: product.externalId ?? product.barcode,
           barcode: product.barcode,
           name: product.name,
           brand: product.brand,
@@ -128,7 +134,9 @@ export async function upsertOffProduct(product: OpenFoodFactsProduct): Promise<F
       }
       return item;
     } catch (err) {
-      const raced = await foodItemRepo.findActiveByBarcode(product.barcode, tx);
+      const raced = product.barcode
+        ? await foodItemRepo.findActiveByBarcode(product.barcode, tx)
+        : await foodItemRepo.findActiveByOriginRef("openfoodfacts", product.externalId!, tx);
       if (raced) return raced;
       throw err;
     }
@@ -398,6 +406,9 @@ async function logExternalFood(
 ) {
   const snapshot = payload.externalFood;
   if (!snapshot) throw new ConflictError("Food snapshot is required");
+  if (!snapshot.servingGrams || snapshot.servingGrams <= 0) {
+    throw new ValidationError("External food must include a positive servingGrams reference");
+  }
 
   // Bridge for pre-0.16 clients: materialize a catalog row, then log by foodItemId.
   const foodItemId = await resolveExternalSnapshotToFoodItemId(user, snapshot);
@@ -468,7 +479,7 @@ async function resolveExternalSnapshotToFoodItemId(
         foodItemId: item.id,
         basis: "per_serving",
         servingLabel: snapshot.servingLabel,
-        servingG: snapshot.servingGrams ? String(snapshot.servingGrams) : null,
+        servingG: String(snapshot.servingGrams),
         kcal: String(snapshot.nutrients.calories),
         proteinG: String(snapshot.nutrients.proteinG),
         carbsG: String(snapshot.nutrients.carbsG),
@@ -563,7 +574,7 @@ async function ensurePersonalEstimateItem(
       foodItemId: created.id,
       basis: "per_serving",
       servingLabel,
-      servingG: null,
+      servingG: String(payload.referenceGrams / quantity),
       kcal: String(payload.nutrients.calories / quantity),
       proteinG: String(payload.nutrients.proteinG / quantity),
       carbsG: String(payload.nutrients.carbsG / quantity),
@@ -578,18 +589,63 @@ async function ensurePersonalEstimateItem(
 export async function updateFoodLog(user: User, id: string, payload: UpdateLogPayload) {
   const existing = await foodLogRepo.findLogForUser(user.id, id);
   if (!existing) throw new NotFoundError("Food log not found");
+
   const nextServings = payload.servings ?? toNumber(existing.servingQty);
-  const currentServings = toNumber(existing.servingQty) || 1;
-  const ratio = nextServings / currentServings;
+  const servingChanged = payload.servingId !== undefined;
+  let nutrition = {
+    kcal: Math.round(existing.kcal * (nextServings / (toNumber(existing.servingQty) || 1))),
+    proteinG: toNumber(existing.proteinG) * (nextServings / (toNumber(existing.servingQty) || 1)),
+    carbsG: toNumber(existing.carbsG) * (nextServings / (toNumber(existing.servingQty) || 1)),
+    fatG: toNumber(existing.fatG) * (nextServings / (toNumber(existing.servingQty) || 1)),
+  };
+  let servingId = existing.servingId;
+  let servingUnit = payload.servingUnit === undefined ? existing.servingUnit : payload.servingUnit;
+
+  if (servingChanged) {
+    if (!existing.foodItemId) {
+      throw new ConflictError("Cannot change serving for a legacy food log without a food item");
+    }
+    const item = await foodItemRepo.findById(existing.foodItemId);
+    if (!item || !canSeeFood(user, item)) throw new NotFoundError("Food not found");
+    const nutrient = await foodItemRepo.getNutrients(item.id);
+    if (!nutrient) throw new ConflictError("Food has no nutrition data");
+    const servings = await foodItemRepo.getServings(item.id);
+    const selectedServing = resolveNamedServing(payload.servingId, servings);
+    const basis = {
+      basis: assertSupportedBasis(nutrient.basis),
+      servingG: toNumber(nutrient.servingG) || null,
+      kcal: toNumber(nutrient.kcal),
+      proteinG: toNumber(nutrient.proteinG),
+      carbsG: toNumber(nutrient.carbsG),
+      fatG: toNumber(nutrient.fatG),
+    };
+    const quantityGrams = resolveQuantityGrams(
+      {
+        servingId: payload.servingId ?? null,
+        quantity: nextServings,
+        matchedServingGrams: selectedServing ? toNumber(selectedServing.grams) : null,
+      },
+      basis
+    );
+    const scaled = scaleNutrients(basis, quantityGrams);
+    nutrition = scaled;
+    servingId = selectedServing?.id ?? null;
+    if (payload.servingUnit === undefined) {
+      servingUnit =
+        selectedServing?.label ??
+        (payload.servingId === GRAMS_SERVING_ID ? "g" : nutrient.servingLabel);
+    }
+  }
+
   const patch = {
     servingQty: String(nextServings),
-    servingId: payload.servingId === undefined ? existing.servingId : payload.servingId,
-    servingUnit: payload.servingUnit === undefined ? existing.servingUnit : payload.servingUnit,
+    servingId,
+    servingUnit,
     consumedAt: payload.consumedAt ? new Date(payload.consumedAt) : existing.consumedAt,
-    kcal: Math.round(existing.kcal * ratio),
-    proteinG: String(toNumber(existing.proteinG) * ratio),
-    carbsG: String(toNumber(existing.carbsG) * ratio),
-    fatG: String(toNumber(existing.fatG) * ratio),
+    kcal: nutrition.kcal,
+    proteinG: String(nutrition.proteinG),
+    carbsG: String(nutrition.carbsG),
+    fatG: String(nutrition.fatG),
     updatedAt: new Date(),
   };
   const { updated, totals } = await db.transaction(async (tx) => {
@@ -601,7 +657,6 @@ export async function updateFoodLog(user: User, id: string, payload: UpdateLogPa
   await invalidateFoodDashboardCache(user.id, updated.localDate);
   return mutationResult(user, updated, totals);
 }
-
 export async function deleteFoodLog(user: User, id: string) {
   const deleted = await db.transaction(async (tx) => {
     const row = await foodLogRepo.deleteLogForUser(user.id, id, tx);
@@ -781,6 +836,9 @@ function toFoodLogEntry(log: FoodLog, favoriteIds: ReadonlySet<string> = new Set
   return {
     id: log.id,
     foodItemId: log.foodItemId,
+    servingId:
+      log.servingId ??
+      (log.servingUnit?.trim().toLowerCase() === "grams" ? GRAMS_SERVING_ID : null),
     name: log.name,
     day: log.localDate,
     servings: toNumber(log.servingQty) || 1,

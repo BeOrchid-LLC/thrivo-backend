@@ -1,4 +1,4 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -33,6 +33,24 @@ export async function findActiveByBarcode(
   return row ?? null;
 }
 
+export async function findActiveByOriginRef(
+  origin: FoodItem["origin"],
+  originRef: string,
+  tx: Executor = db
+): Promise<FoodItem | null> {
+  const [row] = await tx
+    .select()
+    .from(foodItems)
+    .where(
+      and(
+        eq(foodItems.origin, origin),
+        eq(foodItems.originRef, originRef),
+        eq(foodItems.status, "active")
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
 /** Full-text search over the generated tsvector, ranked by relevance. Active items only. */
 export async function searchByText(
   query: string,
@@ -68,7 +86,8 @@ export async function searchVisibleByText(
     )
     .orderBy(
       sql`case when ${foodItems.ownerUserId} = ${userId} then 0 else 1 end`,
-      sql`ts_rank(${foodItems.searchText}, ${tsQuery}) desc`
+      sql`ts_rank(${foodItems.searchText}, ${tsQuery}) desc`,
+      asc(foodItems.id)
     )
     .limit(limit)
     .offset(offset);

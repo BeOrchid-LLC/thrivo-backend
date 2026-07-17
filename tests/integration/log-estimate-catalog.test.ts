@@ -14,6 +14,7 @@ function estimatePayload(overrides: Partial<LogEstimatePayload> = {}): LogEstima
     quantity: 1,
     day: "2026-07-16",
     nutrients: { calories: 270, proteinG: 28, carbsG: 8, fatG: 12 },
+    referenceGrams: 250,
     servingUnit: "serving",
     ...overrides,
   };
@@ -39,6 +40,8 @@ describe.skipIf(!run)("integration: logEstimate creates personal catalog item", 
     expect(item?.tier).toBe("personal");
     expect(item?.ownerUserId).toBe(user.id);
     expect(item?.originRef).toBe("estimate");
+    const nutrient = await foodItemRepo.getNutrients(item!.id);
+    expect(Number(nutrient?.servingG)).toBe(250);
 
     const mapped = await searchFoods(user, "suya", 10);
     expect(mapped.phase).toBe("local");

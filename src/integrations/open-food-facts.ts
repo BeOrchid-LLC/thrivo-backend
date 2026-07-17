@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
 export interface OpenFoodFactsProduct {
-  barcode: string;
+  barcode: string | null;
+  /** Stable OFF identity used when a result has no barcode. */
+  externalId?: string | null;
   name: string;
   brand: string | null;
   /** Which reference amount every nutrient below is stated for (ADR-0022) — one basis for the whole product. */
@@ -31,6 +34,8 @@ export interface OpenFoodFactsSearchResult {
 interface OffResponse {
   product?: {
     code?: string;
+    _id?: string;
+    id?: string;
     product_name?: string;
     product_name_en?: string;
     brands?: string;
@@ -53,6 +58,8 @@ const OFF_TIMEOUT_MS = 4_000;
 export const OFF_USER_AGENT = "ThrivoApp/1.0 (+https://thrivo.fit; support@thrivo.fit)";
 const SEARCH_FIELDS = [
   "code",
+  "_id",
+  "id",
   "product_name",
   "product_name_en",
   "brands",
@@ -153,7 +160,7 @@ const PER_100G_NUTRIENT_KEYS = [
  * rejected as incomplete rather than guessed at.
  */
 function normalizeProduct(
-  barcode: string,
+  barcode: string | null,
   product: NonNullable<OffResponse["product"]>
 ): OpenFoodFactsProduct | null {
   const name = clean(product.product_name_en ?? product.product_name);
@@ -210,14 +217,23 @@ function normalizeSearchResult(
 ): OpenFoodFactsSearchResult | null {
   const code = clean(product.code);
   const name = clean(product.product_name_en ?? product.product_name);
-  if (!code || !name) return null;
+  if (!name) return null;
   const normalized = normalizeProduct(code, product);
   if (!normalized) return null;
-  return {
-    externalId: `off:${code}`,
+  const stableKey = JSON.stringify({
     name: normalized.name,
     brand: normalized.brand,
-    barcode: normalized.barcode,
+    servingLabel: normalized.servingLabel,
+    servingGrams: normalized.servingGrams,
+  });
+  const externalId = code
+    ? "off:" + code
+    : "off:hash:" + createHash("sha256").update(stableKey).digest("hex").slice(0, 32);
+  return {
+    externalId,
+    name: normalized.name,
+    brand: normalized.brand,
+    barcode: code,
     basis: normalized.basis,
     servingLabel: normalized.servingLabel,
     servingGrams: normalized.servingGrams,
@@ -225,7 +241,6 @@ function normalizeSearchResult(
     source: "openfoodfacts",
   };
 }
-
 /** Returns the parsed numbers for `keys`, in order, only if every one resolves — else null. */
 function allNumbers(
   values: Record<string, string | number | undefined>,

@@ -49,7 +49,7 @@ async function enforceRateLimit(user: User): Promise<void> {
 export async function estimateNutrition(
   user: User,
   payload: EstimateFoodPayload
-): Promise<Nutrients> {
+): Promise<Nutrients & { referenceGrams: number }> {
   return cacheAside(cacheKey(payload), env.AI_ESTIMATE_CACHE_TTL_SECONDS, async () => {
     await enforceRateLimit(user);
     return estimateNutritionViaModel(payload);

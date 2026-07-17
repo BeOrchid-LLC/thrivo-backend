@@ -66,7 +66,7 @@ describe.skipIf(!run)("integration: externalFood upsert-then-log bridge", () => 
     expect(cached?.id).toBe(result.entry.foodItemId);
   });
 
-  it("creates a personal item when the external snapshot has no barcode", async () => {
+  it("creates a personal item when the external snapshot has no barcode but has grams", async () => {
     const user = await makeUser();
     const result = await logFood(
       user,
@@ -79,7 +79,7 @@ describe.skipIf(!run)("integration: externalFood upsert-then-log bridge", () => 
           brand: null,
           barcode: null,
           servingLabel: "bowl",
-          servingGrams: null,
+          servingGrams: 250,
           nutrients: { calories: 450, proteinG: 12, carbsG: 70, fatG: 10 },
           source: "openfoodfacts",
         },
@@ -92,5 +92,25 @@ describe.skipIf(!run)("integration: externalFood upsert-then-log bridge", () => 
     expect(item?.tier).toBe("personal");
     expect(item?.ownerUserId).toBe(user.id);
     expect(fetchOpenFoodFactsProduct).not.toHaveBeenCalled();
+  });
+
+  it("rejects a barcode-less external snapshot without grams", async () => {
+    const user = await makeUser();
+    await expect(
+      logFood(user, {
+        day: "2026-07-16",
+        servings: 1,
+        externalFood: {
+          externalId: "off:no-grams",
+          name: "Unresolved product",
+          brand: null,
+          barcode: null,
+          servingLabel: "bowl",
+          servingGrams: null,
+          nutrients: { calories: 450, proteinG: 12, carbsG: 70, fatG: 10 },
+          source: "openfoodfacts",
+        },
+      })
+    ).rejects.toThrow(/servingGrams/i);
   });
 });

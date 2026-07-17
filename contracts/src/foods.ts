@@ -56,6 +56,7 @@ export type FoodItem = z.infer<typeof foodItemSchema>;
 export const foodLogEntrySchema = z.object({
   id: idSchema,
   foodItemId: idSchema.nullable(),
+  servingId: idSchema.nullable().optional(),
   name: z.string(),
   day: localDaySchema,
   servings: z.number().positive(),
@@ -290,6 +291,7 @@ export const estimateFoodResponseSchema = apiSuccessSchema(
       name: z.string(),
       servingUnit: z.string(),
       quantity: z.number().positive(),
+      referenceGrams: z.number().positive().max(100_000),
       nutrients: nutrientsSchema,
       isEstimated: z.literal(true),
     }),
@@ -299,6 +301,7 @@ export const estimateFoodResponseSchema = apiSuccessSchema(
 export const logEstimatePayloadSchema = estimateFoodPayloadSchema.extend({
   day: localDaySchema,
   nutrients: boundedNutrientsSchema,
+  referenceGrams: z.number().positive().max(100_000),
   servingUnit: z.string().trim().max(80).optional(),
 });
 export type LogEstimatePayload = z.infer<typeof logEstimatePayloadSchema>;
