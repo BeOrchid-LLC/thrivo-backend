@@ -1,1 +1,1 @@
-CREATE UNIQUE INDEX "food_items_off_origin_ref_active_uniq" ON "food_items" USING btree ("origin_ref") WHERE "food_items"."origin" = 'openfoodfacts' AND "food_items"."status" = 'active' AND "food_items"."origin_ref" IS NOT NULL;
+CREATE UNIQUE INDEX CONCURRENTLY "food_items_off_origin_ref_active_uniq" ON "food_items" USING btree ("origin_ref") WHERE "food_items"."origin" = 'openfoodfacts' AND "food_items"."status" = 'active' AND "food_items"."origin_ref" IS NOT NULL;

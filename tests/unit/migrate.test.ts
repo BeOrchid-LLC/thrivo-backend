@@ -52,6 +52,9 @@ describe("migration deferral policy", () => {
     expect(
       isConcurrentIndexStatement('CREATE INDEX CONCURRENTLY "new_idx" ON "users" ("id")')
     ).toBe(true);
+    expect(
+      isConcurrentIndexStatement('CREATE UNIQUE INDEX CONCURRENTLY "uniq_idx" ON "users" ("id")')
+    ).toBe(true);
     expect(isConcurrentIndexStatement('ALTER TABLE "users" ADD COLUMN "name" text')).toBe(false);
   });
 
@@ -94,12 +97,17 @@ describe("migration deferral policy", () => {
     expect(record).toHaveBeenCalledOnce();
   });
 
-  it("defers only the explicitly approved migration tag", () => {
+  it("defers only the explicitly approved migration tags", () => {
     expect(
       isDeferredMigration(migration("0027_cheerful_hannibal_king", ["CREATE INDEX CONCURRENTLY x"]))
     ).toBe(true);
     expect(
-      isDeferredMigration(migration("0028_future_migration", ["CREATE INDEX CONCURRENTLY x"]))
+      isDeferredMigration(
+        migration("0028_striped_randall_flagg", ["CREATE UNIQUE INDEX CONCURRENTLY x"])
+      )
+    ).toBe(true);
+    expect(
+      isDeferredMigration(migration("0029_future_migration", ["CREATE INDEX CONCURRENTLY x"]))
     ).toBe(false);
   });
 

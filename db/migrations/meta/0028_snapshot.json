@@ -760,7 +760,7 @@
           ],
           "isUnique": true,
           "where": "\"food_items\".\"origin\" = 'openfoodfacts' AND \"food_items\".\"status\" = 'active' AND \"food_items\".\"origin_ref\" IS NOT NULL",
-          "concurrently": false,
+          "concurrently": true,
           "method": "btree",
           "with": {}
         },
