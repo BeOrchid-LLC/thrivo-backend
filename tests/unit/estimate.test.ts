@@ -18,12 +18,19 @@ describe("estimateNutritionViaModel", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("validates, clamps absurd magnitudes, and rounds", async () => {
-    modelReturns({ calories: 99999, proteinG: -10, carbsG: 50.6, fatG: 9999 });
+    modelReturns({
+      calories: 99999,
+      proteinG: -10,
+      carbsG: 50.6,
+      fatG: 9999,
+      referenceGrams: 250.55,
+    });
     const out = await estimateNutritionViaModel(payload);
     expect(out.calories).toBe(5000); // clamped to the single-meal ceiling
     expect(out.proteinG).toBe(0); // negative floored to 0
     expect(out.carbsG).toBe(51); // rounded
     expect(out.fatG).toBe(500); // clamped
+    expect(out.referenceGrams).toBe(250.6);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ max_tokens: 160 }));
   });
 

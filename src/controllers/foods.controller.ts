@@ -146,11 +146,12 @@ export async function deleteFavorite(c: Context<AppEnv>) {
 export async function estimateFoodEntry(c: Context<AppEnv>) {
   const user = c.get("user")!;
   const input = estimateFoodPayloadSchema.parse(getValidatedInput(c, "json"));
-  const nutrients = await estimateNutrition(user, input);
+  const { referenceGrams, ...nutrients } = await estimateNutrition(user, input);
   const estimate = {
     name: input.name,
     servingUnit: input.portionMeasure,
     quantity: input.quantity,
+    referenceGrams,
     nutrients,
     isEstimated: true as const,
   };

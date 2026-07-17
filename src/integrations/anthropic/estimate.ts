@@ -14,6 +14,7 @@ const modelOutputSchema = z.object({
   proteinG: z.number().finite(),
   carbsG: z.number().finite(),
   fatG: z.number().finite(),
+  referenceGrams: z.number().finite().positive(),
 });
 
 // Schema-constrained output so the model returns exactly these fields (no prose
@@ -27,8 +28,12 @@ const NUTRITION_FORMAT = {
       proteinG: { type: "number", description: "Total protein in grams" },
       carbsG: { type: "number", description: "Total carbohydrate in grams" },
       fatG: { type: "number", description: "Total fat in grams" },
+      referenceGrams: {
+        type: "number",
+        description: "Estimated total edible weight of the whole described portion in grams",
+      },
     },
-    required: ["calories", "proteinG", "carbsG", "fatG"],
+    required: ["calories", "proteinG", "carbsG", "fatG", "referenceGrams"],
     additionalProperties: false,
   },
 };
@@ -36,6 +41,7 @@ const NUTRITION_FORMAT = {
 const SYSTEM = [
   "You are a nutrition estimator for a calorie-tracking app.",
   "Given a free-text meal description and a portion, estimate the nutrition for the WHOLE portion described, with the quantity already included.",
+  "Also estimate the total edible weight of the whole described portion in grams. For a weight portion, use the supplied gram quantity.",
   "Use realistic home-cooked values; West African and global dishes are common.",
   "Return only the structured fields; give your best estimate even when unsure.",
 ].join(" ");
@@ -43,6 +49,11 @@ const SYSTEM = [
 function clamp(value: number, max: number): number {
   const v = Number.isFinite(value) ? value : 0;
   return Math.max(0, Math.min(max, Math.round(v)));
+}
+
+function clampPositive(value: number, max: number): number {
+  const v = Number.isFinite(value) ? value : 0;
+  return Math.max(0.1, Math.min(max, Math.round(v * 10) / 10));
 }
 
 function buildPrompt(payload: EstimateFoodPayload): string {
@@ -54,7 +65,9 @@ function buildPrompt(payload: EstimateFoodPayload): string {
 }
 
 /** One Claude call → validated, clamped nutrients for the whole portion. */
-export async function estimateNutritionViaModel(payload: EstimateFoodPayload): Promise<Nutrients> {
+export async function estimateNutritionViaModel(
+  payload: EstimateFoodPayload
+): Promise<Nutrients & { referenceGrams: number }> {
   let raw: string;
   try {
     const message = await getAnthropic().messages.create({
@@ -84,5 +97,9 @@ export async function estimateNutritionViaModel(payload: EstimateFoodPayload): P
     proteinG: clamp(parsed.proteinG, MAX.proteinG),
     carbsG: clamp(parsed.carbsG, MAX.carbsG),
     fatG: clamp(parsed.fatG, MAX.fatG),
+    referenceGrams:
+      payload.portionMeasure === "weight"
+        ? payload.quantity
+        : clampPositive(parsed.referenceGrams, 100_000),
   };
 }

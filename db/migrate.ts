@@ -19,16 +19,26 @@ import { logger } from "../src/lib/logger";
  * - startup: the API applies required schema changes before binding, then
  *   returns the pending optional indexes for post-bind execution.
  *
- * Migration 0027 only adds/removes performance indexes. It is therefore safe
- * to defer, but this policy is explicit so a future correctness migration is
- * never deferred merely because it happens to contain CONCURRENTLY.
+ * Deferral is an explicit allowlist, never inferred from "contains
+ * CONCURRENTLY", so a correctness migration is never deferred by accident.
+ * - 0027 only adds/removes performance indexes.
+ * - 0028 adds the OFF origin_ref uniqueness backstop. Deferring it opens a
+ *   short per-deploy window before the index exists, but duplicates are
+ *   already prevented app-side by findActiveByOriginRef's pre-check
+ *   (upsertOffProduct); the index only guards a true concurrent-insert race.
+ *   It must be deferred: it lands after 0027, and deferred migrations have to
+ *   be the terminal segment, so building it CONCURRENTLY (out of the drizzle
+ *   transaction, no long lock on food_items) is the only consistent option.
  */
 
 const MIGRATION_LOCK_KEY = 4011982;
 const MIGRATIONS_FOLDER = "db/migrations";
 const MIGRATIONS_SCHEMA = "drizzle";
 const MIGRATIONS_TABLE = "__drizzle_migrations";
-const DEFERRED_MIGRATION_TAGS = new Set(["0027_cheerful_hannibal_king"]);
+const DEFERRED_MIGRATION_TAGS = new Set([
+  "0027_cheerful_hannibal_king",
+  "0028_striped_randall_flagg",
+]);
 const DEFERRED_LOCK_TIMEOUT = "10s";
 const DEFERRED_STATEMENT_TIMEOUT = "15min";
 const MIGRATION_LOCK_WAIT_TIMEOUT_MS = 60_000;
@@ -63,7 +73,7 @@ function isDeferredMigration(migration: Pick<LoadedMigration, "tag">): boolean {
 }
 
 function isConcurrentIndexStatement(statement: string): boolean {
-  return /^(drop|create)\s+index\s+concurrently\b/i.test(statement.trim());
+  return /^(drop|create)\s+(unique\s+)?index\s+concurrently\b/i.test(statement.trim());
 }
 
 function validateDeferredMigrations(

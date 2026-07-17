@@ -3,7 +3,7 @@ import { closeDb, resetDb } from "../helpers/db";
 import { makeUser } from "../helpers/factories";
 import { GRAMS_SERVING_ID } from "../../src/lib/nutrition";
 import { foodItemRepo } from "../../src/repositories";
-import { logFood } from "../../src/services/food.service";
+import { logFood, updateFoodLog } from "../../src/services/food.service";
 import type { LogFoodPayload } from "../../contracts/src/foods";
 
 // Integration suite — real test Postgres, gated by RUN_DB_TESTS=1.
@@ -95,6 +95,29 @@ describe.skipIf(!run)("integration: food basis logging (R1 / I1, I2)", () => {
     ).rejects.toThrow(/serving/i);
   });
 
+  it("recomputes snapshots for serving changes and preserves quantity-only scaling", async () => {
+    const user = await makeUser();
+    const item = await makePerServingItem();
+    const cup = await foodItemRepo.insertServing({
+      foodItemId: item.id,
+      label: "1 cup",
+      grams: "240",
+      isDefault: false,
+    });
+    const created = await logFood(user, logPayload({ foodItemId: item.id, servings: 1 }));
+    const named = await updateFoodLog(user, created.entry.id, { servingId: cup.id, servings: 1 });
+    expect(named.entry.nutrients.calories).toBe(1080);
+    expect(named.entry.servingId).toBe(cup.id);
+    const quantity = await updateFoodLog(user, created.entry.id, { servings: 2 });
+    expect(quantity.entry.nutrients.calories).toBe(2160);
+    const grams = await updateFoodLog(user, created.entry.id, {
+      servingId: GRAMS_SERVING_ID,
+      servingUnit: "g",
+      servings: 150,
+    });
+    expect(grams.entry.nutrients.calories).toBe(675);
+    expect(grams.entry.servingUnit).toBe("g");
+  });
   it("DB check constraint rejects a per_serving row with no serving_g", async () => {
     const item = await foodItemRepo.insertItem({
       tier: "authoritative",

@@ -48,6 +48,11 @@ export const foodItems = pgTable(
     barcodeActiveUniq: uniqueIndex("food_items_barcode_active_uniq")
       .on(t.barcode)
       .where(sql`${t.status} = 'active'`),
+    openFoodFactsOriginRefActiveUniq: uniqueIndex("food_items_off_origin_ref_active_uniq")
+      .on(t.originRef)
+      .where(
+        sql`${t.origin} = 'openfoodfacts' AND ${t.status} = 'active' AND ${t.originRef} IS NOT NULL`
+      ),
     tierStatusIdx: index("food_items_tier_status_idx").on(t.tier, t.status),
     ownerPersonalIdx: index("food_items_owner_personal_idx")
       .on(t.ownerUserId)

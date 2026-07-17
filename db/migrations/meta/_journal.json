@@ -197,6 +197,13 @@
       "when": 1783998472131,
       "tag": "0027_cheerful_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1784288260086,
+      "tag": "0028_striped_randall_flagg",
+      "breakpoints": true
     }
   ]
 }
