@@ -9,6 +9,11 @@ describe("backfill-food-log-item-ids: inferReferenceGrams", () => {
     expect(inferReferenceGrams("Grams")).toBe(1);
   });
 
+  it("reads the 'weight' portion measure as a 1g-per-unit basis (serving_qty holds grams)", () => {
+    expect(inferReferenceGrams("weight")).toBe(1);
+    expect(inferReferenceGrams("Weight")).toBe(1);
+  });
+
   it("extracts an explicit gram amount from the serving-unit text", () => {
     expect(inferReferenceGrams("150g")).toBe(150);
     expect(inferReferenceGrams("150 g")).toBe(150);
