@@ -6,7 +6,7 @@ import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog, checkIns, uploads } from "../../db/schema";
 import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
-import { checkInRepo, userRepo } from "../../src/repositories";
+import { userRepo } from "../../src/repositories";
 import { makeUser, makeCheckIn } from "../helpers/factories";
 import {
   adminCheckinNoteListResponseSchema,
@@ -37,11 +37,10 @@ describe.skipIf(!run)("integration: admin UGC moderation", () => {
 
   it("lists notes and redacts one (support), hiding it from the mobile read", async () => {
     const user = await makeUser();
-    const [checkin] = [
-      await checkInRepo.createCheckIn(
-        makeCheckIn(user.id, { note: "something offensive", localDate: "2026-07-10" })
-      ),
-    ];
+    const checkin = await makeCheckIn(user.id, {
+      note: "something offensive",
+      localDate: "2026-07-10",
+    });
     const app = buildApp();
 
     const list = await app.request("/api/v1/admin/moderation/checkin-notes", {
