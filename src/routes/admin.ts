@@ -11,6 +11,10 @@ import {
   adminFoodRejectPayloadSchema,
 } from "../../contracts/src/admin-foods";
 import {
+  adminAudienceEstimatePayloadSchema,
+  adminCreateCampaignPayloadSchema,
+} from "../../contracts/src/admin-push";
+import {
   postAdminRequestOtp,
   postAdminVerifyOtp,
   getAdminSession,
@@ -54,6 +58,13 @@ import {
   getAdminWebhook,
   reconcileAdminUserSubscription,
 } from "../controllers/admin-billing.controller";
+import {
+  listAdminPushCampaigns,
+  getAdminPushCampaign,
+  estimateAdminPushAudience,
+  createAdminPushCampaign,
+  sendAdminPushCampaign,
+} from "../controllers/admin-push.controller";
 import {
   listAdminFoods,
   getAdminFood,
@@ -186,6 +197,31 @@ adminRouter.post(
 adminRouter.get("/billing/events", requireAdmin, listAdminBillingEvents);
 adminRouter.get("/webhooks", requireAdmin, listAdminWebhooks);
 adminRouter.get("/webhooks/:id", requireAdmin, requireAdminRole("admin"), getAdminWebhook);
+
+// Push campaigns/broadcast. Reads + audience estimate for any admin; create is
+// support+; send (irreversible, outward-facing) is admin-only. "audience-estimate"
+// and "campaigns" literals precede ":id" routes.
+adminRouter.get("/push/campaigns", requireAdmin, listAdminPushCampaigns);
+adminRouter.post(
+  "/push/audience-estimate",
+  requireAdmin,
+  validate("json", adminAudienceEstimatePayloadSchema),
+  estimateAdminPushAudience
+);
+adminRouter.post(
+  "/push/campaigns",
+  requireAdmin,
+  requireAdminRole("support"),
+  validate("json", adminCreateCampaignPayloadSchema),
+  createAdminPushCampaign
+);
+adminRouter.get("/push/campaigns/:id", requireAdmin, getAdminPushCampaign);
+adminRouter.post(
+  "/push/campaigns/:id/send",
+  requireAdmin,
+  requireAdminRole("admin"),
+  sendAdminPushCampaign
+);
 
 // Observability logs (read-only)
 adminRouter.get("/email-logs", requireAdmin, listAdminEmailLogs);

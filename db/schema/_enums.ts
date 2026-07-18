@@ -67,6 +67,20 @@ export const emailStatusEnum = pgEnum("email_status", [
 export const webhookProviderEnum = pgEnum("webhook_provider", ["revenuecat", "stripe"]);
 export const webhookStatusEnum = pgEnum("webhook_status", ["received", "processed", "failed"]);
 
+// Admin push-campaign lifecycle and per-recipient delivery state.
+export const pushCampaignStatusEnum = pgEnum("push_campaign_status", [
+  "draft",
+  "scheduled",
+  "sending",
+  "sent",
+  "failed",
+]);
+export const pushRecipientStatusEnum = pgEnum("push_recipient_status", [
+  "queued",
+  "sent",
+  "failed",
+]);
+
 // Object-storage upload lifecycle: a row is `pending` once a presigned URL is
 // minted, `verified` after HeadObject confirms the client completed the PUT, or
 // `failed`/`expired` otherwise. `uploaded` is reserved for a future webhook path.
@@ -98,4 +112,6 @@ export type UserEventType = (typeof userEventTypeEnum.enumValues)[number];
 export type EmailStatus = (typeof emailStatusEnum.enumValues)[number];
 export type WebhookProvider = (typeof webhookProviderEnum.enumValues)[number];
 export type WebhookStatus = (typeof webhookStatusEnum.enumValues)[number];
+export type PushCampaignStatus = (typeof pushCampaignStatusEnum.enumValues)[number];
+export type PushRecipientStatus = (typeof pushRecipientStatusEnum.enumValues)[number];
 export type UploadStatus = (typeof uploadStatusEnum.enumValues)[number];

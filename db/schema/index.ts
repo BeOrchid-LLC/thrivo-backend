@@ -22,6 +22,7 @@ export * from "./settings";
 export * from "./email-captures";
 export * from "./email-logs";
 export * from "./push-tokens";
+export * from "./push-campaigns";
 export * from "./webhook-events";
 export * from "./admin-audit-log";
 export * from "./uploads";

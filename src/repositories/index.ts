@@ -29,4 +29,5 @@ export * as adminUserRepo from "./admin-user.repository";
 export * as adminSubscriptionRepo from "./admin-subscription.repository";
 export * as adminFoodRepo from "./admin-food.repository";
 export * as adminBillingRepo from "./admin-billing.repository";
+export * as pushCampaignRepo from "./push-campaign.repository";
 export * as uploadsRepo from "./uploads.repository";
