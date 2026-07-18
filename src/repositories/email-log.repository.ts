@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -9,6 +9,25 @@ import {
 } from "../../db/schema";
 
 export type EmailLog = EmailLogRow;
+
+/** Admin viewer — offset-paginated, newest-first, optional status filter. */
+export async function listPaged(
+  params: { offset: number; limit: number; status?: EmailStatus },
+  tx: Executor = db
+): Promise<{ rows: EmailLog[]; total: number }> {
+  const where = params.status ? eq(emailLogs.status, params.status) : undefined;
+  const [rows, [{ value: total }]] = await Promise.all([
+    tx
+      .select()
+      .from(emailLogs)
+      .where(where)
+      .orderBy(desc(emailLogs.createdAt), desc(emailLogs.id))
+      .limit(params.limit)
+      .offset(params.offset),
+    tx.select({ value: count() }).from(emailLogs).where(where),
+  ]);
+  return { rows, total: Number(total) };
+}
 
 export async function logSend(input: NewEmailLogRow, tx: Executor = db): Promise<EmailLog> {
   const [row] = await tx.insert(emailLogs).values(input).returning();

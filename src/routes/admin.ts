@@ -2,6 +2,9 @@ import { Hono } from "hono";
 import { requireAdmin } from "../middleware/require-admin";
 import { adminOriginGuard } from "../middleware/admin-origin";
 import { adminAuthRateLimit } from "../middleware/rate-limit";
+import { validate } from "../middleware/validate";
+import { adminCancelPayloadSchema, adminRefundPayloadSchema } from "../../contracts/src/admin";
+import { adminUpsertTipPayloadSchema } from "../../contracts/src/admin-content";
 import {
   postAdminRequestOtp,
   postAdminVerifyOtp,
@@ -27,6 +30,22 @@ import {
   hardDeleteAdminLead,
   exportAdminLeads,
 } from "../controllers/admin-leads.controller";
+import { listAdminSubscriptions } from "../controllers/admin-subscriptions.controller";
+import {
+  getAdminSubscriptionAnalytics,
+  getAdminEngagementAnalytics,
+} from "../controllers/admin-analytics.controller";
+import {
+  listAdminTips,
+  createAdminTip,
+  updateAdminTip,
+  deleteAdminTip,
+} from "../controllers/admin-content.controller";
+import { listAdminEmailLogs, listAdminAuditLog } from "../controllers/admin-logs.controller";
+import {
+  cancelAdminUserSubscription,
+  refundAdminUserSubscription,
+} from "../controllers/admin-subscription-actions.controller";
 import type { AppEnv } from "../types/http";
 
 /** `/api/v1/admin` — staff-only surface gated by the admin session cookie. */
@@ -57,8 +76,49 @@ adminRouter.get("/users/:id/timeline", requireAdmin, getAdminUserTimeline);
 adminRouter.get("/users/:id/activity", requireAdmin, getAdminUserActivity);
 adminRouter.delete("/users/:id", requireAdmin, hardDeleteAdminUser);
 
+// Subscription actions on a specific user (operator overrides, audited)
+adminRouter.post(
+  "/users/:id/subscription/cancel",
+  requireAdmin,
+  validate("json", adminCancelPayloadSchema),
+  cancelAdminUserSubscription
+);
+adminRouter.post(
+  "/users/:id/subscription/refund",
+  requireAdmin,
+  validate("json", adminRefundPayloadSchema),
+  refundAdminUserSubscription
+);
+
+// Subscriptions list
+adminRouter.get("/subscriptions", requireAdmin, listAdminSubscriptions);
+
 // Metrics
 adminRouter.get("/metrics/dashboard", requireAdmin, getAdminDashboardMetrics);
+
+// Analytics page — subscription funnel + engagement, fetched independently.
+adminRouter.get("/analytics/subscriptions", requireAdmin, getAdminSubscriptionAnalytics);
+adminRouter.get("/analytics/engagement", requireAdmin, getAdminEngagementAnalytics);
+
+// Content — psychology tip bank CRUD (mutations audited)
+adminRouter.get("/tips", requireAdmin, listAdminTips);
+adminRouter.post(
+  "/tips",
+  requireAdmin,
+  validate("json", adminUpsertTipPayloadSchema),
+  createAdminTip
+);
+adminRouter.patch(
+  "/tips/:id",
+  requireAdmin,
+  validate("json", adminUpsertTipPayloadSchema),
+  updateAdminTip
+);
+adminRouter.delete("/tips/:id", requireAdmin, deleteAdminTip);
+
+// Observability logs (read-only)
+adminRouter.get("/email-logs", requireAdmin, listAdminEmailLogs);
+adminRouter.get("/audit-log", requireAdmin, listAdminAuditLog);
 
 // Overview page — one route per independently-fetched section.
 adminRouter.get("/overview/metrics", requireAdmin, getAdminOverviewMetrics);
