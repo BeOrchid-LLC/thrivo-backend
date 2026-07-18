@@ -48,6 +48,13 @@ import {
 } from "../controllers/admin-content.controller";
 import { listAdminEmailLogs, listAdminAuditLog } from "../controllers/admin-logs.controller";
 import {
+  listAdminBillingEvents,
+  getAdminUserBillingEvents,
+  listAdminWebhooks,
+  getAdminWebhook,
+  reconcileAdminUserSubscription,
+} from "../controllers/admin-billing.controller";
+import {
   listAdminFoods,
   getAdminFood,
   approveAdminFood,
@@ -107,6 +114,14 @@ adminRouter.post(
   validate("json", adminRefundPayloadSchema),
   refundAdminUserSubscription
 );
+// Per-user billing event timeline (read) + reconcile trigger (admin-only).
+adminRouter.get("/users/:id/billing-events", requireAdmin, getAdminUserBillingEvents);
+adminRouter.post(
+  "/users/:id/reconcile-subscription",
+  requireAdmin,
+  requireAdminRole("admin"),
+  reconcileAdminUserSubscription
+);
 
 // Subscriptions list
 adminRouter.get("/subscriptions", requireAdmin, listAdminSubscriptions);
@@ -164,6 +179,13 @@ adminRouter.post(
   validate("json", adminFoodMergePayloadSchema),
   mergeAdminFood
 );
+
+// Billing observability — subscription funnel events + webhook ledger. Reads
+// open to any admin; raw webhook payload is admin-only (may carry PII). The
+// "webhooks" literal is registered before ":id"-shaped routes to avoid capture.
+adminRouter.get("/billing/events", requireAdmin, listAdminBillingEvents);
+adminRouter.get("/webhooks", requireAdmin, listAdminWebhooks);
+adminRouter.get("/webhooks/:id", requireAdmin, requireAdminRole("admin"), getAdminWebhook);
 
 // Observability logs (read-only)
 adminRouter.get("/email-logs", requireAdmin, listAdminEmailLogs);
