@@ -6,6 +6,11 @@ import { validate } from "../middleware/validate";
 import { adminCancelPayloadSchema, adminRefundPayloadSchema } from "../../contracts/src/admin";
 import { adminUpsertTipPayloadSchema } from "../../contracts/src/admin-content";
 import {
+  adminFoodEditPayloadSchema,
+  adminFoodMergePayloadSchema,
+  adminFoodRejectPayloadSchema,
+} from "../../contracts/src/admin-foods";
+import {
   postAdminRequestOtp,
   postAdminVerifyOtp,
   getAdminSession,
@@ -42,6 +47,15 @@ import {
   deleteAdminTip,
 } from "../controllers/admin-content.controller";
 import { listAdminEmailLogs, listAdminAuditLog } from "../controllers/admin-logs.controller";
+import {
+  listAdminFoods,
+  getAdminFood,
+  approveAdminFood,
+  rejectAdminFood,
+  verifyAdminFood,
+  editAdminFood,
+  mergeAdminFood,
+} from "../controllers/admin-foods.controller";
 import {
   cancelAdminUserSubscription,
   refundAdminUserSubscription,
@@ -122,6 +136,34 @@ adminRouter.patch(
   updateAdminTip
 );
 adminRouter.delete("/tips/:id", requireAdmin, requireAdminRole("support"), deleteAdminTip);
+
+// Food catalog moderation. Reads open to any admin; approve/reject/verify/edit
+// are support+; merge (irreversible dedup) is admin-only. All mutations audited.
+adminRouter.get("/foods", requireAdmin, listAdminFoods);
+adminRouter.get("/foods/:id", requireAdmin, getAdminFood);
+adminRouter.post("/foods/:id/approve", requireAdmin, requireAdminRole("support"), approveAdminFood);
+adminRouter.post(
+  "/foods/:id/reject",
+  requireAdmin,
+  requireAdminRole("support"),
+  validate("json", adminFoodRejectPayloadSchema),
+  rejectAdminFood
+);
+adminRouter.post("/foods/:id/verify", requireAdmin, requireAdminRole("support"), verifyAdminFood);
+adminRouter.patch(
+  "/foods/:id",
+  requireAdmin,
+  requireAdminRole("support"),
+  validate("json", adminFoodEditPayloadSchema),
+  editAdminFood
+);
+adminRouter.post(
+  "/foods/:id/merge",
+  requireAdmin,
+  requireAdminRole("admin"),
+  validate("json", adminFoodMergePayloadSchema),
+  mergeAdminFood
+);
 
 // Observability logs (read-only)
 adminRouter.get("/email-logs", requireAdmin, listAdminEmailLogs);

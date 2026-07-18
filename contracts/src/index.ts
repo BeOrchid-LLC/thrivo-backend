@@ -4,6 +4,7 @@ export * from "./auth";
 export * from "./admin";
 export * from "./admin-analytics";
 export * from "./admin-content";
+export * from "./admin-foods";
 export * from "./admin-logs";
 export * from "./admin-subscriptions";
 export * from "./leads";

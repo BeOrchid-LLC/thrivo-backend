@@ -27,4 +27,5 @@ export * as webhookEventRepo from "./webhook-event.repository";
 export * as adminAuditLogRepo from "./admin-audit-log.repository";
 export * as adminUserRepo from "./admin-user.repository";
 export * as adminSubscriptionRepo from "./admin-subscription.repository";
+export * as adminFoodRepo from "./admin-food.repository";
 export * as uploadsRepo from "./uploads.repository";
