@@ -2,6 +2,7 @@ import type { Job } from "bullmq";
 import { logger } from "../../lib/logger";
 import { sendDailyNudges } from "../../services/nudge.service";
 import { handleSendNudgeChunk } from "./send-nudge-chunk";
+import { handleSendCampaign } from "./send-campaign";
 
 /**
  * Router for the `nudges` queue (R5-3/I15): the daily scheduler job dispatches
@@ -14,6 +15,8 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
     await sendDailyNudges();
   },
   "send-nudge-chunk": handleSendNudgeChunk as (job: Job) => Promise<void>,
+  // Admin push broadcast fan-out (Phase 4) shares the push (nudges) queue.
+  "send-campaign": handleSendCampaign,
 };
 
 export async function handleSendNudge(job: Job): Promise<void> {

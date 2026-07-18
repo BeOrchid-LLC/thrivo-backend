@@ -18,9 +18,23 @@ const adminOtp = createOtp({
   throttle: { max: 5, windowSec: 15 * 60 },
 });
 
-/** Returns true if the email is in the configured admin allowlist. */
+export type AdminRole = "admin" | "support" | "read-only";
+
+/** Returns true if the email is allowed to sign in — either in the flat
+ *  ADMIN_EMAILS allowlist or given a role in the ADMIN_ROLES map. */
 export function isAllowedAdminEmail(email: string): boolean {
-  return env.ADMIN_EMAILS.includes(email.toLowerCase());
+  const lower = email.toLowerCase();
+  return env.ADMIN_EMAILS.includes(lower) || lower in env.ADMIN_ROLES;
+}
+
+/**
+ * Resolve the RBAC role for an allowed admin email. ADMIN_ROLES wins; an email
+ * present only via ADMIN_EMAILS defaults to `admin` (back-compat). Only call
+ * after `isAllowedAdminEmail` — a non-allowed email would fall through to
+ * `admin`, which must never be reachable for an unlisted address.
+ */
+export function roleForEmail(email: string): AdminRole {
+  return env.ADMIN_ROLES[email.toLowerCase()] ?? "admin";
 }
 
 /**

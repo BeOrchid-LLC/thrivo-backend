@@ -122,6 +122,41 @@ export const envSchema = z
           .map((e) => e.trim().toLowerCase())
           .filter(Boolean)
       ),
+    // Optional per-email RBAC overrides: a comma-separated `email:role` map where
+    // role is one of admin | support | read-only. Any email listed in
+    // ADMIN_EMAILS but not here defaults to `admin` (back-compat). An email may
+    // appear only here (grants access at the mapped role without also being in
+    // ADMIN_EMAILS). Invalid role or malformed entry refuses server boot.
+    ADMIN_ROLES: z
+      .string()
+      .default("")
+      .transform((s, ctx) => {
+        const map: Record<string, "admin" | "support" | "read-only"> = {};
+        for (const pair of s
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean)) {
+          const [emailRaw, roleRaw] = pair.split(":").map((x) => x.trim());
+          const email = emailRaw?.toLowerCase();
+          const role = roleRaw?.toLowerCase();
+          if (!email || !role) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `ADMIN_ROLES entry "${pair}" must be "email:role"`,
+            });
+            return z.NEVER;
+          }
+          if (role !== "admin" && role !== "support" && role !== "read-only") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `ADMIN_ROLES role "${roleRaw}" must be admin | support | read-only`,
+            });
+            return z.NEVER;
+          }
+          map[email] = role;
+        }
+        return map;
+      }),
     // httpOnly cookie TTL for admin sessions. Short but comfortable for a staff
     // session; re-login is low-friction. Expressed as a `jose` duration string.
     ADMIN_SESSION_TTL: z.string().default("8h"),
