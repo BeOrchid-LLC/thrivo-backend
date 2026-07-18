@@ -13,7 +13,9 @@ function toCheckin(row: CheckIn, tipBody: string | null): CheckinResponse["check
     id: row.id,
     mood: row.mood,
     day: row.localDate,
-    note: row.note,
+    // A note redacted by admin moderation (hiddenAt set) is suppressed from the
+    // user-facing read — the mood/day/tip remain, only the free text is hidden.
+    note: row.hiddenAt ? null : row.note,
     tip: tipBody,
     createdAt: row.createdAt.toISOString(),
   };

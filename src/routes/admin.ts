@@ -66,6 +66,13 @@ import {
   sendAdminPushCampaign,
 } from "../controllers/admin-push.controller";
 import {
+  listAdminCheckinNotes,
+  redactAdminCheckinNote,
+  restoreAdminCheckinNote,
+  listAdminUploads,
+  removeAdminUpload,
+} from "../controllers/admin-moderation.controller";
+import {
   listAdminFoods,
   getAdminFood,
   approveAdminFood,
@@ -222,6 +229,24 @@ adminRouter.post(
   requireAdminRole("admin"),
   sendAdminPushCampaign
 );
+
+// UGC moderation — check-in notes + avatar uploads. Reads for any admin;
+// redact/restore are support+; removing an image is admin-only (destructive).
+adminRouter.get("/moderation/checkin-notes", requireAdmin, listAdminCheckinNotes);
+adminRouter.post(
+  "/checkins/:id/redact",
+  requireAdmin,
+  requireAdminRole("support"),
+  redactAdminCheckinNote
+);
+adminRouter.post(
+  "/checkins/:id/restore",
+  requireAdmin,
+  requireAdminRole("support"),
+  restoreAdminCheckinNote
+);
+adminRouter.get("/moderation/uploads", requireAdmin, listAdminUploads);
+adminRouter.post("/uploads/:id/remove", requireAdmin, requireAdminRole("admin"), removeAdminUpload);
 
 // Observability logs (read-only)
 adminRouter.get("/email-logs", requireAdmin, listAdminEmailLogs);

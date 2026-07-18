@@ -16,6 +16,9 @@ export const checkIns = pgTable(
     mood: moodEnum("mood").notNull(),
     note: text("note"),
     tipId: text("tip_id"),
+    // Set by admin moderation when a note is redacted; the mobile read path
+    // suppresses the note text while it is non-null. Reversible (restore = null).
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

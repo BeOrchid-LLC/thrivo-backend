@@ -1,0 +1,1 @@
+ALTER TABLE "check_ins" ADD COLUMN "hidden_at" timestamp with time zone;

@@ -7,6 +7,7 @@ export * from "./admin-billing";
 export * from "./admin-content";
 export * from "./admin-foods";
 export * from "./admin-logs";
+export * from "./admin-moderation";
 export * from "./admin-push";
 export * from "./admin-subscriptions";
 export * from "./leads";
