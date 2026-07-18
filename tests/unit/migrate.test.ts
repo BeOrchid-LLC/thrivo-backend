@@ -125,20 +125,22 @@ describe("migration deferral policy", () => {
     ).not.toThrow();
   });
 
-  it("rejects a deferred migration followed by another migration", () => {
+  it("accepts a deferred migration followed by another (non-terminal) migration", () => {
+    // Deferred migrations are partitioned out and applied last, so they no
+    // longer need to be positionally terminal — a normal migration may follow.
     const migrations = [
       migration("0027_cheerful_hannibal_king", [
         'CREATE INDEX CONCURRENTLY "new_idx" ON "users" ("id")',
       ]),
-      migration("0028_future_migration", ['ALTER TABLE "users" ADD COLUMN "x" text']),
+      migration("0029_future_migration", ['ALTER TABLE "users" ADD COLUMN "x" text']),
     ];
 
     expect(() =>
       validateDeferredMigrations(
         migrations,
-        journal("0027_cheerful_hannibal_king", "0028_future_migration")
+        journal("0027_cheerful_hannibal_king", "0029_future_migration")
       )
-    ).toThrow(/terminal migrations/);
+    ).not.toThrow();
   });
 
   it("rejects non-index SQL inside the deferred migration", () => {

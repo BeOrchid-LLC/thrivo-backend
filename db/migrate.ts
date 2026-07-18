@@ -26,9 +26,14 @@ import { logger } from "../src/lib/logger";
  *   short per-deploy window before the index exists, but duplicates are
  *   already prevented app-side by findActiveByOriginRef's pre-check
  *   (upsertOffProduct); the index only guards a true concurrent-insert race.
- *   It must be deferred: it lands after 0027, and deferred migrations have to
- *   be the terminal segment, so building it CONCURRENTLY (out of the drizzle
- *   transaction, no long lock on food_items) is the only consistent option.
+ *   Building it CONCURRENTLY (out of the drizzle transaction, no long lock on
+ *   food_items) is the only consistent option.
+ *
+ * Deferred migrations are NO LONGER required to be positionally terminal:
+ * runMigrations partitions the allowlisted deferred migrations out and applies
+ * them last (post-bind), so ordinary schema migrations can be appended after
+ * them (e.g. 0029+). This holds because a deferred migration is always a
+ * standalone index backstop that later migrations do not depend on.
  */
 
 const MIGRATION_LOCK_KEY = 4011982;
@@ -80,19 +85,13 @@ function validateDeferredMigrations(
   migrations: readonly LoadedMigration[],
   journal: MigrationJournal
 ): void {
-  const deferredIndices = migrations
-    .map((migration, index) => (isDeferredMigration(migration) ? index : -1))
-    .filter((index) => index >= 0);
+  if (!migrations.some(isDeferredMigration)) return;
 
-  if (deferredIndices.length === 0) return;
-
-  const firstDeferredIndex = Math.min(...deferredIndices);
-  if (firstDeferredIndex + deferredIndices.length !== migrations.length) {
-    throw new Error(
-      "Deferred migrations must be the terminal migrations; add a new deployment strategy before appending later migrations"
-    );
-  }
-
+  // Deferred CONCURRENTLY-index migrations no longer have to be positionally
+  // terminal: runMigrations partitions them out and always applies them LAST
+  // (post-bind), so a normal migration may follow a deferred one in sequence.
+  // The remaining invariants still hold: a deferred migration must contain only
+  // concurrent-index DDL, and must exist in the journal.
   for (const migration of migrations.filter(isDeferredMigration)) {
     const statements = migration.sql.filter((statement) => statement.trim());
     if (
@@ -155,19 +154,28 @@ async function appliedMigrationHashes(pool: pg.Pool): Promise<Set<string>> {
   return new Set(result.rows.map((row) => row.hash));
 }
 
-async function createPriorMigrationFolder(
+/**
+ * Build a temp migrations folder containing every NON-deferred migration (in
+ * journal order), excluding the allowlisted deferred CONCURRENTLY-index ones.
+ * `migrate()` runs these transactionally; the deferred ones are applied
+ * separately post-bind. Deferred migrations are excluded regardless of their
+ * position, so a normal migration appended after a deferred one still runs in
+ * this transactional phase (the deferred index it skips is not a dependency).
+ */
+async function createNonDeferredMigrationFolder(
   migrationsFolder: string,
-  journal: MigrationJournal,
-  priorCount: number
+  journal: MigrationJournal
 ): Promise<string> {
   const tempFolder = await fs.mkdtemp(path.join(os.tmpdir(), "thrivo-migrations-"));
-  const priorEntries = journal.entries.slice(0, priorCount);
+  const nonDeferredEntries = journal.entries.filter(
+    (entry) => !DEFERRED_MIGRATION_TAGS.has(entry.tag)
+  );
   await fs.mkdir(path.join(tempFolder, "meta"), { recursive: true });
   await fs.writeFile(
     path.join(tempFolder, "meta", "_journal.json"),
-    JSON.stringify({ ...journal, entries: priorEntries })
+    JSON.stringify({ ...journal, entries: nonDeferredEntries })
   );
-  for (const entry of priorEntries) {
+  for (const entry of nonDeferredEntries) {
     await fs.copyFile(
       path.join(migrationsFolder, entry.tag + ".sql"),
       path.join(tempFolder, entry.tag + ".sql")
@@ -311,18 +319,18 @@ export async function runMigrations(mode: MigrationMode = "strict"): Promise<Mig
     await acquireMigrationLock(lockClient);
     migrationLockAcquired = true;
     const { migrationsFolder, migrations, journal } = await readMigrationState();
-    const deferredIndex = migrations.findIndex(isDeferredMigration);
 
-    if (deferredIndex < 0) {
+    if (!migrations.some(isDeferredMigration)) {
       await migrate(db, { migrationsFolder });
       logger.info({ mode }, "migrations applied");
       return { deferredTags: [] };
     }
 
-    const tempFolder = await createPriorMigrationFolder(migrationsFolder, journal, deferredIndex);
+    const tempFolder = await createNonDeferredMigrationFolder(migrationsFolder, journal);
     try {
-      // The temporary journal contains only correctness migrations before the
-      // deferred index segment, so this path never blocks on CONCURRENTLY.
+      // The temporary journal contains every non-deferred migration, so this
+      // path never blocks on CONCURRENTLY. Deferred index migrations are
+      // partitioned out and applied post-bind, regardless of their position.
       await migrate(db, { migrationsFolder: tempFolder });
     } finally {
       await fs.rm(tempFolder, { recursive: true, force: true });
