@@ -7,6 +7,7 @@ import {
   isAllowedAdminEmail,
   issueAdminOtp,
   consumeAdminOtp,
+  roleForEmail,
   ADMIN_OTP_TTL_SEC,
 } from "../admin/otp.service";
 import {
@@ -90,7 +91,7 @@ export async function postAdminVerifyOtp(c: Context<AppEnv>) {
     );
   }
 
-  const claims = { id: email, email, name: null, role: "admin" as const };
+  const claims = { id: email, email, name: null, role: roleForEmail(email) };
   const token = await signAdminSession(claims);
   setCookie(c, ADMIN_COOKIE, token, ADMIN_COOKIE_OPTS);
   // Evict any stale pre-Partitioned cookie left over from before 2026-07-03 —

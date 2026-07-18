@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireAdmin } from "../middleware/require-admin";
+import { requireAdmin, requireAdminRole } from "../middleware/require-admin";
 import { adminOriginGuard } from "../middleware/admin-origin";
 import { adminAuthRateLimit } from "../middleware/rate-limit";
 import { validate } from "../middleware/validate";
@@ -74,18 +74,22 @@ adminRouter.get("/users", requireAdmin, listAdminUsers);
 adminRouter.get("/users/:id", requireAdmin, getAdminUser);
 adminRouter.get("/users/:id/timeline", requireAdmin, getAdminUserTimeline);
 adminRouter.get("/users/:id/activity", requireAdmin, getAdminUserActivity);
-adminRouter.delete("/users/:id", requireAdmin, hardDeleteAdminUser);
+// Destructive: hard delete is admin-only (support/read-only get 403).
+adminRouter.delete("/users/:id", requireAdmin, requireAdminRole("admin"), hardDeleteAdminUser);
 
-// Subscription actions on a specific user (operator overrides, audited)
+// Subscription actions on a specific user (operator overrides, audited).
+// Money-adjacent → admin-only.
 adminRouter.post(
   "/users/:id/subscription/cancel",
   requireAdmin,
+  requireAdminRole("admin"),
   validate("json", adminCancelPayloadSchema),
   cancelAdminUserSubscription
 );
 adminRouter.post(
   "/users/:id/subscription/refund",
   requireAdmin,
+  requireAdminRole("admin"),
   validate("json", adminRefundPayloadSchema),
   refundAdminUserSubscription
 );
@@ -100,21 +104,24 @@ adminRouter.get("/metrics/dashboard", requireAdmin, getAdminDashboardMetrics);
 adminRouter.get("/analytics/subscriptions", requireAdmin, getAdminSubscriptionAnalytics);
 adminRouter.get("/analytics/engagement", requireAdmin, getAdminEngagementAnalytics);
 
-// Content — psychology tip bank CRUD (mutations audited)
+// Content — psychology tip bank CRUD. Content management is a support task, so
+// mutations require support+ (read-only can view but not edit). All audited.
 adminRouter.get("/tips", requireAdmin, listAdminTips);
 adminRouter.post(
   "/tips",
   requireAdmin,
+  requireAdminRole("support"),
   validate("json", adminUpsertTipPayloadSchema),
   createAdminTip
 );
 adminRouter.patch(
   "/tips/:id",
   requireAdmin,
+  requireAdminRole("support"),
   validate("json", adminUpsertTipPayloadSchema),
   updateAdminTip
 );
-adminRouter.delete("/tips/:id", requireAdmin, deleteAdminTip);
+adminRouter.delete("/tips/:id", requireAdmin, requireAdminRole("support"), deleteAdminTip);
 
 // Observability logs (read-only)
 adminRouter.get("/email-logs", requireAdmin, listAdminEmailLogs);
@@ -130,4 +137,4 @@ adminRouter.get("/overview/plan-breakdown", requireAdmin, getAdminOverviewPlanBr
 // so "export" is never matched as an :id param.
 adminRouter.get("/leads/export", requireAdmin, exportAdminLeads);
 adminRouter.get("/leads", requireAdmin, listAdminLeads);
-adminRouter.delete("/leads/:id", requireAdmin, hardDeleteAdminLead);
+adminRouter.delete("/leads/:id", requireAdmin, requireAdminRole("admin"), hardDeleteAdminLead);
