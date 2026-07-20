@@ -5,6 +5,7 @@ import { env } from "../../src/env";
 import { getRedis } from "../../src/lib/redis";
 import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import { issueAdminOtp } from "../../src/admin/otp.service";
+import { makeAdminUser } from "../helpers/factories";
 
 const run = process.env.RUN_DB_TESTS === "1";
 
@@ -38,6 +39,7 @@ describe.skipIf(!run)("integration: admin auth security (R3-2, R3-3)", () => {
   beforeEach(async () => {
     await resetDb();
     await clearOtpKeys();
+    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await clearOtpKeys();

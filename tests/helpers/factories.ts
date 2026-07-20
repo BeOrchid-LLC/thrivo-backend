@@ -5,6 +5,7 @@ import {
   weightEntryRepo,
   waterIntakeRepo,
   checkInRepo,
+  adminAccountRepo,
 } from "../../src/repositories";
 import { newId } from "../../src/lib/ids";
 import type {
@@ -15,6 +16,7 @@ import type {
   NewWaterIntakeRow,
   NewCheckInRow,
 } from "../../db/schema";
+import type { AdminRole } from "../../src/admin/otp.service";
 
 /** Unique, collision-free email for a fresh test user. */
 export const uniqueEmail = (): string => `${newId()}@test.thrivo.fit`;
@@ -71,3 +73,13 @@ export const makeCheckIn = (userId: string, overrides: Partial<NewCheckInRow> = 
     mood: "good",
     ...overrides,
   });
+
+/**
+ * Seed an active admin_users row so requireAdmin can resolve the session.
+ * Uses upsertActiveNoPassword (no password needed for JWT-based test cookies).
+ */
+export const makeAdminUser = (
+  email: string,
+  role: AdminRole = "admin",
+  name: string | null = null
+) => adminAccountRepo.upsertActiveNoPassword({ email, name, role });
