@@ -12,7 +12,6 @@ import {
 } from "drizzle-orm";
 import { db } from "../../db";
 import { users } from "../../db/schema";
-import * as authIdentityRepo from "./auth-identity.repository";
 import * as foodLogRepo from "./food-log.repository";
 import * as streakRepo from "./streak.repository";
 import * as subscriptionRepo from "./subscription.repository";
@@ -240,9 +239,8 @@ export async function hardDeleteUser(id: string, audit: AuditActor): Promise<boo
     const [row] = await tx.select().from(users).where(eq(users.id, id)).limit(1);
     if (!row) return false;
 
-    if (row.authSubjectId) {
-      await authIdentityRepo.deleteById(row.authSubjectId, tx);
-    }
+    // Clerk owns the auth identity — caller should separately delete the Clerk
+    // user via the Clerk API if needed. Domain row is deleted here only.
     await tx.delete(users).where(eq(users.id, id));
 
     await adminAuditLogRepo.append(
