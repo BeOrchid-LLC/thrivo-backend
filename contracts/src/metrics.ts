@@ -6,6 +6,7 @@ import {
   localDaySchema,
   type RouteContract,
 } from "./common";
+import { historySortSchema, mealTimeSchema } from "./history-filters";
 
 export const waterQuerySchema = z.object({ date: localDaySchema });
 
@@ -73,6 +74,11 @@ export const waterHistoryQuerySchema = z.object({
   date: localDaySchema,
   period: chartPeriodSchema.default("7d"),
   today: localDaySchema.optional(),
+  // Filter params (new):
+  mealTime: mealTimeSchema.optional(),
+  sort: historySortSchema.optional(),
+  cursor: z.string().max(512).optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
 });
 
 export const waterHistoryDaySchema = z.object({
@@ -99,6 +105,7 @@ export const waterHistoryResponseSchema = apiSuccessSchema(
       days: z.array(waterHistoryDaySchema),
       lockedRange: waterHistoryLockedRangeSchema.nullable(),
       historyLimitDays: z.number().int(),
+      nextCursor: z.string().nullable(),
     }),
   })
 );
