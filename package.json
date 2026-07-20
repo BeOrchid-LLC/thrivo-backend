@@ -25,6 +25,7 @@
     "db:migrate:deploy": "node dist/migrate.js --deployment",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx db/seed.ts",
+    "db:seed:admins": "tsx db/seed-admins.ts",
     "db:check-timestamps": "tsx scripts/check-schema-timestamps.ts",
     "check:env-example": "tsx scripts/check-env-example.ts",
     "backfill:food-basis": "tsx scripts/backfill-food-basis.ts",
