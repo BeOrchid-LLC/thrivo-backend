@@ -1,5 +1,4 @@
 import { createOtp, type OtpConsumeResult } from "../lib/otp";
-import { env } from "../env";
 
 export type { OtpConsumeResult };
 
@@ -18,24 +17,7 @@ const adminOtp = createOtp({
   throttle: { max: 5, windowSec: 15 * 60 },
 });
 
-export type AdminRole = "admin" | "support" | "read-only";
-
-/** Returns true if the email is allowed to sign in — either in the flat
- *  ADMIN_EMAILS allowlist or given a role in the ADMIN_ROLES map. */
-export function isAllowedAdminEmail(email: string): boolean {
-  const lower = email.toLowerCase();
-  return env.ADMIN_EMAILS.includes(lower) || lower in env.ADMIN_ROLES;
-}
-
-/**
- * Resolve the RBAC role for an allowed admin email. ADMIN_ROLES wins; an email
- * present only via ADMIN_EMAILS defaults to `admin` (back-compat). Only call
- * after `isAllowedAdminEmail` — a non-allowed email would fall through to
- * `admin`, which must never be reachable for an unlisted address.
- */
-export function roleForEmail(email: string): AdminRole {
-  return env.ADMIN_ROLES[email.toLowerCase()] ?? "admin";
-}
+export type AdminRole = "super-admin" | "admin" | "support" | "read-only";
 
 /**
  * Generate and persist a 6-digit OTP for an admin email. Returns null when the
