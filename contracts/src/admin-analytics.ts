@@ -1,11 +1,21 @@
 import { z } from "zod";
-import { timePointSchema } from "./common";
+import { isoDateSchema, timePointSchema } from "./common";
 
 /**
  * Admin analytics DTOs (promoted from the admin app's local `lib/contracts`).
  * Names are `admin`-prefixed to match the rest of the admin surface and avoid
  * collisions with the user-facing analytics/subscription schemas.
  */
+
+/**
+ * Optional date-range window for the analytics endpoints. Omitted = backend's
+ * default window (current behavior). `from`/`to` are ISO date strings.
+ */
+export const adminAnalyticsRangeSchema = z.object({
+  from: isoDateSchema.optional(),
+  to: isoDateSchema.optional(),
+});
+export type AdminAnalyticsRange = z.infer<typeof adminAnalyticsRangeSchema>;
 
 export const adminDashboardMetricsSchema = z.object({
   mrrCents: z.number(),

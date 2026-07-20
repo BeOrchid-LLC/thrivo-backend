@@ -33,6 +33,15 @@ export const waterIntake = pgTable(
       t.userId,
       t.idempotencyKey
     ),
+    // Covering index for history keyset pagination (newest/oldest and highest/lowest sorts).
+    // Created CONCURRENTLY in the migration to avoid locking the table.
+    byUserDateRecordedId: index("water_intake_user_date_recorded_id_idx").on(
+      t.userId,
+      t.localDate,
+      t.recordedAt,
+      t.id
+    ),
+    byUserAmountId: index("water_intake_user_amount_id_idx").on(t.userId, t.amountMl, t.id),
   })
 );
 

@@ -1,4 +1,4 @@
-import { asc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -25,10 +25,23 @@ export async function countByTypeSince(
   startDate: Date,
   tx: Executor = db
 ): Promise<Record<SubscriptionEventType, number>> {
+  return countByTypeInRange(startDate, undefined, tx);
+}
+
+/** Counts per event type within an explicit [from, to] window. */
+export async function countByTypeInRange(
+  from: Date,
+  to: Date | undefined,
+  tx: Executor = db
+): Promise<Record<SubscriptionEventType, number>> {
+  const where = to
+    ? and(gte(subscriptionEvents.occurredAt, from), lte(subscriptionEvents.occurredAt, to))
+    : gte(subscriptionEvents.occurredAt, from);
+
   const rows = await tx
     .select({ eventType: subscriptionEvents.eventType, count: sql<number>`count(*)::int` })
     .from(subscriptionEvents)
-    .where(gte(subscriptionEvents.occurredAt, startDate))
+    .where(where)
     .groupBy(subscriptionEvents.eventType);
 
   const result: Record<SubscriptionEventType, number> = {

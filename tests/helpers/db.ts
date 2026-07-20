@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db, closeDb } from "../../db";
 import { getRedis } from "../../src/lib/redis";
+import { adminAccountRepo } from "../../src/repositories";
 import type { Tx } from "../../db/tx";
 
 export { db, closeDb };
@@ -24,6 +25,26 @@ export async function resetDb(): Promise<void> {
   const redis = getRedis();
   const rlKeys = await redis.keys("rl:*");
   if (rlKeys.length > 0) await redis.del(...rlKeys);
+
+  // Seed the standard test admin accounts so requireAdmin's admin_users lookup
+  // succeeds for any test that signs a JWT for these emails.
+  await Promise.all([
+    adminAccountRepo.upsertActiveNoPassword({
+      email: "admin@test.thrivo.fit",
+      name: null,
+      role: "admin",
+    }),
+    adminAccountRepo.upsertActiveNoPassword({
+      email: "support@test.thrivo.fit",
+      name: null,
+      role: "support",
+    }),
+    adminAccountRepo.upsertActiveNoPassword({
+      email: "read-only@test.thrivo.fit",
+      name: null,
+      role: "read-only",
+    }),
+  ]);
 }
 
 /**

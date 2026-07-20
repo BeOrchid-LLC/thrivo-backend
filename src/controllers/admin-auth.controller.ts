@@ -1,49 +1,102 @@
 import type { Context } from "hono";
 import { setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
-import { respondOk } from "../lib/response";
-import { ForbiddenError } from "../lib/errors";
 import {
-  isAllowedAdminEmail,
-  issueAdminOtp,
-  consumeAdminOtp,
-  roleForEmail,
-  ADMIN_OTP_TTL_SEC,
-} from "../admin/otp.service";
+  adminPasswordLoginPayloadSchema,
+  adminAcceptInvitePayloadSchema,
+  adminRequestPasswordResetPayloadSchema,
+  adminResetPasswordPayloadSchema,
+  adminChangePasswordPayloadSchema,
+} from "../../contracts/src/admin";
+import { respondOk } from "../lib/response";
+import { getClientIp } from "../lib/request-ip";
+import { ForbiddenError, UnauthorizedError, ValidationError } from "../lib/errors";
+import { issueAdminOtp, consumeAdminOtp, ADMIN_OTP_TTL_SEC } from "../admin/otp.service";
+import type { AdminRole } from "../admin/otp.service";
 import {
   signAdminSession,
   ADMIN_COOKIE,
   ADMIN_COOKIE_OPTS,
   LEGACY_ADMIN_COOKIE_OPTS,
 } from "../admin/session.service";
+import { setAdminSnapshot, invalidateAdminSnapshot } from "../admin/snapshot.service";
+import {
+  consumeInviteToken,
+  issueResetToken,
+  consumeResetToken,
+  resetRequestThrottled,
+  adminResetLink,
+  ADMIN_RESET_TTL_SEC,
+} from "../admin/token.service";
+import { hashPassword, verifyPassword } from "../admin/password";
+import { adminAccountRepo, adminAuditLogRepo } from "../repositories";
+import type { AdminAccount } from "../repositories/admin-account.repository";
 import { sendTemplatedEmail } from "../services/email.service";
 import type { AppEnv } from "../types/http";
 
-const requestOtpSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((e) => e.toLowerCase()),
-});
+const emailSchema = z
+  .string()
+  .email()
+  .transform((e) => e.toLowerCase());
 
-const verifyOtpSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((e) => e.toLowerCase()),
-  code: z.string().min(4).max(8),
-});
+const requestOtpSchema = z.object({ email: emailSchema });
+const verifyOtpSchema = z.object({ email: emailSchema, code: z.string().min(4).max(8) });
+
+/** Public identity view returned to the client after any successful auth. */
+function toAdminView(a: AdminAccount) {
+  return { id: a.id, email: a.email, name: a.name, role: a.role };
+}
 
 /**
- * POST /admin/auth/request-otp — send a 6-digit OTP to the staff email.
- * Always responds 202 with the same body regardless of whether the address is
- * on the allowlist or throttled (no enumeration of valid admin emails, no
- * signal that reveals the per-email issue throttle to a caller).
+ * Issue the session cookie + prime the revocation snapshot for a freshly
+ * authenticated admin. Shared by password login, OTP verify, accept-invite and
+ * password reset so the cookie/snapshot handling can't drift between them.
+ */
+async function establishSession(c: Context<AppEnv>, account: AdminAccount): Promise<void> {
+  const token = await signAdminSession({
+    id: account.id,
+    email: account.email,
+    name: account.name,
+    role: account.role,
+  });
+  setCookie(c, ADMIN_COOKIE, token, ADMIN_COOKIE_OPTS);
+  // Evict any stale pre-Partitioned cookie (see LEGACY_ADMIN_COOKIE_OPTS).
+  deleteCookie(c, ADMIN_COOKIE, LEGACY_ADMIN_COOKIE_OPTS);
+  await setAdminSnapshot({
+    id: account.id,
+    email: account.email,
+    name: account.name,
+    role: account.role as AdminRole,
+    status: "active",
+  });
+}
+
+/** Append an admin-auth audit row. Actor is the authenticating email itself. */
+async function auditAuth(c: Context<AppEnv>, email: string, action: string): Promise<void> {
+  await adminAuditLogRepo.append({
+    actorAdminEmail: email,
+    action,
+    targetType: "admin",
+    targetId: email,
+    requestId: c.get("requestId") ?? null,
+    ip: getClientIp(c),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// OTP (fallback login) — now gated by the admin_users table, not env allowlist.
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /admin/auth/request-otp — send a 6-digit OTP. Always responds 202 with
+ * the same body regardless of whether the address is a known active admin
+ * (no enumeration).
  */
 export async function postAdminRequestOtp(c: Context<AppEnv>) {
   const { email } = requestOtpSchema.parse(await c.req.json());
 
-  if (isAllowedAdminEmail(email)) {
+  const account = await adminAccountRepo.findByEmail(email);
+  if (account && account.status === "active") {
     const code = await issueAdminOtp(email);
     if (code) {
       await sendTemplatedEmail({
@@ -57,21 +110,16 @@ export async function postAdminRequestOtp(c: Context<AppEnv>) {
   return respondOk(c, null, "OTP sent", 202);
 }
 
-/**
- * POST /admin/auth/verify-otp — redeem the OTP and set an httpOnly session cookie.
- * Applies exponential backoff: 30 s → 5 min → 1 hr → 24 hr lockout.
- * Sets `Retry-After` on all failure responses so clients can surface a countdown.
- */
+/** POST /admin/auth/verify-otp — redeem the OTP and open a session. */
 export async function postAdminVerifyOtp(c: Context<AppEnv>) {
   const { email, code } = verifyOtpSchema.parse(await c.req.json());
 
-  if (!isAllowedAdminEmail(email)) throw new ForbiddenError("Not authorised as admin");
+  const account = await adminAccountRepo.findByEmail(email);
+  if (!account || account.status !== "active") throw new ForbiddenError("Not authorised as admin");
 
   const result = await consumeAdminOtp(email, code);
-
   if (!result.ok) {
     if (result.retryAfter !== undefined) c.header("Retry-After", String(result.retryAfter));
-
     if (result.reason === "backoff" || result.reason === "locked") {
       const message =
         result.reason === "locked"
@@ -82,8 +130,6 @@ export async function postAdminVerifyOtp(c: Context<AppEnv>) {
         429
       );
     }
-
-    // Wrong code — 401 with optional Retry-After hint for a UI countdown.
     const message = "Invalid or expired code";
     return c.json(
       { success: false, error: { code: "UNAUTHENTICATED", message }, responseCode: 401, message },
@@ -91,22 +137,141 @@ export async function postAdminVerifyOtp(c: Context<AppEnv>) {
     );
   }
 
-  const claims = { id: email, email, name: null, role: roleForEmail(email) };
-  const token = await signAdminSession(claims);
-  setCookie(c, ADMIN_COOKIE, token, ADMIN_COOKIE_OPTS);
-  // Evict any stale pre-Partitioned cookie left over from before 2026-07-03 —
-  // see LEGACY_ADMIN_COOKIE_OPTS for why it can otherwise shadow the fresh one.
-  deleteCookie(c, ADMIN_COOKIE, LEGACY_ADMIN_COOKIE_OPTS);
-
-  return respondOk(c, {
-    admin: { id: claims.id, email: claims.email, name: claims.name, role: claims.role },
-  });
+  await establishSession(c, account);
+  await adminAccountRepo.setLastLogin(account.id);
+  await auditAuth(c, email, "admin.login");
+  return respondOk(c, { admin: toAdminView(account) });
 }
 
+// ---------------------------------------------------------------------------
+// Password login (primary)
+// ---------------------------------------------------------------------------
+
+/** POST /admin/auth/login — email + password. Generic error to avoid enumeration. */
+export async function postAdminLogin(c: Context<AppEnv>) {
+  const { email, password } = adminPasswordLoginPayloadSchema.parse(await c.req.json());
+  const lower = email.toLowerCase();
+
+  const account = await adminAccountRepo.findByEmail(lower);
+  const invalid = new UnauthorizedError("Invalid email or password");
+  if (!account || account.status !== "active" || !account.passwordHash) throw invalid;
+
+  const ok = await verifyPassword(password, account.passwordHash);
+  if (!ok) throw invalid;
+
+  await establishSession(c, account);
+  await adminAccountRepo.setLastLogin(account.id);
+  await auditAuth(c, lower, "admin.login");
+  return respondOk(c, { admin: toAdminView(account) });
+}
+
+// ---------------------------------------------------------------------------
+// Invite acceptance
+// ---------------------------------------------------------------------------
+
+/** POST /admin/auth/accept-invite — set the first password and activate. */
+export async function postAdminAcceptInvite(c: Context<AppEnv>) {
+  const { email, token, password } = adminAcceptInvitePayloadSchema.parse(await c.req.json());
+  const lower = email.toLowerCase();
+
+  const tokenOk = await consumeInviteToken(lower, token);
+  if (!tokenOk) throw new ValidationError("Invalid or expired invitation");
+
+  const account = await adminAccountRepo.findByEmail(lower);
+  if (!account || account.status !== "invited") {
+    throw new ValidationError("Invalid or expired invitation");
+  }
+
+  const passwordHash = await hashPassword(password);
+  const activated = await adminAccountRepo.activateWithPassword({ email: lower, passwordHash });
+  await establishSession(c, activated);
+  await auditAuth(c, lower, "admin.accept_invite");
+  return respondOk(c, { admin: toAdminView(activated) });
+}
+
+// ---------------------------------------------------------------------------
+// Forgot password
+// ---------------------------------------------------------------------------
+
 /**
- * GET /admin/auth/session — return the current admin identity from the cookie.
- * `requireAdmin` already verified the session, so we just read what it set.
+ * POST /admin/auth/request-password-reset — always 200 (anti-enumeration). Only
+ * an existing active admin actually receives a link.
  */
+export async function postAdminRequestPasswordReset(c: Context<AppEnv>) {
+  const { email } = adminRequestPasswordResetPayloadSchema.parse(await c.req.json());
+  const lower = email.toLowerCase();
+
+  const account = await adminAccountRepo.findByEmail(lower);
+  if (account && account.status === "active" && !(await resetRequestThrottled(lower))) {
+    const token = await issueResetToken(lower);
+    await sendTemplatedEmail({
+      to: lower,
+      template: "admin-password-reset",
+      props: {
+        url: adminResetLink(lower, token),
+        expiresInMinutes: Math.round(ADMIN_RESET_TTL_SEC / 60),
+      },
+    });
+  }
+
+  return respondOk(c, null, "If an account exists, a reset link has been sent", 200);
+}
+
+/** POST /admin/auth/reset-password — set a new password, revoke old sessions, sign in. */
+export async function postAdminResetPassword(c: Context<AppEnv>) {
+  const { email, token, password } = adminResetPasswordPayloadSchema.parse(await c.req.json());
+  const lower = email.toLowerCase();
+
+  const tokenOk = await consumeResetToken(lower, token);
+  if (!tokenOk) throw new ValidationError("Invalid or expired reset link");
+
+  const account = await adminAccountRepo.findByEmail(lower);
+  if (!account || account.status !== "active")
+    throw new ValidationError("Invalid or expired reset link");
+
+  const passwordHash = await hashPassword(password);
+  await adminAccountRepo.setPassword({ email: lower, passwordHash });
+  // Revoke every existing session (they re-read the DB on next request); then
+  // open a fresh one for this browser.
+  await invalidateAdminSnapshot(lower);
+  await establishSession(c, { ...account, passwordHash });
+  await auditAuth(c, lower, "admin.password_reset");
+  return respondOk(c, { admin: toAdminView(account) });
+}
+
+/** POST /admin/auth/change-password — authenticated password change. */
+export async function postAdminChangePassword(c: Context<AppEnv>) {
+  const admin = c.get("adminUser")!;
+  const { currentPassword, newPassword } = adminChangePasswordPayloadSchema.parse(
+    await c.req.json()
+  );
+
+  const account = await adminAccountRepo.findByEmail(admin.email);
+  if (!account || !account.passwordHash) {
+    throw new ValidationError("No password is set — use the reset flow instead");
+  }
+  const ok = await verifyPassword(currentPassword, account.passwordHash);
+  if (!ok) throw new UnauthorizedError("Current password is incorrect");
+
+  const passwordHash = await hashPassword(newPassword);
+  await adminAccountRepo.setPassword({ email: account.email, passwordHash });
+  // Keep this browser signed in; refresh the snapshot so nothing else changes.
+  await setAdminSnapshot({
+    id: account.id,
+    email: account.email,
+    name: account.name,
+    role: account.role as AdminRole,
+    status: "active",
+  });
+  await auditAuth(c, account.email, "admin.password_change");
+  return respondOk(c, null, "Password changed");
+}
+
+// ---------------------------------------------------------------------------
+// Session read + logout
+// ---------------------------------------------------------------------------
+
+/** GET /admin/auth/session — return the current admin identity. */
 export function getAdminSession(c: Context<AppEnv>) {
   const admin = c.get("adminUser")!;
   return respondOk(c, {
@@ -114,10 +279,10 @@ export function getAdminSession(c: Context<AppEnv>) {
   });
 }
 
-/**
- * POST /admin/auth/logout — clear the session cookie.
- */
-export function postAdminLogout(c: Context<AppEnv>) {
+/** POST /admin/auth/logout — clear the cookie and invalidate the snapshot. */
+export async function postAdminLogout(c: Context<AppEnv>) {
+  const admin = c.get("adminUser");
+  if (admin) await invalidateAdminSnapshot(admin.email);
   deleteCookie(c, ADMIN_COOKIE, { ...ADMIN_COOKIE_OPTS, maxAge: 0 });
   deleteCookie(c, ADMIN_COOKIE, LEGACY_ADMIN_COOKIE_OPTS);
   return respondOk(c, null, "Logged out");

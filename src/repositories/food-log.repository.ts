@@ -1,7 +1,24 @@
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { foodLogs, type FoodLogRow, type NewFoodLogRow } from "../../db/schema";
+import type { HistorySort, MealTime } from "../../contracts/src/history-filters";
+import { MEAL_TIME_WINDOWS } from "../../contracts/src/history-filters";
 
 export type FoodLog = FoodLogRow;
 
@@ -219,6 +236,166 @@ export async function listNullFoodItemIdAfter(
     .where(and(isNull(foodLogs.foodItemId), afterId ? gt(foodLogs.id, afterId) : undefined))
     .orderBy(asc(foodLogs.id))
     .limit(limit);
+}
+
+export interface FoodLogHistoryFilters {
+  q?: string;
+  mealTime?: MealTime;
+  /** Pass only IDs that are confirmed favorites — the service resolves this from the favorites repo. */
+  favoriteIds?: ReadonlySet<string>;
+  favoritesOnly?: boolean;
+  sort?: HistorySort;
+  /** Opaque base64-encoded keyset cursor produced by `encodeFoodLogCursor`. */
+  cursor?: string;
+  limit?: number;
+  /** User's IANA timezone (e.g. "Africa/Lagos") — required for meal-time filtering. */
+  timezone?: string;
+}
+
+export interface FoodLogCursor {
+  sort: HistorySort;
+  localDate?: string;
+  consumedAt?: string;
+  kcal?: number;
+  id: string;
+}
+
+export function encodeFoodLogCursor(row: FoodLogRow, sort: HistorySort): string {
+  const payload: FoodLogCursor = {
+    sort,
+    localDate: row.localDate,
+    consumedAt: row.consumedAt.toISOString(),
+    kcal: row.kcal,
+    id: row.id,
+  };
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+export function decodeFoodLogCursor(raw: string): FoodLogCursor | null {
+  try {
+    return JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as FoodLogCursor;
+  } catch {
+    return null;
+  }
+}
+
+function mealTimeFilter(mealTime: MealTime, tz: string) {
+  const { startHour, endHour } = MEAL_TIME_WINDOWS[mealTime];
+  const hourExpr = sql<number>`extract(hour from ${foodLogs.consumedAt} at time zone ${sql.raw(`'${tz}'`)})`;
+  if (startHour < endHour) {
+    return and(gte(hourExpr, startHour), lt(hourExpr, endHour));
+  }
+  // Wraps midnight (e.g. night: 21–4)
+  return or(gte(hourExpr, startHour), lt(hourExpr, endHour));
+}
+
+/**
+ * Filtered, paginated food log query for history screens.
+ * Served by the covering indexes added in migration 0032.
+ */
+export async function listLogsByLocalDateRangeFiltered(
+  userId: string,
+  fromDate: string,
+  toDate: string,
+  filters: FoodLogHistoryFilters = {},
+  tx: Executor = db
+): Promise<FoodLog[]> {
+  const {
+    q,
+    mealTime,
+    favoritesOnly,
+    favoriteIds,
+    sort = "newest",
+    cursor,
+    limit = 50,
+    timezone = "UTC",
+  } = filters;
+  const parsed = cursor ? decodeFoodLogCursor(cursor) : null;
+
+  const baseWhere = [
+    eq(foodLogs.userId, userId),
+    gte(foodLogs.localDate, fromDate),
+    lte(foodLogs.localDate, toDate),
+  ];
+
+  if (q && q.trim().length > 0) {
+    baseWhere.push(ilike(foodLogs.name, `%${q.trim()}%`));
+  }
+
+  if (mealTime) {
+    const filter = mealTimeFilter(mealTime, timezone);
+    if (filter) baseWhere.push(filter);
+  }
+
+  if (favoritesOnly && favoriteIds) {
+    if (favoriteIds.size === 0) return [];
+    baseWhere.push(inArray(foodLogs.foodItemId, [...favoriteIds]));
+  }
+
+  // Keyset cursor predicates
+  if (parsed) {
+    if (sort === "newest" && parsed.localDate && parsed.consumedAt) {
+      const ld = parsed.localDate;
+      const ca = parsed.consumedAt;
+      const id = parsed.id;
+      baseWhere.push(
+        or(
+          lt(foodLogs.localDate, ld),
+          and(eq(foodLogs.localDate, ld), lt(foodLogs.consumedAt, new Date(ca))),
+          and(
+            eq(foodLogs.localDate, ld),
+            eq(foodLogs.consumedAt, new Date(ca)),
+            lt(foodLogs.id, id)
+          )
+        )!
+      );
+    } else if (sort === "oldest" && parsed.localDate && parsed.consumedAt) {
+      const ld = parsed.localDate;
+      const ca = parsed.consumedAt;
+      const id = parsed.id;
+      baseWhere.push(
+        or(
+          gt(foodLogs.localDate, ld),
+          and(eq(foodLogs.localDate, ld), gt(foodLogs.consumedAt, new Date(ca))),
+          and(
+            eq(foodLogs.localDate, ld),
+            eq(foodLogs.consumedAt, new Date(ca)),
+            gt(foodLogs.id, id)
+          )
+        )!
+      );
+    } else if (sort === "highest" && parsed.kcal !== undefined) {
+      baseWhere.push(
+        or(
+          lt(foodLogs.kcal, parsed.kcal),
+          and(eq(foodLogs.kcal, parsed.kcal), lt(foodLogs.id, parsed.id))
+        )!
+      );
+    } else if (sort === "lowest" && parsed.kcal !== undefined) {
+      baseWhere.push(
+        or(
+          gt(foodLogs.kcal, parsed.kcal),
+          and(eq(foodLogs.kcal, parsed.kcal), gt(foodLogs.id, parsed.id))
+        )!
+      );
+    }
+  }
+
+  const orderBy =
+    sort === "oldest"
+      ? [asc(foodLogs.localDate), asc(foodLogs.consumedAt), asc(foodLogs.id)]
+      : sort === "highest"
+        ? [desc(foodLogs.kcal), desc(foodLogs.id)]
+        : sort === "lowest"
+          ? [asc(foodLogs.kcal), asc(foodLogs.id)]
+          : [desc(foodLogs.localDate), desc(foodLogs.consumedAt), desc(foodLogs.id)];
+
+  return tx
+    .select()
+    .from(foodLogs)
+    .where(and(...baseWhere))
+    .orderBy(...orderBy)
+    .limit(limit + 1); // fetch +1 to detect if there's a next page
 }
 
 /** Total food-log count for a single user — the admin user-detail stat card. */

@@ -1,7 +1,9 @@
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { waterIntake, type NewWaterIntakeRow, type WaterIntakeRow } from "../../db/schema";
+import type { HistorySort, MealTime } from "../../contracts/src/history-filters";
+import { MEAL_TIME_WINDOWS } from "../../contracts/src/history-filters";
 
 export type WaterIntake = WaterIntakeRow;
 
@@ -119,4 +121,138 @@ export async function deleteEntryForUser(
     .where(and(eq(waterIntake.userId, userId), eq(waterIntake.id, id)))
     .returning();
   return row ?? null;
+}
+
+export interface WaterHistoryFilters {
+  mealTime?: MealTime;
+  sort?: HistorySort;
+  cursor?: string;
+  limit?: number;
+  timezone?: string;
+}
+
+export interface WaterCursor {
+  sort: HistorySort;
+  localDate?: string;
+  recordedAt?: string;
+  amountMl?: number;
+  id: string;
+}
+
+export function encodeWaterCursor(row: WaterIntakeRow, sort: HistorySort): string {
+  const payload: WaterCursor = {
+    sort,
+    localDate: row.localDate,
+    recordedAt: row.recordedAt.toISOString(),
+    amountMl: row.amountMl,
+    id: row.id,
+  };
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+export function decodeWaterCursor(raw: string): WaterCursor | null {
+  try {
+    return JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as WaterCursor;
+  } catch {
+    return null;
+  }
+}
+
+function mealTimeFilter(mealTime: MealTime, tz: string) {
+  const { startHour, endHour } = MEAL_TIME_WINDOWS[mealTime];
+  const hourExpr = sql<number>`extract(hour from ${waterIntake.recordedAt} at time zone ${sql.raw(`'${tz}'`)})`;
+  if (startHour < endHour) {
+    return and(gte(hourExpr, startHour), lt(hourExpr, endHour));
+  }
+  return or(gte(hourExpr, startHour), lt(hourExpr, endHour));
+}
+
+/**
+ * Filtered, paginated water intake query for history screens.
+ * Served by the covering indexes added in migration 0032.
+ */
+export async function listEntriesByLocalDateRangeFiltered(
+  userId: string,
+  fromDate: string,
+  toDate: string,
+  filters: WaterHistoryFilters = {},
+  tx: Executor = db
+): Promise<WaterIntake[]> {
+  const { mealTime, sort = "newest", cursor, limit = 50, timezone = "UTC" } = filters;
+  const parsed = cursor ? decodeWaterCursor(cursor) : null;
+
+  const baseWhere = [
+    eq(waterIntake.userId, userId),
+    gte(waterIntake.localDate, fromDate),
+    lte(waterIntake.localDate, toDate),
+  ];
+
+  if (mealTime) {
+    const filter = mealTimeFilter(mealTime, timezone);
+    if (filter) baseWhere.push(filter);
+  }
+
+  if (parsed) {
+    if (sort === "newest" && parsed.localDate && parsed.recordedAt) {
+      const ld = parsed.localDate;
+      const ra = parsed.recordedAt;
+      const id = parsed.id;
+      baseWhere.push(
+        or(
+          lt(waterIntake.localDate, ld),
+          and(eq(waterIntake.localDate, ld), lt(waterIntake.recordedAt, new Date(ra))),
+          and(
+            eq(waterIntake.localDate, ld),
+            eq(waterIntake.recordedAt, new Date(ra)),
+            lt(waterIntake.id, id)
+          )
+        )!
+      );
+    } else if (sort === "oldest" && parsed.localDate && parsed.recordedAt) {
+      const ld = parsed.localDate;
+      const ra = parsed.recordedAt;
+      const id = parsed.id;
+      baseWhere.push(
+        or(
+          gt(waterIntake.localDate, ld),
+          and(eq(waterIntake.localDate, ld), gt(waterIntake.recordedAt, new Date(ra))),
+          and(
+            eq(waterIntake.localDate, ld),
+            eq(waterIntake.recordedAt, new Date(ra)),
+            gt(waterIntake.id, id)
+          )
+        )!
+      );
+    } else if (sort === "highest" && parsed.amountMl !== undefined) {
+      baseWhere.push(
+        or(
+          lt(waterIntake.amountMl, parsed.amountMl),
+          and(eq(waterIntake.amountMl, parsed.amountMl), lt(waterIntake.id, parsed.id))
+        )!
+      );
+    } else if (sort === "lowest" && parsed.amountMl !== undefined) {
+      baseWhere.push(
+        or(
+          gt(waterIntake.amountMl, parsed.amountMl),
+          and(eq(waterIntake.amountMl, parsed.amountMl), gt(waterIntake.id, parsed.id))
+        )!
+      );
+    }
+  }
+
+  const orderBy =
+    sort === "oldest"
+      ? [asc(waterIntake.localDate), asc(waterIntake.recordedAt), asc(waterIntake.id)]
+      : sort === "highest"
+        ? [desc(waterIntake.amountMl), desc(waterIntake.id)]
+        : sort === "lowest"
+          ? [asc(waterIntake.amountMl), asc(waterIntake.id)]
+          : [desc(waterIntake.localDate), desc(waterIntake.recordedAt), desc(waterIntake.id)];
+
+  return tx
+    .select()
+    .from(waterIntake)
+    .where(and(...baseWhere))
+    .orderBy(...orderBy)
+    .limit(limit + 1);
 }

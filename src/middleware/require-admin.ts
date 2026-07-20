@@ -2,6 +2,8 @@ import { createMiddleware } from "hono/factory";
 import { getCookie } from "hono/cookie";
 import { UnauthorizedError, ForbiddenError } from "../lib/errors";
 import { verifyAdminSession, ADMIN_COOKIE } from "../admin/session.service";
+import { getAdminSnapshot, setAdminSnapshot } from "../admin/snapshot.service";
+import { adminAccountRepo } from "../repositories";
 import type { AdminRole } from "../admin/otp.service";
 import type { AppEnv } from "../types/http";
 
@@ -9,19 +11,30 @@ import type { AppEnv } from "../types/http";
  * Capability ladder: a higher rank can do everything a lower rank can. Reads
  * are open to any authenticated admin session (`requireAdmin`); mutations gate
  * on a minimum rank via `requireAdminRole` — `support` for content/moderation,
- * `admin` for destructive or money-adjacent actions.
+ * `admin` for destructive or money-adjacent actions, `super-admin` for managing
+ * other admins.
  */
-const ROLE_RANK: Record<AdminRole, number> = { "read-only": 0, support: 1, admin: 2 };
+const ROLE_RANK: Record<AdminRole, number> = {
+  "read-only": 0,
+  support: 1,
+  admin: 2,
+  "super-admin": 3,
+};
 
 function isAdminRole(role: string): role is AdminRole {
-  return role === "admin" || role === "support" || role === "read-only";
+  return role === "super-admin" || role === "admin" || role === "support" || role === "read-only";
 }
 
 /**
- * Gate admin routes: reads the httpOnly `admin_session` JWT cookie, verifies it,
- * and requires *some* valid admin role. Sets `c.var.adminUser` for downstream
- * handlers (and for `requireAdminRole`). Independent of the user-facing auth
- * stack (`src/auth/`) — the admin OTP flow issues this cookie directly.
+ * Gate admin routes: reads the httpOnly `admin_session` JWT cookie and verifies
+ * it (identity + integrity), then gates authorization on a Redis-cached admin
+ * snapshot backed by the `admin_users` table. A cache miss is re-read from the
+ * DB and repopulated; a `disabled`/removed account (whose snapshot was
+ * invalidated on the mutating request) fails here on its next request — this is
+ * how `disable`/role-change take effect immediately despite the stateless JWT.
+ *
+ * Keyed by email so legacy cookies (whose `sub` was the email, pre `admin_users`)
+ * resolve the same way as new uuid-subject cookies.
  */
 export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
   const token = getCookie(c, ADMIN_COOKIE);
@@ -29,9 +42,29 @@ export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
 
   const claims = await verifyAdminSession(token);
   if (!claims) throw new UnauthorizedError("Session expired, please sign in again");
-  if (!isAdminRole(claims.role)) throw new ForbiddenError("Admin access required");
 
-  c.set("adminUser", claims);
+  const email = claims.email.toLowerCase();
+  let snapshot = await getAdminSnapshot(email);
+  if (!snapshot) {
+    const row = await adminAccountRepo.findByEmail(email);
+    if (!row || row.status !== "active" || !isAdminRole(row.role)) {
+      throw new UnauthorizedError("Session expired, please sign in again");
+    }
+    snapshot = { id: row.id, email: row.email, name: row.name, role: row.role, status: "active" };
+    await setAdminSnapshot(snapshot);
+  }
+
+  if (snapshot.status !== "active") {
+    throw new UnauthorizedError("Session expired, please sign in again");
+  }
+  if (!isAdminRole(snapshot.role)) throw new ForbiddenError("Admin access required");
+
+  c.set("adminUser", {
+    id: snapshot.id,
+    email: snapshot.email,
+    name: snapshot.name,
+    role: snapshot.role,
+  });
   await next();
 });
 
@@ -51,3 +84,6 @@ export function requireAdminRole(min: AdminRole) {
     await next();
   });
 }
+
+/** Convenience gate for admin-management routes — only super-admins may manage admins. */
+export const requireSuperAdmin = requireAdminRole("super-admin");

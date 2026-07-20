@@ -21,3 +21,13 @@ export const adminSubscriptionRowSchema = z.object({
   renewsAt: isoDateSchema.nullable(),
 });
 export type AdminSubscriptionRow = z.infer<typeof adminSubscriptionRowSchema>;
+
+/**
+ * Subscription list filters. `status` narrows by lifecycle; `q` is a free-text
+ * search over user email / Stripe / RevenueCat id. Both optional.
+ */
+export const adminSubscriptionFilterSchema = z.object({
+  status: adminSubscriptionStatusSchema.optional(),
+  q: z.string().optional(),
+});
+export type AdminSubscriptionFilter = z.infer<typeof adminSubscriptionFilterSchema>;

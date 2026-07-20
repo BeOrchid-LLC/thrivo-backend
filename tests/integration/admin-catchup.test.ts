@@ -4,6 +4,7 @@ import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { emailLogs } from "../../db/schema";
 import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { makeAdminUser } from "../helpers/factories";
 import {
   adminEmailLogSchema,
   adminAuditLogEntrySchema,
@@ -37,6 +38,7 @@ async function getData(path: string): Promise<{ status: number; data: unknown }>
 describe.skipIf(!run)("integration: admin Phase-0 catch-up endpoints", () => {
   beforeEach(async () => {
     await resetDb();
+    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();

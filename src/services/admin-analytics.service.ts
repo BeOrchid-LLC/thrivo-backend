@@ -1,4 +1,4 @@
-import { and, count, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { foodLogs, streaks, users } from "../../db/schema";
 import type {
@@ -6,6 +6,8 @@ import type {
   AdminSubscriptionAnalytics,
 } from "../../contracts/src/admin-analytics";
 import { mrrSnapshotRepo, subscriptionEventRepo } from "../repositories";
+
+type DateRange = { from?: Date; to?: Date };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -17,14 +19,17 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * lands (nothing writes that table yet) — an empty array, never a fake number.
  */
 export async function getSubscriptionAnalytics(
+  range?: DateRange,
   now = new Date()
 ): Promise<AdminSubscriptionAnalytics> {
   const thirtyDaysAgo = new Date(now.getTime() - 30 * MS_PER_DAY);
+  const fromDate = range?.from ?? thirtyDaysAgo;
+  const toDate = range?.to;
 
   const [latestSnapshot, monthlyTrend, eventCounts, tierCounts] = await Promise.all([
     mrrSnapshotRepo.getLatest(),
     mrrSnapshotRepo.getMonthlyTrend(6, now),
-    subscriptionEventRepo.countByTypeSince(thirtyDaysAgo),
+    subscriptionEventRepo.countByTypeInRange(fromDate, toDate),
     db
       .select({ tier: users.tier, value: count() })
       .from(users)
@@ -56,7 +61,15 @@ export async function getSubscriptionAnalytics(
  * empty until the events pipeline that would feed them is instrumented — the
  * page renders those as empty states rather than fabricated figures.
  */
-export async function getEngagementAnalytics(): Promise<AdminEngagementAnalytics> {
+export async function getEngagementAnalytics(range?: DateRange): Promise<AdminEngagementAnalytics> {
+  const foodLogsWhere =
+    range?.from || range?.to
+      ? and(
+          range.from ? gte(foodLogs.createdAt, range.from) : undefined,
+          range.to ? lte(foodLogs.createdAt, range.to) : undefined
+        )
+      : undefined;
+
   const [signupRow, completedRow, skippedRow, topFoodRows, streakRow] = await Promise.all([
     db.select({ value: count() }).from(users).where(isNull(users.deletedAt)),
     db
@@ -70,6 +83,7 @@ export async function getEngagementAnalytics(): Promise<AdminEngagementAnalytics
     db
       .select({ name: foodLogs.name, value: sql<number>`count(*)::int` })
       .from(foodLogs)
+      .where(foodLogsWhere)
       .groupBy(foodLogs.name)
       .orderBy(sql`count(*) desc`)
       .limit(10),

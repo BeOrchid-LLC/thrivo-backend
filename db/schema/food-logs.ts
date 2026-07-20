@@ -63,6 +63,15 @@ export const foodLogs = pgTable(
       t.userId,
       t.idempotencyKey
     ),
+    // Covering indexes for history keyset pagination (newest/oldest and highest/lowest sorts).
+    // Created CONCURRENTLY in the migration to avoid locking the hot diary table.
+    byUserDateConsumedId: index("food_logs_user_date_consumed_id_idx").on(
+      t.userId,
+      t.localDate,
+      t.consumedAt,
+      t.id
+    ),
+    byUserKcalId: index("food_logs_user_kcal_id_idx").on(t.userId, t.kcal, t.id),
   })
 );
 

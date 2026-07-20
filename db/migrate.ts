@@ -28,6 +28,9 @@ import { logger } from "../src/lib/logger";
  *   (upsertOffProduct); the index only guards a true concurrent-insert race.
  *   Building it CONCURRENTLY (out of the drizzle transaction, no long lock on
  *   food_items) is the only consistent option.
+ * - 0032 creates the pg_trgm extension (safe in a transaction; regular migration).
+ * - 0033 builds five CONCURRENTLY covering indexes for history search/filter/sort;
+ *   must run outside the drizzle transaction block.
  *
  * Deferred migrations are NO LONGER required to be positionally terminal:
  * runMigrations partitions the allowlisted deferred migrations out and applies
@@ -43,6 +46,7 @@ const MIGRATIONS_TABLE = "__drizzle_migrations";
 const DEFERRED_MIGRATION_TAGS = new Set([
   "0027_cheerful_hannibal_king",
   "0028_striped_randall_flagg",
+  "0033_history_filter_indexes_concurrent",
 ]);
 const DEFERRED_LOCK_TIMEOUT = "10s";
 const DEFERRED_STATEMENT_TIMEOUT = "15min";

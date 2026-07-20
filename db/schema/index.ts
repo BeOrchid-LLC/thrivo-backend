@@ -25,4 +25,5 @@ export * from "./push-tokens";
 export * from "./push-campaigns";
 export * from "./webhook-events";
 export * from "./admin-audit-log";
+export * from "./admin-users";
 export * from "./uploads";

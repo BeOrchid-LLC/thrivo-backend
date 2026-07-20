@@ -7,7 +7,7 @@ import { env } from "../../src/env";
 import { adminAuditLog, webhookEvents } from "../../db/schema";
 import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import { subscriptionEventRepo } from "../../src/repositories";
-import { makeUser } from "../helpers/factories";
+import { makeAdminUser, makeUser } from "../helpers/factories";
 import {
   adminSubscriptionEventListResponseSchema,
   adminUserBillingEventsResponseSchema,
@@ -31,6 +31,11 @@ async function cookieFor(role: "admin" | "support" | "read-only"): Promise<strin
 describe.skipIf(!run)("integration: admin billing observability", () => {
   beforeEach(async () => {
     await resetDb();
+    await Promise.all([
+      makeAdminUser("admin@test.thrivo.fit", "admin"),
+      makeAdminUser("support@test.thrivo.fit", "support"),
+      makeAdminUser("read-only@test.thrivo.fit", "read-only"),
+    ]);
   });
   afterAll(async () => {
     await closeDb();

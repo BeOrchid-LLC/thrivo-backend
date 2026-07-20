@@ -160,6 +160,18 @@ export const envSchema = z
     // httpOnly cookie TTL for admin sessions. Short but comfortable for a staff
     // session; re-login is low-friction. Expressed as a `jose` duration string.
     ADMIN_SESSION_TTL: z.string().default("8h"),
+    // Public base URL of the admin SPA — used to build invite + password-reset
+    // links in emails. Never built from user input, so the link can't be turned
+    // into an open redirect. Dev default matches the admin dev server.
+    ADMIN_APP_URL: z.string().url().default("http://localhost:3000"),
+    // One-time seed password for the super admin (subscriptions@beorchid.com).
+    // Optional so non-seeded environments boot; when set, db/seed-admins.ts
+    // upserts the super admin with this password (hashed). Set it in Coolify —
+    // never commit the literal — and change it on first login.
+    SUPER_ADMIN_INITIAL_PASSWORD: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.string().min(10).optional()
+    ),
 
     // RevenueCat webhook shared secret (the exact Authorization header value set in
     // the RevenueCat dashboard). The webhook is the entitlement source of truth;

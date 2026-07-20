@@ -6,6 +6,7 @@ import {
   localDaySchema,
   type RouteContract,
 } from "./common";
+import { historySortSchema, mealTimeSchema } from "./history-filters";
 
 export const foodSourceSchema = z.enum(["barcode", "manual", "search"]);
 export type FoodSource = z.infer<typeof foodSourceSchema>;
@@ -97,7 +98,7 @@ export const foodLogDayResponseSchema = apiSuccessSchema(
 );
 
 export const foodLogHistoryQuerySchema = z.object({
-  cursor: z.string().optional(),
+  // Existing params (backward-compatible):
   from: localDaySchema.optional(),
   to: localDaySchema.optional(),
   date: localDaySchema.optional(),
@@ -107,6 +108,15 @@ export const foodLogHistoryQuerySchema = z.object({
   // compatibility with clients that haven't upgraded yet; falls back to `to`
   // (or server-UTC today) when omitted.
   today: localDaySchema.optional(),
+  // Filter params (new):
+  q: z.string().trim().max(100).optional(),
+  mealTime: mealTimeSchema.optional(),
+  favoritesOnly: z
+    .union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")])
+    .optional(),
+  sort: historySortSchema.optional(),
+  cursor: z.string().max(512).optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
 });
 
 export const historyDaySchema = z.object({
@@ -133,6 +143,7 @@ export const foodLogHistoryResponseSchema = apiSuccessSchema(
     days: z.array(historyDaySchema),
     lockedRange: foodLogHistoryLockedRangeSchema.nullable(),
     historyLimitDays: z.number().int(),
+    nextCursor: z.string().nullable(),
   })
 );
 

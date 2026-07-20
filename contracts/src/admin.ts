@@ -6,7 +6,7 @@ import { userProfileSchema } from "./users";
 // Admin identity
 // ---------------------------------------------------------------------------
 
-export const adminRoleSchema = z.enum(["admin", "support", "read-only"]);
+export const adminRoleSchema = z.enum(["super-admin", "admin", "support", "read-only"]);
 export type AdminRole = z.infer<typeof adminRoleSchema>;
 
 export const adminSchema = z.object({
@@ -37,6 +37,53 @@ export const adminOtpVerifyPayloadSchema = z.object({
   code: z.string().min(4),
 });
 export type AdminOtpVerifyPayload = z.infer<typeof adminOtpVerifyPayloadSchema>;
+
+/**
+ * Password policy shared by every admin credential payload (login is min(1) so
+ * we don't leak the rule on the sign-in form; setting/changing a password
+ * enforces the real minimum). Kept as one constant so the seed, the API, and
+ * the frontend forms can't drift.
+ */
+export const ADMIN_PASSWORD_MIN = 10;
+export const adminPasswordSchema = z.string().min(ADMIN_PASSWORD_MIN);
+
+/** Password login (primary). OTP request/verify above remain as the fallback. */
+export const adminPasswordLoginPayloadSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+export type AdminPasswordLoginPayload = z.infer<typeof adminPasswordLoginPayloadSchema>;
+
+/** Accept an invite — sets the first password and activates the account. */
+export const adminAcceptInvitePayloadSchema = z.object({
+  email: z.string().email(),
+  token: z.string().min(1),
+  password: adminPasswordSchema,
+});
+export type AdminAcceptInvitePayload = z.infer<typeof adminAcceptInvitePayloadSchema>;
+
+/** Forgot-password step 1 — request a reset link. Always 200 (anti-enumeration). */
+export const adminRequestPasswordResetPayloadSchema = z.object({
+  email: z.string().email(),
+});
+export type AdminRequestPasswordResetPayload = z.infer<
+  typeof adminRequestPasswordResetPayloadSchema
+>;
+
+/** Forgot-password step 2 — set a new password with the emailed token. */
+export const adminResetPasswordPayloadSchema = z.object({
+  email: z.string().email(),
+  token: z.string().min(1),
+  password: adminPasswordSchema,
+});
+export type AdminResetPasswordPayload = z.infer<typeof adminResetPasswordPayloadSchema>;
+
+/** Authenticated password change from account settings. */
+export const adminChangePasswordPayloadSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: adminPasswordSchema,
+});
+export type AdminChangePasswordPayload = z.infer<typeof adminChangePasswordPayloadSchema>;
 
 // ---------------------------------------------------------------------------
 // Admin pagination helpers
