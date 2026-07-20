@@ -1,9 +1,21 @@
 import { Hono } from "hono";
-import { requireAdmin, requireAdminRole } from "../middleware/require-admin";
+import { requireAdmin, requireAdminRole, requireSuperAdmin } from "../middleware/require-admin";
 import { adminOriginGuard } from "../middleware/admin-origin";
 import { adminAuthRateLimit } from "../middleware/rate-limit";
 import { validate } from "../middleware/validate";
-import { adminCancelPayloadSchema, adminRefundPayloadSchema } from "../../contracts/src/admin";
+import {
+  adminCancelPayloadSchema,
+  adminRefundPayloadSchema,
+  adminPasswordLoginPayloadSchema,
+  adminAcceptInvitePayloadSchema,
+  adminRequestPasswordResetPayloadSchema,
+  adminResetPasswordPayloadSchema,
+  adminChangePasswordPayloadSchema,
+} from "../../contracts/src/admin";
+import {
+  adminInvitePayloadSchema,
+  adminUpdatePayloadSchema,
+} from "../../contracts/src/admin-management";
 import { adminUpsertTipPayloadSchema } from "../../contracts/src/admin-content";
 import {
   adminFoodEditPayloadSchema,
@@ -17,9 +29,21 @@ import {
 import {
   postAdminRequestOtp,
   postAdminVerifyOtp,
+  postAdminLogin,
+  postAdminAcceptInvite,
+  postAdminRequestPasswordReset,
+  postAdminResetPassword,
+  postAdminChangePassword,
   getAdminSession,
   postAdminLogout,
 } from "../controllers/admin-auth.controller";
+import {
+  listAdminAccounts,
+  inviteAdminAccount,
+  updateAdminAccount,
+  resendAdminInvite,
+  disableAdminAccount,
+} from "../controllers/admin-management.controller";
 import {
   listAdminUsers,
   getAdminUser,
@@ -71,6 +95,7 @@ import {
   restoreAdminCheckinNote,
   listAdminUploads,
   removeAdminUpload,
+  restoreAdminUpload,
 } from "../controllers/admin-moderation.controller";
 import {
   listAdminFoods,
@@ -101,12 +126,53 @@ adminRouter.use("*", adminOriginGuard);
 adminRouter.use("/auth/*", adminAuthRateLimit);
 
 // Auth (public — no cookie required to log in)
+adminRouter.post("/auth/login", validate("json", adminPasswordLoginPayloadSchema), postAdminLogin);
 adminRouter.post("/auth/request-otp", postAdminRequestOtp);
 adminRouter.post("/auth/verify-otp", postAdminVerifyOtp);
+adminRouter.post(
+  "/auth/accept-invite",
+  validate("json", adminAcceptInvitePayloadSchema),
+  postAdminAcceptInvite
+);
+adminRouter.post(
+  "/auth/request-password-reset",
+  validate("json", adminRequestPasswordResetPayloadSchema),
+  postAdminRequestPasswordReset
+);
+adminRouter.post(
+  "/auth/reset-password",
+  validate("json", adminResetPasswordPayloadSchema),
+  postAdminResetPassword
+);
 
 // Auth (protected — requires a valid admin session cookie)
 adminRouter.get("/auth/session", requireAdmin, getAdminSession);
 adminRouter.post("/auth/logout", requireAdmin, postAdminLogout);
+adminRouter.post(
+  "/auth/change-password",
+  requireAdmin,
+  validate("json", adminChangePasswordPayloadSchema),
+  postAdminChangePassword
+);
+
+// Admin management (super-admin only — manage other admin accounts)
+adminRouter.get("/admins", requireAdmin, requireSuperAdmin, listAdminAccounts);
+adminRouter.post(
+  "/admins/invite",
+  requireAdmin,
+  requireSuperAdmin,
+  validate("json", adminInvitePayloadSchema),
+  inviteAdminAccount
+);
+adminRouter.patch(
+  "/admins/:id",
+  requireAdmin,
+  requireSuperAdmin,
+  validate("json", adminUpdatePayloadSchema),
+  updateAdminAccount
+);
+adminRouter.post("/admins/:id/resend-invite", requireAdmin, requireSuperAdmin, resendAdminInvite);
+adminRouter.delete("/admins/:id", requireAdmin, requireSuperAdmin, disableAdminAccount);
 
 // User management (all protected)
 adminRouter.get("/users", requireAdmin, listAdminUsers);
@@ -247,6 +313,12 @@ adminRouter.post(
 );
 adminRouter.get("/moderation/uploads", requireAdmin, listAdminUploads);
 adminRouter.post("/uploads/:id/remove", requireAdmin, requireAdminRole("admin"), removeAdminUpload);
+adminRouter.post(
+  "/uploads/:id/restore",
+  requireAdmin,
+  requireAdminRole("support"),
+  restoreAdminUpload
+);
 
 // Observability logs (read-only)
 adminRouter.get("/email-logs", requireAdmin, listAdminEmailLogs);
