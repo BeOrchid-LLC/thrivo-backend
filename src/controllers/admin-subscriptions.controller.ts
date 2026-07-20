@@ -11,11 +11,12 @@ const listQuerySchema = z.object({
   // Admin status tab. `all`/absent => no filter. `none` isn't a real row state
   // in this table, so it simply matches nothing.
   status: z.enum(["all", "active", "trialing", "canceled", "expired", "none"]).optional(),
+  q: z.string().optional(),
 });
 
 /** GET /admin/subscriptions — offset-paginated subscription list, status-tab filtered. */
 export async function listAdminSubscriptions(c: Context<AppEnv>) {
-  const { page, pageSize, status } = listQuerySchema.parse(c.req.query());
+  const { page, pageSize, status, q } = listQuerySchema.parse(c.req.query());
   const params = parseOffset(page, pageSize);
 
   // `none` = users with no subscription at all; there is no such row in the
@@ -32,6 +33,7 @@ export async function listAdminSubscriptions(c: Context<AppEnv>) {
     offset: params.offset,
     limit: params.pageSize,
     status: status && status !== "all" ? status : undefined,
+    q,
   });
   return respondOk(c, {
     items: rows,

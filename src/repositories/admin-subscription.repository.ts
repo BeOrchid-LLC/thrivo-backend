@@ -1,4 +1,4 @@
-import { count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, type SQL } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { subscriptions, users, type SubStatus } from "../../db/schema";
@@ -50,6 +50,8 @@ export type ListSubscriptionsParams = {
   limit: number;
   /** admin status tab: active | trialing | canceled | expired (else all) */
   status?: string;
+  /** free-text search on user email */
+  q?: string;
 };
 
 export async function listPaged(
@@ -57,8 +59,11 @@ export async function listPaged(
   tx: Executor = db
 ): Promise<{ rows: AdminSubscriptionRow[]; total: number }> {
   const statuses = params.status ? STATUS_FILTER[params.status] : undefined;
-  const statusWhere =
-    statuses && statuses.length > 0 ? inArray(subscriptions.status, statuses) : undefined;
+  const clauses: (SQL | undefined)[] = [
+    statuses && statuses.length > 0 ? inArray(subscriptions.status, statuses) : undefined,
+    params.q ? ilike(users.email, `%${params.q}%`) : undefined,
+  ];
+  const where = and(...clauses);
 
   const [rows, [{ value: total }]] = await Promise.all([
     tx
@@ -74,11 +79,15 @@ export async function listPaged(
       })
       .from(subscriptions)
       .innerJoin(users, eq(users.id, subscriptions.userId))
-      .where(statusWhere)
+      .where(where)
       .orderBy(desc(subscriptions.lastEventAt), desc(subscriptions.id))
       .limit(params.limit)
       .offset(params.offset),
-    tx.select({ value: count() }).from(subscriptions).where(statusWhere),
+    tx
+      .select({ value: count() })
+      .from(subscriptions)
+      .innerJoin(users, eq(users.id, subscriptions.userId))
+      .where(where),
   ]);
 
   return {

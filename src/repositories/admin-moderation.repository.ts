@@ -1,4 +1,16 @@
-import { and, count, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { db } from "../../db";
 import { checkIns, uploads, users, type UploadStatus } from "../../db/schema";
 import type { AdminCheckinNoteRow, AdminUploadRow } from "../../contracts/src/admin-moderation";
@@ -30,15 +42,30 @@ function toNoteRow(r: {
 
 type NoteCursor = { createdAt: string; id: string };
 
-/** Keyset list of recent non-empty check-in notes (newest first). */
-export async function listCheckinNotesPaged(params: { cursor?: string; limit?: number }): Promise<{
+export type ListCheckinNotesParams = {
+  cursor?: string;
+  limit?: number;
+  userId?: string;
+  q?: string;
+  hiddenOnly?: boolean;
+};
+
+/** Keyset list of check-in notes (newest first), with optional filters. */
+export async function listCheckinNotesPaged(params: ListCheckinNotesParams): Promise<{
   items: AdminCheckinNoteRow[];
   limit: number;
   total: number;
   nextCursor: string | null;
 }> {
   const limit = clampLimit(params.limit, 20, 100);
-  const base = and(sql`${checkIns.note} is not null`, ne(checkIns.note, ""));
+  const filters: (SQL | undefined)[] = [
+    sql`${checkIns.note} is not null`,
+    ne(checkIns.note, ""),
+    params.userId ? eq(checkIns.userId, params.userId) : undefined,
+    params.q ? ilike(checkIns.note, `%${params.q}%`) : undefined,
+    params.hiddenOnly ? isNotNull(checkIns.hiddenAt) : undefined,
+  ];
+  const base = and(...filters);
   const cursorWhere: SQL | undefined = params.cursor
     ? (() => {
         const c = decodeCursor<NoteCursor>(params.cursor!);
@@ -132,17 +159,26 @@ function toUploadRow(r: {
 
 type UploadCursor = { createdAt: string; id: string };
 
-/** Keyset list of live avatar uploads (newest first). */
-export async function listUploadsPaged(params: {
+export type ListUploadsParams = {
   cursor?: string;
   limit?: number;
-}): Promise<{ items: AdminUploadRow[]; limit: number; total: number; nextCursor: string | null }> {
+  userId?: string;
+  q?: string;
+};
+
+/** Keyset list of live avatar uploads (newest first), with optional filters. */
+export async function listUploadsPaged(
+  params: ListUploadsParams
+): Promise<{ items: AdminUploadRow[]; limit: number; total: number; nextCursor: string | null }> {
   const limit = clampLimit(params.limit, 20, 100);
-  const base = and(
+  const filters: (SQL | undefined)[] = [
     eq(uploads.intent, "avatar"),
     inArray(uploads.status, ["verified", "uploaded"] satisfies UploadStatus[]),
-    isNull(uploads.deletedAt)
-  );
+    isNull(uploads.deletedAt),
+    params.userId ? eq(uploads.userId, params.userId) : undefined,
+    params.q ? ilike(users.email, `%${params.q}%`) : undefined,
+  ];
+  const base = and(...filters);
   const cursorWhere: SQL | undefined = params.cursor
     ? (() => {
         const c = decodeCursor<UploadCursor>(params.cursor!);
@@ -206,6 +242,39 @@ export async function removeUpload(
         targetType: "upload",
         targetId: id,
         before: { userId: before.userId, publicUrl: before.publicUrl, status: before.status },
+        after: { reason: reason ?? null },
+        requestId: audit.requestId,
+        ip: audit.ip,
+      },
+      tx
+    );
+    return true;
+  });
+}
+
+/**
+ * Undo a prior soft-delete, making the upload visible again in the moderation
+ * list. The user's profile image is not automatically restored — the admin can
+ * do that via the user-detail page if needed. Audited.
+ */
+export async function restoreUpload(
+  id: string,
+  audit: AuditActor,
+  reason?: string
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [before] = await tx.select().from(uploads).where(eq(uploads.id, id)).limit(1);
+    if (!before || !before.deletedAt) return false;
+
+    await tx.update(uploads).set({ deletedAt: null }).where(eq(uploads.id, id));
+
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: audit.actorAdminEmail,
+        action: "upload.restore",
+        targetType: "upload",
+        targetId: id,
+        before: { deletedAt: before.deletedAt, publicUrl: before.publicUrl },
         after: { reason: reason ?? null },
         requestId: audit.requestId,
         ip: audit.ip,

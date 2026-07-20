@@ -38,3 +38,15 @@ export type AdminUploadListResponse = z.infer<typeof adminUploadListResponseSche
 /** Optional reason attached to the moderation audit entry. */
 export const adminModeratePayloadSchema = z.object({ reason: z.string().max(500).optional() });
 export type AdminModeratePayload = z.infer<typeof adminModeratePayloadSchema>;
+
+/**
+ * Moderation list filters (both the notes and uploads queues). `userId` scopes
+ * to one user; `q` is a free-text search (note text / user email); `hiddenOnly`
+ * shows only already-redacted/removed items.
+ */
+export const adminModerationFilterSchema = z.object({
+  userId: idSchema.optional(),
+  q: z.string().optional(),
+  hiddenOnly: z.coerce.boolean().optional(),
+});
+export type AdminModerationFilter = z.infer<typeof adminModerationFilterSchema>;

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, inArray, lte, type SQL } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -10,12 +10,29 @@ import {
 
 export type EmailLog = EmailLogRow;
 
-/** Admin viewer — offset-paginated, newest-first, optional status filter. */
+export type ListEmailLogParams = {
+  offset: number;
+  limit: number;
+  status?: EmailStatus;
+  template?: string;
+  toEmail?: string;
+  from?: Date;
+  to?: Date;
+};
+
+/** Admin viewer — offset-paginated, newest-first, with optional filters. */
 export async function listPaged(
-  params: { offset: number; limit: number; status?: EmailStatus },
+  params: ListEmailLogParams,
   tx: Executor = db
 ): Promise<{ rows: EmailLog[]; total: number }> {
-  const where = params.status ? eq(emailLogs.status, params.status) : undefined;
+  const clauses: (SQL | undefined)[] = [
+    params.status ? eq(emailLogs.status, params.status) : undefined,
+    params.template ? eq(emailLogs.template, params.template) : undefined,
+    params.toEmail ? ilike(emailLogs.toEmail, `%${params.toEmail}%`) : undefined,
+    params.from ? gte(emailLogs.createdAt, params.from) : undefined,
+    params.to ? lte(emailLogs.createdAt, params.to) : undefined,
+  ];
+  const where = and(...clauses);
   const [rows, [{ value: total }]] = await Promise.all([
     tx
       .select()

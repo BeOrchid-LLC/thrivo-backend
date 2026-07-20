@@ -6,23 +6,46 @@ import { emailLogRepo, adminAuditLogRepo } from "../repositories";
 import { toAdminAuditLogEntry, toAdminEmailLog } from "../mappers/admin-logs.mapper";
 import type { AppEnv } from "../types/http";
 
-const listQuerySchema = z.object({
+const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
 });
 
-const emailLogQuerySchema = listQuerySchema.extend({
+const isoDate = z
+  .string()
+  .datetime({ offset: true })
+  .transform((v) => new Date(v));
+
+const emailLogQuerySchema = paginationSchema.extend({
   status: z.enum(["queued", "sent", "delivered", "bounced", "failed"]).optional(),
+  template: z.string().optional(),
+  to: z.string().optional(),
+  from: isoDate.optional(),
+  toDate: isoDate.optional(),
+});
+
+const auditLogQuerySchema = paginationSchema.extend({
+  actorEmail: z.string().email().optional(),
+  action: z.string().optional(),
+  targetType: z.string().optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
 });
 
 /** GET /admin/email-logs — offset-paginated transactional-email delivery log. */
 export async function listAdminEmailLogs(c: Context<AppEnv>) {
-  const { page, pageSize, status } = emailLogQuerySchema.parse(c.req.query());
+  const { page, pageSize, status, template, to, from, toDate } = emailLogQuerySchema.parse(
+    c.req.query()
+  );
   const params = parseOffset(page, pageSize);
   const { rows, total } = await emailLogRepo.listPaged({
     offset: params.offset,
     limit: params.pageSize,
     status,
+    template,
+    toEmail: to,
+    from,
+    to: toDate,
   });
   return respondOk(c, {
     items: rows.map(toAdminEmailLog),
@@ -32,11 +55,18 @@ export async function listAdminEmailLogs(c: Context<AppEnv>) {
 
 /** GET /admin/audit-log — offset-paginated view of the append-only admin audit trail. */
 export async function listAdminAuditLog(c: Context<AppEnv>) {
-  const { page, pageSize } = listQuerySchema.parse(c.req.query());
+  const { page, pageSize, actorEmail, action, targetType, from, to } = auditLogQuerySchema.parse(
+    c.req.query()
+  );
   const params = parseOffset(page, pageSize);
   const { rows, total } = await adminAuditLogRepo.listPaged({
     offset: params.offset,
     limit: params.pageSize,
+    actorEmail,
+    action,
+    targetType,
+    from,
+    to,
   });
   return respondOk(c, {
     items: rows.map(toAdminAuditLogEntry),
