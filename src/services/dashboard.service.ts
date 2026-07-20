@@ -15,6 +15,7 @@ import {
   type WaterHistoryDay,
   type WaterHistoryLockedRange,
 } from "../../contracts/src/metrics";
+import type { HistorySort, MealTime } from "../../contracts/src/history-filters";
 import { cacheAside } from "../lib/cache";
 import {
   foodFavoriteRepo,
@@ -24,6 +25,14 @@ import {
   waterIntakeRepo,
 } from "../repositories";
 import type { FoodLog } from "../repositories/food-log.repository";
+import {
+  encodeFoodLogCursor,
+  listLogsByLocalDateRangeFiltered,
+} from "../repositories/food-log.repository";
+import {
+  encodeWaterCursor,
+  listEntriesByLocalDateRangeFiltered,
+} from "../repositories/water-intake.repository";
 import type { User } from "../repositories/user.repository";
 import { isPremium } from "./entitlement.service";
 import { dashboardCacheKeys } from "./dashboard-cache.service";
@@ -155,7 +164,15 @@ export async function getWaterState(user: User, day: string): Promise<Water> {
 
 export async function getWaterHistory(
   user: User,
-  options: { date: string; period: ChartPeriod; today?: string }
+  options: {
+    date: string;
+    period: ChartPeriod;
+    today?: string;
+    mealTime?: MealTime;
+    sort?: HistorySort;
+    cursor?: string;
+    limit?: number;
+  }
 ): Promise<{
   period: ChartPeriod;
   date: string;
@@ -164,6 +181,7 @@ export async function getWaterHistory(
   days: WaterHistoryDay[];
   lockedRange: WaterHistoryLockedRange | null;
   historyLimitDays: number;
+  nextCursor: string | null;
 }> {
   const { from, to } = waterHistoryRange(options.period, options.date);
   const { lockBefore } = resolveHistoryWindow({ from, to, today: options.today ?? options.date });
@@ -177,13 +195,31 @@ export async function getWaterHistory(
           lockReason: "free_history_limit",
         } satisfies WaterHistoryLockedRange)
       : null;
+
+  const hasFilters = Boolean(options.mealTime || options.cursor || options.sort);
+  const sort = options.sort ?? "newest";
+  const limit = options.limit ?? 50;
+
+  // Bypass cache when filters/cursor are present — the key space would be unbounded.
+  const fetchEntries = async () => {
+    if (visibleFrom > to) return [];
+    return listEntriesByLocalDateRangeFiltered(user.id, visibleFrom, to, {
+      mealTime: options.mealTime,
+      sort,
+      cursor: options.cursor,
+      limit,
+      timezone: user.timezone ?? "UTC",
+    });
+  };
+
   const key = `${dashboardCacheKeys.waterHistory(user.id)}:${premium ? "premium" : "free"}:${options.period}:${from}:${to}:${options.today ?? options.date}`;
 
-  return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, async () => {
-    const entries =
-      visibleFrom <= to
-        ? await waterIntakeRepo.listEntriesByLocalDateRange(user.id, visibleFrom, to)
-        : [];
+  const run = async () => {
+    const raw = await fetchEntries();
+    const hasMore = raw.length > limit;
+    const entries = hasMore ? raw.slice(0, limit) : raw;
+    const nextCursor = hasMore ? encodeWaterCursor(entries[entries.length - 1], sort) : null;
+
     const groupedByDate = new Map<string, typeof entries>();
     for (const entry of entries) {
       const rows = groupedByDate.get(entry.localDate) ?? [];
@@ -210,8 +246,12 @@ export async function getWaterHistory(
       days,
       lockedRange,
       historyLimitDays: FREE_HISTORY_LIMIT_DAYS,
+      nextCursor,
     };
-  });
+  };
+
+  if (hasFilters) return run();
+  return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, run);
 }
 
 export async function getFoodEntriesForDay(user: User, day: string): Promise<FoodLogEntry[]> {
@@ -271,7 +311,19 @@ export function resolveHistoryWindow(
 
 export async function getHistoryDays(
   user: User,
-  options: { from?: string; to?: string; today?: string; date?: string; period?: HistoryPeriod }
+  options: {
+    from?: string;
+    to?: string;
+    today?: string;
+    date?: string;
+    period?: HistoryPeriod;
+    q?: string;
+    mealTime?: MealTime;
+    favoritesOnly?: boolean;
+    sort?: HistorySort;
+    cursor?: string;
+    limit?: number;
+  }
 ): Promise<{
   period: HistoryPeriod;
   date: string;
@@ -280,6 +332,7 @@ export async function getHistoryDays(
   days: HistoryDay[];
   lockedRange: FoodLogHistoryLockedRange | null;
   historyLimitDays: number;
+  nextCursor: string | null;
 }> {
   const period = options.period ?? "1m";
   const date = options.date ?? options.to ?? options.today ?? isoDay(new Date());
@@ -290,7 +343,6 @@ export async function getHistoryDays(
     today: options.today ?? date,
   });
   const premium = isPremium(user);
-  const key = `${dashboardCacheKeys.history(user.id)}:${premium ? "premium" : "free"}:${from}:${to}:${today}`;
   const visibleFrom = !premium && from < lockBefore ? lockBefore : from;
   const lockedRange =
     !premium && from < lockBefore
@@ -301,10 +353,52 @@ export async function getHistoryDays(
         } satisfies FoodLogHistoryLockedRange)
       : null;
 
-  return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, async () => {
-    const logs =
-      visibleFrom <= to ? await foodLogRepo.listLogsByLocalDateRange(user.id, visibleFrom, to) : [];
-    const favoriteIds = await favoriteIdsForLogs(user.id, logs);
+  const hasFilters = Boolean(
+    options.q || options.mealTime || options.favoritesOnly || options.cursor || options.sort
+  );
+  const sort = options.sort ?? "newest";
+  const limit = options.limit ?? 50;
+
+  const run = async () => {
+    let favoriteIds: ReadonlySet<string> = new Set();
+    if (options.favoritesOnly) {
+      favoriteIds = await foodFavoriteRepo.listIdsForUser(user.id);
+      if (favoriteIds.size === 0) {
+        return {
+          period,
+          date,
+          from,
+          to,
+          days: [],
+          lockedRange,
+          historyLimitDays: FREE_HISTORY_LIMIT_DAYS,
+          nextCursor: null,
+        };
+      }
+    }
+
+    const raw =
+      visibleFrom <= to
+        ? await listLogsByLocalDateRangeFiltered(user.id, visibleFrom, to, {
+            q: options.q,
+            mealTime: options.mealTime,
+            favoritesOnly: options.favoritesOnly,
+            favoriteIds,
+            sort,
+            cursor: options.cursor,
+            limit,
+            timezone: user.timezone ?? "UTC",
+          })
+        : [];
+
+    const hasMore = raw.length > limit;
+    const logs = hasMore ? raw.slice(0, limit) : raw;
+    const nextCursor = hasMore ? encodeFoodLogCursor(logs[logs.length - 1], sort) : null;
+
+    const allFavoriteIds = options.favoritesOnly
+      ? favoriteIds
+      : await favoriteIdsForLogs(user.id, logs);
+
     const groupedByDate = new Map<string, FoodLog[]>();
     for (const log of logs) {
       const rows = groupedByDate.get(log.localDate) ?? [];
@@ -314,17 +408,29 @@ export async function getHistoryDays(
 
     const days: HistoryDay[] = Array.from(groupedByDate.entries())
       .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
-      .map(([day, dayLogs]) => {
-        return {
-          day,
-          isLocked: false,
-          lockReason: null,
-          entries: dayLogs.map((log) => toFoodLogEntry(log, favoriteIds)),
-        };
-      });
+      .map(([day, dayLogs]) => ({
+        day,
+        isLocked: false,
+        lockReason: null,
+        entries: dayLogs.map((log) => toFoodLogEntry(log, allFavoriteIds)),
+      }));
 
-    return { period, date, from, to, days, lockedRange, historyLimitDays: FREE_HISTORY_LIMIT_DAYS };
-  });
+    return {
+      period,
+      date,
+      from,
+      to,
+      days,
+      lockedRange,
+      historyLimitDays: FREE_HISTORY_LIMIT_DAYS,
+      nextCursor,
+    };
+  };
+
+  if (hasFilters) return run();
+
+  const key = `${dashboardCacheKeys.history(user.id)}:${premium ? "premium" : "free"}:${from}:${to}:${today}`;
+  return cacheAside(key, HISTORY_CACHE_TTL_SECONDS, run);
 }
 
 function toFoodLogEntry(log: FoodLog, favoriteIds: ReadonlySet<string> = new Set()): FoodLogEntry {
