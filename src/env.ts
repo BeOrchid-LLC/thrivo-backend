@@ -37,13 +37,19 @@ export const envSchema = z
     // Public base URL of the API. Used for health/ready, admin invite links, etc.
     AUTH_BASE_URL: z.string().url().default("http://localhost:4000"),
 
-    // Clerk — user-facing auth provider (ADR-0026 replacement, ADR-0019 seam).
-    // All three are required; the server refuses to boot without them.
+    // Clerk — BeOrchid Consumer app (mobile + public web). All three required.
     CLERK_SECRET_KEY: z.string().min(1),
     CLERK_PUBLISHABLE_KEY: z.string().min(1),
     // Webhook signing secret minted in the Clerk dashboard (Svix HMAC). Required
     // so every inbound event is signature-verified (fail closed on missing).
     CLERK_WEBHOOK_SECRET: z.string().min(1),
+
+    // Clerk — BeOrchid Admin app (all admin/dashboard surfaces across the ecosystem).
+    // Separate Clerk application from the consumer app: email+password only,
+    // allowlisted admin emails. All three required; server refuses to boot without them.
+    CLERK_ADMIN_SECRET_KEY: z.string().min(1),
+    CLERK_ADMIN_PUBLISHABLE_KEY: z.string().min(1),
+    CLERK_ADMIN_WEBHOOK_SECRET: z.string().min(1),
 
     // Observability (optional). Empty string in .env is treated as unset.
     SENTRY_DSN: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
