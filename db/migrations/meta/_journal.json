@@ -246,6 +246,13 @@
       "when": 1784560690147,
       "tag": "0034_clerk_drop_auth_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1784677711215,
+      "tag": "0035_clerk_admin_id",
+      "breakpoints": true
     }
   ]
 }
