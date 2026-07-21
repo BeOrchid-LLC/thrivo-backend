@@ -9,6 +9,28 @@ export type AdminAccountStatus = "invited" | "active" | "disabled";
 
 const norm = (email: string) => email.trim().toLowerCase();
 
+/** Find an admin by their Clerk Admin app user ID. */
+export async function findByClerkAdminId(
+  clerkAdminId: string,
+  tx: Executor = db
+): Promise<AdminAccount | null> {
+  const [row] = await tx
+    .select()
+    .from(adminUsers)
+    .where(eq(adminUsers.clerkAdminId, clerkAdminId))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Link an existing admin row to a Clerk Admin app user ID. */
+export async function linkClerkAdminId(
+  id: string,
+  clerkAdminId: string,
+  tx: Executor = db
+): Promise<void> {
+  await tx.update(adminUsers).set({ clerkAdminId }).where(eq(adminUsers.id, id));
+}
+
 /** Find an admin by email (case-insensitive via citext). */
 export async function findByEmail(email: string, tx: Executor = db): Promise<AdminAccount | null> {
   const [row] = await tx
