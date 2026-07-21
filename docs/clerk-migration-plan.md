@@ -70,7 +70,49 @@ Key steps:
 
 ### Known gaps (from Phase 1)
 
-- `admin-user.repository.ts → hardDeleteUser()` — no longer calls Clerk API to delete the Clerk user when an admin hard-deletes a domain user. Flagged as a follow-up task.
+#### Wire Clerk user deletion in admin hard-delete flow
+
+**File:** `src/repositories/admin-user.repository.ts`, function `hardDeleteUser()` (~line 238)
+
+**Problem:** Before the Clerk migration, `hardDeleteUser()` called `authIdentityRepo.deleteById(row.authSubjectId, tx)` to remove the `auth_user` row when a domain user was hard-deleted by an admin. That call was removed during Phase 1 (the `auth_user` table is now dropped). The Clerk user record is now orphaned whenever an admin hard-deletes a domain user.
+
+**Fix:** Call `clerkClient.users.deleteUser(row.authSubjectId)` after deleting the domain row. Wrap in try/catch so a Clerk API failure does not roll back the DB transaction — log as a warning and continue.
+
+```typescript
+import { createClerkClient } from "@clerk/backend";
+import { env } from "../../src/env";
+
+const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+
+export async function hardDeleteUser(id: string, audit: AuditActor): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(users).where(eq(users.id, id)).limit(1);
+    if (!row) return false;
+
+    await tx.delete(users).where(eq(users.id, id));
+
+    await adminAuditLogRepo.append({ ... }, tx);
+
+    // Delete the Clerk user outside the transaction — a Clerk API failure
+    // must not roll back the domain delete (the record is gone regardless).
+    if (row.authSubjectId) {
+      try {
+        await clerk.users.deleteUser(row.authSubjectId);
+      } catch (err) {
+        logger.warn({ err, clerkUserId: row.authSubjectId }, "hardDeleteUser: Clerk user deletion failed — Clerk record may be orphaned");
+      }
+    }
+
+    return true;
+  });
+}
+```
+
+**Notes:**
+- `@clerk/backend` is already installed (added in Phase 1).
+- The `createClerkClient` instance can be a module-level singleton (same pattern as other service clients).
+- The Clerk delete is intentionally outside the `db.transaction()` because Clerk's API is not part of the DB transaction and cannot be rolled back; if you put it inside the transaction block, a Clerk failure would roll back a completed domain delete.
+- Run `npm run checks` after the change to confirm types pass.
 
 ---
 
