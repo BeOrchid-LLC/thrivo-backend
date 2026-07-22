@@ -25,6 +25,10 @@ export const adminUsers = pgTable("admin_users", {
   // invited | active | disabled (see contracts adminAccountStatusSchema).
   status: text("status").notNull().default("invited"),
   permissions: jsonb("permissions").$type<string[] | null>(),
+  // Clerk Admin app user ID (user_xxx from the BeOrchid Admin Clerk application).
+  // Populated via the /webhooks/clerk-admin endpoint on first sign-in; null for
+  // admin rows that pre-date Clerk Admin or were created before the webhook fired.
+  clerkAdminId: text("clerk_admin_id").unique(),
   invitedByEmail: text("invited_by_email"),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   ...timestamps,

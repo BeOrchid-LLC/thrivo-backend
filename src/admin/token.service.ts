@@ -1,6 +1,6 @@
 import { getRedis } from "../lib/redis";
 import { logger } from "../lib/logger";
-import { randomToken, sha256Hex } from "../auth/crypto";
+import { randomToken, sha256Hex } from "../lib/crypto";
 import { env } from "../env";
 
 /**

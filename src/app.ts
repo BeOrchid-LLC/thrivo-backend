@@ -7,9 +7,8 @@ import { requestLogger } from "./middleware/logger";
 import { securityHeaders } from "./middleware/security-headers";
 import { corsMiddleware } from "./middleware/cors";
 import { bodyLimitMiddleware } from "./middleware/body-limit";
-import { apiRateLimit, authRateLimit } from "./middleware/rate-limit";
+import { apiRateLimit } from "./middleware/rate-limit";
 import { authMiddleware } from "./middleware/auth";
-import { authRouter } from "./routes/auth";
 import { usersRouter } from "./routes/users";
 import { uploadsRouter } from "./routes/uploads";
 import { dashboardRouter } from "./routes/dashboard";
@@ -45,12 +44,6 @@ export function buildApp(): Hono<AppEnv> {
 
   // Resolve the session → c.var.user for every API request (non-fatal).
   app.use("/api/v1/*", authMiddleware);
-
-  // Auth endpoints share a tighter rate-limit bucket (credential abuse).
-  app.use("/api/v1/auth/*", authRateLimit);
-
-  // Hand-rolled auth: magic link + Google OAuth + token lifecycle.
-  app.route("/api/v1/auth", authRouter);
 
   // Feature routers (auth-gated). /users/me is the A1 reference route; A2 adds the rest.
   app.route("/api/v1/users", usersRouter);

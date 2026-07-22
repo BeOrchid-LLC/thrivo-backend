@@ -1,6 +1,5 @@
 // Schema barrel — single import surface for `drizzle(pool, { schema })` and migrations.
 export * from "./_enums";
-export * from "./auth";
 export * from "./users";
 export * from "./food-items";
 export * from "./food-nutrients";

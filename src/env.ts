@@ -31,28 +31,25 @@ export const envSchema = z
     DATABASE_URL: z.string().url(),
     REDIS_URL: z.string().url(),
 
-    // Signs access JWTs (HS256); required, min 32 chars.
+    // Signs admin session JWTs (HS256, separate issuer/audience from user auth);
+    // required, min 32 chars. User-facing auth is now Clerk-managed.
     AUTH_SECRET: z.string().min(32),
-    // Hand-rolled auth token lifetimes. Access is short (stateless, signature is
-    // authority); refresh is DB-backed + rotating, so it can live longer safely.
-    ACCESS_TOKEN_TTL: z.string().default("15m"),
-    REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
-    // Deep link the OAuth callback redirects to with the issued tokens (the app
-    // parses ?token/?refresh/?error). Fixed scheme — never built from user input,
-    // so the callback can't be turned into an open redirect.
-    APP_AUTH_REDIRECT_URL: z.string().default("thrivo://auth"),
-    // Public base URL of the API. The Google OAuth redirect URI is derived from
-    // this (<AUTH_BASE_URL>/api/v1/auth/google/callback) and the magic-link
-    // fallback URL. Dev default.
+    // Public base URL of the API. Used for health/ready, admin invite links, etc.
     AUTH_BASE_URL: z.string().url().default("http://localhost:4000"),
 
-    // OAuth provider credentials (optional — a provider is configured only when its
-    // full set is present, so dev/CI boot without them). External lead time per
-    // ADR-0017 (Google client; Apple Service ID + key).
-    GOOGLE_CLIENT_ID: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
-    GOOGLE_CLIENT_SECRET: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
-    APPLE_CLIENT_ID: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
-    APPLE_CLIENT_SECRET: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+    // Clerk — BeOrchid Consumer app (mobile + public web). All three required.
+    CLERK_SECRET_KEY: z.string().min(1),
+    CLERK_PUBLISHABLE_KEY: z.string().min(1),
+    // Webhook signing secret minted in the Clerk dashboard (Svix HMAC). Required
+    // so every inbound event is signature-verified (fail closed on missing).
+    CLERK_WEBHOOK_SECRET: z.string().min(1),
+
+    // Clerk — BeOrchid Admin app (all admin/dashboard surfaces across the ecosystem).
+    // Separate Clerk application from the consumer app: email+password only,
+    // allowlisted admin emails. All three required; server refuses to boot without them.
+    CLERK_ADMIN_SECRET_KEY: z.string().min(1),
+    CLERK_ADMIN_PUBLISHABLE_KEY: z.string().min(1),
+    CLERK_ADMIN_WEBHOOK_SECRET: z.string().min(1),
 
     // Observability (optional). Empty string in .env is treated as unset.
     SENTRY_DSN: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
@@ -212,32 +209,6 @@ export const envSchema = z
    * rather than refusing to start over a feature that may not be exercised yet.
    */
   .superRefine((parsed, ctx) => {
-    // OAuth credentials are all-or-nothing: a half-configured provider is a
-    // misconfiguration that should fail loudly, not silently disable sign-in.
-    const pairs: ReadonlyArray<readonly [string, unknown, string, unknown]> = [
-      [
-        "GOOGLE_CLIENT_ID",
-        parsed.GOOGLE_CLIENT_ID,
-        "GOOGLE_CLIENT_SECRET",
-        parsed.GOOGLE_CLIENT_SECRET,
-      ],
-      [
-        "APPLE_CLIENT_ID",
-        parsed.APPLE_CLIENT_ID,
-        "APPLE_CLIENT_SECRET",
-        parsed.APPLE_CLIENT_SECRET,
-      ],
-    ];
-    for (const [idKey, idVal, secretKey, secretVal] of pairs) {
-      if (Boolean(idVal) !== Boolean(secretVal)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: [idVal ? secretKey : idKey],
-          message: `${idKey} and ${secretKey} must be set together`,
-        });
-      }
-    }
-
     // R2 is all-or-nothing on its four core credentials: a half-configured bucket
     // is a misconfiguration that should fail loudly, not silently disable uploads.
     const r2Core: ReadonlyArray<readonly [string, unknown]> = [

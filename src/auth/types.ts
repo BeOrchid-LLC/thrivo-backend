@@ -11,3 +11,9 @@ export type AuthPrincipal = {
   emailVerified: boolean;
   name?: string;
 };
+
+/**
+ * Principal for the BeOrchid Admin Clerk application. Extends AuthPrincipal with
+ * a `role` claim sourced from `public_metadata.role` in the Admin Clerk JWT template.
+ */
+export type AdminClerkPrincipal = AuthPrincipal & { role?: string };

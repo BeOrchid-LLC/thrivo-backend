@@ -1,6 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import { verifyRequest } from "../auth";
 import { userRepo } from "../repositories";
+import { resolveUser } from "../services/identity.service";
 import { recordActivity } from "../services/activity.service";
 import type { AppEnv } from "../types/http";
 
@@ -9,15 +10,19 @@ import type { AppEnv } from "../types/http";
  * it on `c.var.user`. Non-fatal: anonymous requests pass through with no user —
  * `require-auth` is what enforces presence on protected routers.
  *
- * Plain lookup only — no user creation. The domain profile is provisioned at
- * login time (magic-link / OAuth). A valid JWT with no matching `users` row
- * means the user was deleted; leaving `c.var.user` unset lets `require-auth`
- * return 401 as intended.
+ * When `findByAuthSubjectId` finds no matching row (webhook race: Clerk fired the
+ * JWT before the `user.created` webhook landed), `resolveUser` is called inline
+ * as a fallback to provision the domain profile on demand. Both paths are
+ * idempotent so a subsequent webhook delivery is a safe no-op.
  */
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const principal = await verifyRequest(c.req.raw.headers);
   if (principal) {
-    const user = await userRepo.findByAuthSubjectId(principal.subjectId);
+    let user = await userRepo.findByAuthSubjectId(principal.subjectId);
+    if (!user) {
+      const resolved = await resolveUser(principal);
+      user = resolved.user;
+    }
     if (user) {
       c.set("user", user);
       // Fire-and-forget: throttled + self-contained, never gates the response.
