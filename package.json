@@ -38,6 +38,8 @@
     "backfill:subscription-event-prices:deploy": "node dist/backfill-subscription-event-prices.js",
     "backfill:food-log-item-ids": "tsx scripts/backfill-food-log-item-ids.ts",
     "backfill:food-log-item-ids:deploy": "node dist/backfill-food-log-item-ids.js",
+    "migrate:clerk-users": "tsx scripts/migrate-users-to-clerk.ts",
+    "migrate:clerk-users:deploy": "node dist/migrate-users-to-clerk.js",
     "lint": "eslint src db contracts/src tests --ext .ts",
     "format": "prettier --write \"src/**/*.ts\" \"db/**/*.ts\" \"contracts/src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"db/**/*.ts\" \"contracts/src/**/*.ts\" \"tests/**/*.ts\"",

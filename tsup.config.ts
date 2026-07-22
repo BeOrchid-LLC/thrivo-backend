@@ -18,6 +18,7 @@ export default defineConfig({
     "backfill-mrr-snapshots": "scripts/backfill-mrr-snapshots.ts", // B2a one-off mrr_snapshots backfill
     "backfill-subscription-event-prices": "scripts/backfill-subscription-event-prices.ts", // one-off subscription_events price backfill
     "backfill-food-log-item-ids": "scripts/backfill-food-log-item-ids.ts", // null food_logs.food_item_id repair
+    "migrate-users-to-clerk": "scripts/migrate-users-to-clerk.ts", // one-off link existing users to Clerk Consumer IDs
     "seed-admins": "db/seed-admins.ts", // idempotent super-admin bootstrap
   },
   outDir: "dist",
