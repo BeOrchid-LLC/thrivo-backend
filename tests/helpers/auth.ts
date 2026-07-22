@@ -1,28 +1,21 @@
-import { authIdentityRepo } from "../../src/repositories";
-import { issueSession, principalOf } from "../../src/auth/session.service";
 import { resolveUser } from "../../src/services/identity.service";
 import { newId } from "../../src/lib/ids";
+import type { AuthPrincipal } from "../../src/auth";
 
 export type TestSession = { email: string; accessToken: string };
 
 /**
- * Create a verified, signed-in test user and return a usable access token. Mints
- * a real auth identity + session through the hand-rolled auth layer (no email
- * round-trip), so route tests get an authenticated principal directly.
- *
- * Mirrors the real login transaction: upsert auth_user → resolveUser (provision
- * the domain profile) → issue session. Without resolveUser the users row would
- * not exist and the first authenticated request would return 401.
+ * Create a verified, signed-in test user and return a usable access token.
+ * Inserts the domain profile directly via resolveUser (no email round-trip), and
+ * returns a test-format Bearer token accepted by the verifyToken mock configured
+ * in tests/helpers/setup-clerk-mock.ts.
  */
 export async function createSession(): Promise<TestSession> {
   const email = `${newId()}@test.thrivo.fit`;
-  const identity = await authIdentityRepo.upsertByEmail({
-    email,
-    name: "Test User",
-    emailVerified: true,
-  });
-  await resolveUser(principalOf(identity));
-  const { accessToken } = await issueSession(principalOf(identity));
+  const subjectId = `user_test_${newId()}`;
+  const principal: AuthPrincipal = { subjectId, email, emailVerified: true, name: "Test User" };
+  await resolveUser(principal);
+  const accessToken = `test-clerk-token:${subjectId}:${email}`;
   return { email, accessToken };
 }
 

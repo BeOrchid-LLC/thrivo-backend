@@ -5,6 +5,8 @@ const { verifyRequest } = vi.hoisted(() => ({ verifyRequest: vi.fn() }));
 vi.mock("../../src/auth", () => ({ verifyRequest }));
 const { findByAuthSubjectId } = vi.hoisted(() => ({ findByAuthSubjectId: vi.fn() }));
 vi.mock("../../src/repositories", () => ({ userRepo: { findByAuthSubjectId } }));
+const { resolveUser } = vi.hoisted(() => ({ resolveUser: vi.fn() }));
+vi.mock("../../src/services/identity.service", () => ({ resolveUser }));
 
 import { authMiddleware } from "../../src/middleware/auth";
 import type { AppEnv } from "../../src/types/http";
@@ -28,9 +30,10 @@ describe("auth middleware", () => {
     expect(findByAuthSubjectId).toHaveBeenCalledWith("s1");
   });
 
-  it("leaves the request anonymous when the user row is missing", async () => {
+  it("leaves the request anonymous when resolveUser cannot provision a user", async () => {
     verifyRequest.mockResolvedValue({ subjectId: "s1", email: "a@b.com", emailVerified: true });
     findByAuthSubjectId.mockResolvedValue(null);
+    resolveUser.mockResolvedValue({ user: null, created: false });
 
     const body = (await (await app().request("/")).json()) as { user: unknown };
     expect(body.user).toBeNull();

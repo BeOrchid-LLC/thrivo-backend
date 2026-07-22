@@ -9,6 +9,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     // Applies migrations once when RUN_DB_TESTS=1; no-op for unit-only runs.
     globalSetup: ["tests/helpers/global-setup.ts"],
+    setupFiles: ["tests/helpers/setup-clerk-mock.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

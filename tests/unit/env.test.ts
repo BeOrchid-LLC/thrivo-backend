@@ -6,11 +6,13 @@ const base = {
   DATABASE_URL: "postgresql://u:p@localhost:5432/db",
   REDIS_URL: "redis://localhost:6379",
   AUTH_SECRET: "x".repeat(32),
+  CLERK_SECRET_KEY: "sk_test_x",
+  CLERK_PUBLISHABLE_KEY: "pk_test_x",
+  CLERK_WEBHOOK_SECRET: "whsec_x",
+  CLERK_ADMIN_SECRET_KEY: "sk_test_x",
+  CLERK_ADMIN_PUBLISHABLE_KEY: "pk_test_x",
+  CLERK_ADMIN_WEBHOOK_SECRET: "whsec_x",
 };
-
-function keysOf(result: ReturnType<typeof envSchema.safeParse>): string[] {
-  return result.success ? [] : result.error.issues.map((i) => i.path.join("."));
-}
 
 describe("env policy", () => {
   it("accepts a minimal dev config without feature secrets", () => {
@@ -27,27 +29,16 @@ describe("env policy", () => {
     const { DATABASE_URL: _omit, ...noDb } = base;
     const result = envSchema.safeParse({ ...noDb, NODE_ENV: "production" });
     expect(result.success).toBe(false);
-    expect(keysOf(result)).toContain("DATABASE_URL");
+    const keys = result.success ? [] : result.error.issues.map((i) => i.path.join("."));
+    expect(keys).toContain("DATABASE_URL");
   });
 
-  it("rejects a half-configured OAuth provider in any environment", () => {
+  it("refuses to boot with a half-configured R2 storage setup", () => {
     const result = envSchema.safeParse({
       ...base,
-      NODE_ENV: "development",
-      GOOGLE_CLIENT_ID: "id-only",
+      NODE_ENV: "production",
+      R2_ACCOUNT_ID: "account-only",
     });
     expect(result.success).toBe(false);
-    expect(keysOf(result)).toContain("GOOGLE_CLIENT_SECRET");
-  });
-
-  it("accepts a fully-configured OAuth provider", () => {
-    expect(
-      envSchema.safeParse({
-        ...base,
-        NODE_ENV: "development",
-        GOOGLE_CLIENT_ID: "id",
-        GOOGLE_CLIENT_SECRET: "secret",
-      }).success
-    ).toBe(true);
   });
 });
