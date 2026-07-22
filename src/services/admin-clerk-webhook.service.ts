@@ -73,9 +73,7 @@ function resolveRole(raw: string | undefined): AdminRole {
  * created via invite), link it and activate it. Role is sourced from
  * public_metadata.role set in the Clerk dashboard; defaults to "admin".
  */
-export async function handleAdminClerkUserCreated(
-  data: ClerkAdminUserCreatedData
-): Promise<void> {
+export async function handleAdminClerkUserCreated(data: ClerkAdminUserCreatedData): Promise<void> {
   const email = primaryEmail(data.email_addresses).toLowerCase();
   const name = fullName(data.first_name, data.last_name);
   const role = resolveRole(data.public_metadata?.role);
@@ -105,9 +103,7 @@ export async function handleAdminClerkUserCreated(
 
 /** user.updated: sync email and name. Role changes go through the Clerk dashboard
  * and are reflected in the JWT; the DB row is kept in sync for the admin management UI. */
-export async function handleAdminClerkUserUpdated(
-  data: ClerkAdminUserUpdatedData
-): Promise<void> {
+export async function handleAdminClerkUserUpdated(data: ClerkAdminUserUpdatedData): Promise<void> {
   const existing = await adminAccountRepo.findByClerkAdminId(data.id);
   if (!existing) {
     // Not yet linked — treat as a late-arriving created event.
@@ -129,9 +125,7 @@ export async function handleAdminClerkUserUpdated(
 }
 
 /** user.deleted: disable the admin account. The row is kept for audit purposes. */
-export async function handleAdminClerkUserDeleted(
-  data: ClerkAdminUserDeletedData
-): Promise<void> {
+export async function handleAdminClerkUserDeleted(data: ClerkAdminUserDeletedData): Promise<void> {
   if (!data.deleted) return;
   const existing = await adminAccountRepo.findByClerkAdminId(data.id);
   if (!existing) {
@@ -148,9 +142,7 @@ export async function handleAdminClerkUserDeleted(
   );
 }
 
-export async function handleAdminClerkWebhookEvent(
-  event: ClerkAdminWebhookEvent
-): Promise<string> {
+export async function handleAdminClerkWebhookEvent(event: ClerkAdminWebhookEvent): Promise<string> {
   switch (event.type) {
     case "user.created":
       await handleAdminClerkUserCreated(event.data as ClerkAdminUserCreatedData);
