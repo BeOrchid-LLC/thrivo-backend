@@ -20,9 +20,16 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgres://thrivo:thrivo@localhost:5432/thrivo
       REDIS_URL: redis://localhost:6379
-      # Required by Zod env schema (min 32 chars); pulled from the 'production'
-      # GitHub environment so the migrate + test steps don't fail validation.
+      # Required by Zod env schema; pulled from the 'production' GitHub environment
+      # so the migrate + test steps pass validation. Clerk keys are never called
+      # during CI — only their presence is validated at import time.
       AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+      CLERK_WEBHOOK_SECRET: ${{ secrets.CLERK_WEBHOOK_SECRET }}
+      CLERK_ADMIN_SECRET_KEY: ${{ secrets.CLERK_ADMIN_SECRET_KEY }}
+      CLERK_ADMIN_PUBLISHABLE_KEY: ${{ secrets.CLERK_ADMIN_PUBLISHABLE_KEY }}
+      CLERK_ADMIN_WEBHOOK_SECRET: ${{ secrets.CLERK_ADMIN_WEBHOOK_SECRET }}
       RUN_DB_TESTS: "1"
     services:
       postgres:
