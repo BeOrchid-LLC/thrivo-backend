@@ -1,19 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import { adminDashboardMetricsResponseSchema } from "../../contracts/src/admin-analytics";
 
 const run = process.env.RUN_DB_TESTS === "1";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin dashboard metrics", () => {
@@ -27,7 +20,7 @@ describe.skipIf(!run)("integration: admin dashboard metrics", () => {
   it("returns a snapshot matching the shared AdminDashboardMetrics contract", async () => {
     const app = buildApp();
     const res = await app.request("/api/v1/admin/metrics/dashboard", {
-      headers: { cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
     expect(res.status).toBe(200);
 

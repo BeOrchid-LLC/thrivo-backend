@@ -5,9 +5,8 @@ import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog, checkIns, uploads } from "../../db/schema";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { makeAdminUser, makeUser, makeCheckIn } from "../helpers/factories";
 import { userRepo } from "../../src/repositories";
-import { makeUser, makeCheckIn } from "../helpers/factories";
 import {
   adminCheckinNoteListResponseSchema,
   adminUploadListResponseSchema,
@@ -16,20 +15,20 @@ import {
 const run = process.env.RUN_DB_TESTS === "1";
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
-async function cookieFor(role: "admin" | "support" | "read-only"): Promise<string> {
-  const token = await signAdminSession({
-    id: `${role}@test.thrivo.fit`,
-    email: `${role}@test.thrivo.fit`,
-    name: null,
-    role,
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function bearerFor(role: "admin" | "support" | "read-only") {
+  return `Bearer test-clerk-admin-token:test_${role.replace(/-/g, "")}:${role}@test.thrivo.fit`;
 }
-const headers = (cookie: string) => ({ Cookie: cookie, Origin: ALLOWED_ORIGIN });
+
+const headers = (bearer: string) => ({ authorization: bearer, Origin: ALLOWED_ORIGIN });
 
 describe.skipIf(!run)("integration: admin UGC moderation", () => {
   beforeEach(async () => {
     await resetDb();
+    await Promise.all([
+      makeAdminUser("admin@test.thrivo.fit", "admin"),
+      makeAdminUser("support@test.thrivo.fit", "support"),
+      makeAdminUser("read-only@test.thrivo.fit", "read-only"),
+    ]);
   });
   afterAll(async () => {
     await closeDb();
@@ -44,7 +43,7 @@ describe.skipIf(!run)("integration: admin UGC moderation", () => {
     const app = buildApp();
 
     const list = await app.request("/api/v1/admin/moderation/checkin-notes", {
-      headers: { cookie: await cookieFor("read-only") },
+      headers: { authorization: bearerFor("read-only") },
     });
     expect(list.status).toBe(200);
     const listBody = (await list.json()) as { data: unknown };
@@ -52,7 +51,7 @@ describe.skipIf(!run)("integration: admin UGC moderation", () => {
 
     const redact = await app.request(`/api/v1/admin/checkins/${checkin.id}/redact`, {
       method: "POST",
-      headers: headers(await cookieFor("support")),
+      headers: headers(bearerFor("support")),
     });
     expect(redact.status).toBe(200);
 
@@ -68,7 +67,7 @@ describe.skipIf(!run)("integration: admin UGC moderation", () => {
     // Restore clears it again.
     const restore = await app.request(`/api/v1/admin/checkins/${checkin.id}/restore`, {
       method: "POST",
-      headers: headers(await cookieFor("support")),
+      headers: headers(bearerFor("support")),
     });
     expect(restore.status).toBe(200);
     const [restored] = await db.select().from(checkIns).where(eq(checkIns.id, checkin.id));
@@ -94,7 +93,7 @@ describe.skipIf(!run)("integration: admin UGC moderation", () => {
     const app = buildApp();
 
     const listRes = await app.request("/api/v1/admin/moderation/uploads", {
-      headers: { cookie: await cookieFor("read-only") },
+      headers: { authorization: bearerFor("read-only") },
     });
     expect(listRes.status).toBe(200);
     const listBody = (await listRes.json()) as { data: unknown };
@@ -102,13 +101,13 @@ describe.skipIf(!run)("integration: admin UGC moderation", () => {
 
     const support = await app.request(`/api/v1/admin/uploads/${upload.id}/remove`, {
       method: "POST",
-      headers: headers(await cookieFor("support")),
+      headers: headers(bearerFor("support")),
     });
     expect(support.status).toBe(403);
 
     const admin = await app.request(`/api/v1/admin/uploads/${upload.id}/remove`, {
       method: "POST",
-      headers: headers(await cookieFor("admin")),
+      headers: headers(bearerFor("admin")),
     });
     expect(admin.status).toBe(200);
 

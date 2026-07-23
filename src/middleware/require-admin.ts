@@ -1,7 +1,6 @@
 import { createMiddleware } from "hono/factory";
-import { getCookie } from "hono/cookie";
 import { UnauthorizedError, ForbiddenError } from "../lib/errors";
-import { verifyAdminSession, ADMIN_COOKIE } from "../admin/session.service";
+import { verifyAdminClerkRequest } from "../auth";
 import { getAdminSnapshot, setAdminSnapshot } from "../admin/snapshot.service";
 import { adminAccountRepo } from "../repositories";
 import type { AdminRole } from "../admin/otp.service";
@@ -26,36 +25,32 @@ function isAdminRole(role: string): role is AdminRole {
 }
 
 /**
- * Gate admin routes: reads the httpOnly `admin_session` JWT cookie and verifies
- * it (identity + integrity), then gates authorization on a Redis-cached admin
- * snapshot backed by the `admin_users` table. A cache miss is re-read from the
- * DB and repopulated; a `disabled`/removed account (whose snapshot was
- * invalidated on the mutating request) fails here on its next request — this is
- * how `disable`/role-change take effect immediately despite the stateless JWT.
- *
- * Keyed by email so legacy cookies (whose `sub` was the email, pre `admin_users`)
- * resolve the same way as new uuid-subject cookies.
+ * Gate admin routes via the BeOrchid Admin Clerk app. Verifies the Bearer JWT
+ * issued by the Admin Clerk instance, then resolves the caller's admin_users
+ * row via a Redis-cached snapshot. Cache is keyed by email (stable unique key
+ * shared with the snapshot invalidation paths). On a cache miss the row is
+ * re-read from the DB: first by clerkAdminId (populated after first webhook
+ * fires), then by email as a fallback for the first sign-in before the webhook
+ * has a chance to link the account.
  */
 export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
-  const token = getCookie(c, ADMIN_COOKIE);
-  if (!token) throw new UnauthorizedError("Authentication required");
+  const principal = await verifyAdminClerkRequest(c.req.raw.headers);
+  if (!principal) throw new UnauthorizedError("Authentication required");
 
-  const claims = await verifyAdminSession(token);
-  if (!claims) throw new UnauthorizedError("Session expired, please sign in again");
-
-  const email = claims.email.toLowerCase();
+  const email = principal.email.toLowerCase();
   let snapshot = await getAdminSnapshot(email);
   if (!snapshot) {
-    const row = await adminAccountRepo.findByEmail(email);
+    let row = await adminAccountRepo.findByClerkAdminId(principal.subjectId);
+    if (!row) row = await adminAccountRepo.findByEmail(email);
     if (!row || row.status !== "active" || !isAdminRole(row.role)) {
-      throw new UnauthorizedError("Session expired, please sign in again");
+      throw new UnauthorizedError("Authentication required");
     }
     snapshot = { id: row.id, email: row.email, name: row.name, role: row.role, status: "active" };
     await setAdminSnapshot(snapshot);
   }
 
   if (snapshot.status !== "active") {
-    throw new UnauthorizedError("Session expired, please sign in again");
+    throw new UnauthorizedError("Authentication required");
   }
   if (!isAdminRole(snapshot.role)) throw new ForbiddenError("Admin access required");
 

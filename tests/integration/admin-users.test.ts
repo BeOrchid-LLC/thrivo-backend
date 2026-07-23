@@ -2,30 +2,18 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
 import { createSession } from "../helpers/auth";
-import { makeFoodLog } from "../helpers/factories";
+import { makeAdminUser, makeFoodLog } from "../helpers/factories";
 import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog } from "../../db/schema";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import { streakRepo, subscriptionRepo, userRepo } from "../../src/repositories";
 
 const run = process.env.RUN_DB_TESTS === "1";
-
-// A real admin-SPA fetch always carries Origin; the adminOriginGuard (R3-3)
-// rejects a cookie-authed unsafe-method request that has none. Legitimate
-// mutating requests in these tests must send the allowed origin, matching the
-// browser (see admin-auth.test.ts).
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 type AdminUserPayload = Record<string, unknown>;
@@ -77,6 +65,7 @@ function expectFullAdminUser(user: AdminUserPayload) {
 describe.skipIf(!run)("integration: admin users", () => {
   beforeEach(async () => {
     await resetDb();
+    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();
@@ -127,9 +116,9 @@ describe.skipIf(!run)("integration: admin users", () => {
       cancelAtPeriodEnd: false,
     });
 
-    const cookie = await adminCookie();
+    const bearer = adminBearer();
     const listRes = await app.request("/api/v1/admin/users?limit=20", {
-      headers: { Cookie: cookie },
+      headers: { authorization: bearer },
     });
     expect(listRes.status).toBe(200);
     const listBody = (await listRes.json()) as {
@@ -153,7 +142,7 @@ describe.skipIf(!run)("integration: admin users", () => {
     });
 
     const detailRes = await app.request(`/api/v1/admin/users/${user!.id}`, {
-      headers: { Cookie: cookie },
+      headers: { authorization: bearer },
     });
     expect(detailRes.status).toBe(200);
     const detailBody = (await detailRes.json()) as {
@@ -181,7 +170,7 @@ describe.skipIf(!run)("integration: admin users", () => {
 
     const del = await app.request(`/api/v1/admin/users/${user!.id}`, {
       method: "DELETE",
-      headers: { Cookie: await adminCookie(), Origin: ALLOWED_ORIGIN },
+      headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
     });
 
     expect(del.status).toBe(200);
@@ -211,7 +200,7 @@ describe.skipIf(!run)("integration: admin users", () => {
 
     const del = await app.request(`/api/v1/admin/users/${missingId}`, {
       method: "DELETE",
-      headers: { Cookie: await adminCookie(), Origin: ALLOWED_ORIGIN },
+      headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
     });
 
     expect(del.status).toBe(200);
@@ -230,7 +219,7 @@ describe.skipIf(!run)("integration: admin users", () => {
     if (user) await userRepo.touchLastActive(user.id);
 
     const res = await app.request("/api/v1/admin/metrics/dashboard", {
-      headers: { Cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
 
     expect(res.status).toBe(200);

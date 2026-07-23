@@ -3,7 +3,7 @@ import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
 import { env } from "../../src/env";
 import { getRedis } from "../../src/lib/redis";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { ADMIN_COOKIE } from "../../src/admin/session.service";
 import { issueAdminOtp } from "../../src/admin/otp.service";
 import { makeAdminUser } from "../helpers/factories";
 
@@ -25,14 +25,8 @@ function post(app: ReturnType<typeof buildApp>, path: string, body: unknown, hea
   });
 }
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin auth security (R3-2, R3-3)", () => {
@@ -72,11 +66,12 @@ describe.skipIf(!run)("integration: admin auth security (R3-2, R3-3)", () => {
 
   it("rejects a cross-site cookie-authed POST with no Origin header (I9)", async () => {
     const app = buildApp();
-    const cookie = await adminCookie();
 
+    // The CSRF guard (adminOriginGuard) blocks cookie-authed unsafe requests with no
+    // Origin header. The cookie name alone is enough — it does not need to be valid.
     const res = await app.request("/api/v1/admin/auth/logout", {
       method: "POST",
-      headers: { Cookie: cookie }, // no Origin — the forged-form-post shape
+      headers: { Cookie: `${ADMIN_COOKIE}=any-fake-jwt` }, // no Origin — the forged-form-post shape
     });
 
     expect(res.status).toBe(403);
@@ -84,11 +79,10 @@ describe.skipIf(!run)("integration: admin auth security (R3-2, R3-3)", () => {
 
   it("allows the same request from the real admin origin", async () => {
     const app = buildApp();
-    const cookie = await adminCookie();
 
     const res = await app.request("/api/v1/admin/auth/logout", {
       method: "POST",
-      headers: { Cookie: cookie, Origin: ALLOWED_ORIGIN },
+      headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
     });
 
     expect(res.status).toBe(200);

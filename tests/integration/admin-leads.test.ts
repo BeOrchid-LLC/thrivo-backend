@@ -5,30 +5,20 @@ import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog } from "../../db/schema";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { makeAdminUser } from "../helpers/factories";
 import { emailCaptureRepo } from "../../src/repositories";
 
 const run = process.env.RUN_DB_TESTS === "1";
-
-// A real admin-SPA fetch always carries Origin; the adminOriginGuard (R3-3)
-// rejects a cookie-authed unsafe-method request that has none. Legitimate
-// mutating requests in these tests must send the allowed origin, matching the
-// browser (see admin-auth.test.ts).
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin leads", () => {
   beforeEach(async () => {
     await resetDb();
+    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();
@@ -54,7 +44,7 @@ describe.skipIf(!run)("integration: admin leads", () => {
 
     const del = await app.request(`/api/v1/admin/leads/${lead.id}`, {
       method: "DELETE",
-      headers: { Cookie: await adminCookie(), Origin: ALLOWED_ORIGIN },
+      headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
     });
 
     expect(del.status).toBe(200);
@@ -82,7 +72,7 @@ describe.skipIf(!run)("integration: admin leads", () => {
 
     const del = await app.request(`/api/v1/admin/leads/${missingId}`, {
       method: "DELETE",
-      headers: { Cookie: await adminCookie(), Origin: ALLOWED_ORIGIN },
+      headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
     });
 
     expect(del.status).toBe(200);

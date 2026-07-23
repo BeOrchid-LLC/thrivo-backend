@@ -1,9 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
 import { createSession } from "../helpers/auth";
-import { makeCheckIn, makeFoodLog, makeWeightEntry } from "../helpers/factories";
+import { makeAdminUser, makeCheckIn, makeFoodLog, makeWeightEntry } from "../helpers/factories";
 import { buildApp } from "../../src/app";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import {
   adminUserActivityResponseSchema,
   adminUserDetailResponseSchema,
@@ -13,19 +12,14 @@ import { subscriptionEventRepo, subscriptionRepo, userRepo } from "../../src/rep
 
 const run = process.env.RUN_DB_TESTS === "1";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin user detail", () => {
   beforeEach(async () => {
     await resetDb();
+    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();
@@ -38,7 +32,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     expect(user).not.toBeNull();
 
     const res = await app.request(`/api/v1/admin/users/${user!.id}`, {
-      headers: { Cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
     expect(res.status).toBe(200);
 
@@ -87,7 +81,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     });
 
     const res = await app.request(`/api/v1/admin/users/${user!.id}`, {
-      headers: { Cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -107,7 +101,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     const app = buildApp();
     const session = await createSession();
     const user = await userRepo.findActiveByEmail(session.email);
-    const cookie = await adminCookie();
+    const bearer = adminBearer();
 
     const trialStartedAt = new Date(user!.createdAt.getTime() + 1_000);
     await subscriptionEventRepo.insert({
@@ -117,7 +111,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     });
 
     const res = await app.request(`/api/v1/admin/users/${user!.id}/timeline`, {
-      headers: { Cookie: cookie },
+      headers: { authorization: bearer },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown };
@@ -129,7 +123,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
 
     const missing = await app.request(
       "/api/v1/admin/users/00000000-0000-0000-0000-000000000000/timeline",
-      { headers: { Cookie: cookie } }
+      { headers: { authorization: bearer } }
     );
     expect(missing.status).toBe(404);
   });
@@ -138,7 +132,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     const app = buildApp();
     const session = await createSession();
     const user = await userRepo.findActiveByEmail(session.email);
-    const cookie = await adminCookie();
+    const bearer = adminBearer();
 
     await makeFoodLog(user!.id);
     await makeCheckIn(user!.id);
@@ -146,7 +140,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
 
     for (const type of ["food_logs", "check_ins", "weight_logs"] as const) {
       const res = await app.request(`/api/v1/admin/users/${user!.id}/activity?type=${type}`, {
-        headers: { Cookie: cookie },
+        headers: { authorization: bearer },
       });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { data: unknown };
@@ -159,7 +153,7 @@ describe.skipIf(!run)("integration: admin user detail", () => {
     }
 
     const bad = await app.request(`/api/v1/admin/users/${user!.id}/activity?type=not_a_type`, {
-      headers: { Cookie: cookie },
+      headers: { authorization: bearer },
     });
     expect(bad.status).toBe(422);
   });

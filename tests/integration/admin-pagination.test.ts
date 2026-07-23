@@ -2,19 +2,12 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
 import { makeUser } from "../helpers/factories";
 import { buildApp } from "../../src/app";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 
 // Integration suite — real test Postgres, gated by RUN_DB_TESTS=1.
 const run = process.env.RUN_DB_TESTS === "1";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 type ListResponse = {
@@ -31,7 +24,7 @@ describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () =>
 
   it("pages through every pre-existing user exactly once via nextCursor, with no OFFSET drift under a concurrent insert", async () => {
     const app = buildApp();
-    const cookie = await adminCookie();
+    const bearer = adminBearer();
     const seeded = await Promise.all(Array.from({ length: 9 }, () => makeUser()));
     const expectedIds = seeded.map((user) => user.id).sort();
 
@@ -42,7 +35,7 @@ describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () =>
     for (;;) {
       const qs = new URLSearchParams({ limit: "4", ...(cursor ? { cursor } : {}) });
       const res = await app.request(`/api/v1/admin/users?${qs.toString()}`, {
-        headers: { Cookie: cookie },
+        headers: { authorization: bearer },
       });
       expect(res.status).toBe(200);
       const body = (await res.json()) as ListResponse;
@@ -68,7 +61,7 @@ describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () =>
 
   it("email-capture leads list pages via cursor the same way", async () => {
     const app = buildApp();
-    const cookie = await adminCookie();
+    const bearer = adminBearer();
 
     for (let i = 0; i < 5; i++) {
       await app.request("/api/v1/leads/capture", {
@@ -79,7 +72,7 @@ describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () =>
     }
 
     const first = await app.request("/api/v1/admin/leads?limit=2", {
-      headers: { Cookie: cookie },
+      headers: { authorization: bearer },
     });
     expect(first.status).toBe(200);
     const firstBody = (await first.json()) as ListResponse;
@@ -89,7 +82,7 @@ describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () =>
 
     const second = await app.request(
       `/api/v1/admin/leads?limit=2&cursor=${encodeURIComponent(firstBody.data.pagination.nextCursor!)}`,
-      { headers: { Cookie: cookie } }
+      { headers: { authorization: bearer } }
     );
     expect(second.status).toBe(200);
     const secondBody = (await second.json()) as ListResponse;

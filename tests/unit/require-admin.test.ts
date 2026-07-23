@@ -1,9 +1,12 @@
 /**
  * Tests for requireAdmin, requireAdminRole, and requireSuperAdmin.
  *
- * requireAdmin is the full auth+authz middleware (reads cookie, verifies JWT,
- * checks Redis snapshot / DB fallback). requireAdminRole / requireSuperAdmin are
- * role gates that run AFTER requireAdmin has set c.var.adminUser.
+ * requireAdmin verifies the Bearer JWT via the BeOrchid Admin Clerk app, then
+ * resolves the caller's admin_users row via a Redis snapshot / DB fallback.
+ * requireAdminRole / requireSuperAdmin are role gates that run AFTER requireAdmin.
+ *
+ * The global setup-clerk-mock.ts mocks @clerk/backend's verifyToken to accept
+ * "test-clerk-token:<sub>:<email>" tokens, so tests here use that format.
  */
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,21 +16,18 @@ import type { AdminClaims } from "../../src/admin/session.service";
 
 // ─── mocks (hoisted so vi.mock() calls can reference them) ──────────────────
 
-const { verifyAdminSession } = vi.hoisted(() => ({ verifyAdminSession: vi.fn() }));
-vi.mock("../../src/admin/session.service", () => ({
-  verifyAdminSession,
-  ADMIN_COOKIE: "admin_session",
-}));
-
 const { getAdminSnapshot, setAdminSnapshot } = vi.hoisted(() => ({
   getAdminSnapshot: vi.fn(),
   setAdminSnapshot: vi.fn(async () => undefined),
 }));
 vi.mock("../../src/admin/snapshot.service", () => ({ getAdminSnapshot, setAdminSnapshot }));
 
-const { findByEmail } = vi.hoisted(() => ({ findByEmail: vi.fn() }));
+const { findByEmail, findByClerkAdminId } = vi.hoisted(() => ({
+  findByEmail: vi.fn(),
+  findByClerkAdminId: vi.fn().mockResolvedValue(null),
+}));
 vi.mock("../../src/repositories", () => ({
-  adminAccountRepo: { findByEmail },
+  adminAccountRepo: { findByEmail, findByClerkAdminId },
 }));
 
 // ─── imports that depend on the mocks above ──────────────────────────────────
@@ -65,9 +65,12 @@ function roleApp(role: AdminRole | null, min: AdminRole) {
   return a;
 }
 
-/** Issue a GET / with a cookie header. */
-function req(app: Hono<AppEnv>, cookie = "admin_session=tok") {
-  return app.request("/", { headers: { Cookie: cookie } });
+/**
+ * Issue a GET / with a Bearer token. The default is a valid test-clerk-token
+ * accepted by the global @clerk/backend mock in setup-clerk-mock.ts.
+ */
+function req(app: Hono<AppEnv>, bearer = "Bearer test-clerk-admin-token:test_user:t@example.com") {
+  return app.request("/", { headers: { authorization: bearer } });
 }
 
 // ─── requireAdmin ────────────────────────────────────────────────────────────
@@ -75,23 +78,16 @@ function req(app: Hono<AppEnv>, cookie = "admin_session=tok") {
 describe("requireAdmin", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("401 when no cookie is present", async () => {
+  it("401 when no bearer token is present", async () => {
     const res = await adminApp().request("/");
     expect(res.status).toBe(401);
   });
 
-  it("401 when JWT is invalid", async () => {
-    verifyAdminSession.mockResolvedValue(null);
-    expect((await req(adminApp())).status).toBe(401);
+  it("401 when Clerk token is invalid", async () => {
+    expect((await req(adminApp(), "Bearer not-a-clerk-token")).status).toBe(401);
   });
 
   it("401 when snapshot shows disabled status", async () => {
-    verifyAdminSession.mockResolvedValue({
-      id: "a1",
-      email: "t@example.com",
-      name: null,
-      role: "admin",
-    });
     getAdminSnapshot.mockResolvedValue({
       id: "a1",
       email: "t@example.com",
@@ -103,25 +99,15 @@ describe("requireAdmin", () => {
   });
 
   it("401 when DB row is missing (no snapshot, no row)", async () => {
-    verifyAdminSession.mockResolvedValue({
-      id: "a1",
-      email: "t@example.com",
-      name: null,
-      role: "admin",
-    });
     getAdminSnapshot.mockResolvedValue(null);
+    findByClerkAdminId.mockResolvedValue(null);
     findByEmail.mockResolvedValue(null);
     expect((await req(adminApp())).status).toBe(401);
   });
 
   it("401 when DB row is disabled (snapshot miss, DB is source of truth)", async () => {
-    verifyAdminSession.mockResolvedValue({
-      id: "a1",
-      email: "t@example.com",
-      name: null,
-      role: "admin",
-    });
     getAdminSnapshot.mockResolvedValue(null);
+    findByClerkAdminId.mockResolvedValue(null);
     findByEmail.mockResolvedValue({
       id: "a1",
       email: "t@example.com",
@@ -133,12 +119,6 @@ describe("requireAdmin", () => {
   });
 
   it("200 and sets adminUser from cached snapshot", async () => {
-    verifyAdminSession.mockResolvedValue({
-      id: "a1",
-      email: "t@example.com",
-      name: null,
-      role: "support",
-    });
     getAdminSnapshot.mockResolvedValue({
       id: "a1",
       email: "t@example.com",
@@ -152,13 +132,8 @@ describe("requireAdmin", () => {
   });
 
   it("200 and populates snapshot from DB on cache miss (read-through)", async () => {
-    verifyAdminSession.mockResolvedValue({
-      id: "a1",
-      email: "t@example.com",
-      name: null,
-      role: "admin",
-    });
     getAdminSnapshot.mockResolvedValue(null);
+    findByClerkAdminId.mockResolvedValue(null);
     findByEmail.mockResolvedValue({
       id: "a1",
       email: "t@example.com",
