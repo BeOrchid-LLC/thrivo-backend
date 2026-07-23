@@ -19,7 +19,7 @@ const run = process.env.RUN_DB_TESTS === "1";
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
 function bearerFor(role: "admin" | "support" | "read-only") {
-  return `Bearer test-clerk-token:test_${role.replace(/-/g, "")}:${role}@test.thrivo.fit`;
+  return `Bearer test-clerk-admin-token:test_${role.replace(/-/g, "")}:${role}@test.thrivo.fit`;
 }
 
 describe.skipIf(!run)("integration: admin billing observability", () => {

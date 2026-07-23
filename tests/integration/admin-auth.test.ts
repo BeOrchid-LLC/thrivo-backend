@@ -26,7 +26,7 @@ function post(app: ReturnType<typeof buildApp>, path: string, body: unknown, hea
 }
 
 function adminBearer() {
-  return "Bearer test-clerk-token:test_admin:admin@test.thrivo.fit";
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin auth security (R3-2, R3-3)", () => {

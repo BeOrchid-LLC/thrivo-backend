@@ -7,7 +7,7 @@ import { buildApp } from "../../src/app";
 const run = process.env.RUN_DB_TESTS === "1";
 
 function adminBearer() {
-  return "Bearer test-clerk-token:test_admin:admin@test.thrivo.fit";
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 type ListResponse = {

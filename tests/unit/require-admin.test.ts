@@ -69,7 +69,7 @@ function roleApp(role: AdminRole | null, min: AdminRole) {
  * Issue a GET / with a Bearer token. The default is a valid test-clerk-token
  * accepted by the global @clerk/backend mock in setup-clerk-mock.ts.
  */
-function req(app: Hono<AppEnv>, bearer = "Bearer test-clerk-token:test_user:t@example.com") {
+function req(app: Hono<AppEnv>, bearer = "Bearer test-clerk-admin-token:test_user:t@example.com") {
   return app.request("/", { headers: { authorization: bearer } });
 }
 

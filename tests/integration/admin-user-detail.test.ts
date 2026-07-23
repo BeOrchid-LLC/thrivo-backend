@@ -13,7 +13,7 @@ import { subscriptionEventRepo, subscriptionRepo, userRepo } from "../../src/rep
 const run = process.env.RUN_DB_TESTS === "1";
 
 function adminBearer() {
-  return "Bearer test-clerk-token:test_admin:admin@test.thrivo.fit";
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin user detail", () => {

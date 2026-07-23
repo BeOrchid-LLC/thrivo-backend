@@ -13,7 +13,7 @@ const run = process.env.RUN_DB_TESTS === "1";
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
 function adminBearer() {
-  return "Bearer test-clerk-token:test_admin:admin@test.thrivo.fit";
+  return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
 
 type AdminUserPayload = Record<string, unknown>;
