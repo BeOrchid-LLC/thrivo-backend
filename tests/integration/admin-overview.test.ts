@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { makeAdminUser } from "../helpers/factories";
 import {
   adminOverviewMetricsResponseSchema,
   adminOverviewPlanBreakdownResponseSchema,
@@ -11,19 +11,14 @@ import {
 
 const run = process.env.RUN_DB_TESTS === "1";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin overview", () => {
   beforeEach(async () => {
     await resetDb();
+    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();
@@ -32,7 +27,7 @@ describe.skipIf(!run)("integration: admin overview", () => {
   it("GET /overview/metrics matches the shared contract with zeroed values on an empty DB", async () => {
     const app = buildApp();
     const res = await app.request("/api/v1/admin/overview/metrics", {
-      headers: { cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
     expect(res.status).toBe(200);
 
@@ -50,7 +45,7 @@ describe.skipIf(!run)("integration: admin overview", () => {
   it("GET /overview/revenue-trend matches the shared contract", async () => {
     const app = buildApp();
     const res = await app.request("/api/v1/admin/overview/revenue-trend", {
-      headers: { cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
     expect(res.status).toBe(200);
 
@@ -62,7 +57,7 @@ describe.skipIf(!run)("integration: admin overview", () => {
   it("GET /overview/trial-pipeline matches the shared contract with all-zero percentages when nothing started", async () => {
     const app = buildApp();
     const res = await app.request("/api/v1/admin/overview/trial-pipeline", {
-      headers: { cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
     expect(res.status).toBe(200);
 
@@ -84,7 +79,7 @@ describe.skipIf(!run)("integration: admin overview", () => {
   it("GET /overview/plan-breakdown matches the shared contract", async () => {
     const app = buildApp();
     const res = await app.request("/api/v1/admin/overview/plan-breakdown", {
-      headers: { cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
     expect(res.status).toBe(200);
 

@@ -5,25 +5,20 @@ import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog, tips } from "../../db/schema";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { makeAdminUser } from "../helpers/factories";
 import { adminPaginated, adminTipSchema } from "../../contracts/src";
 
 const run = process.env.RUN_DB_TESTS === "1";
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin content (tips)", () => {
   beforeEach(async () => {
     await resetDb();
+    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();
@@ -34,7 +29,7 @@ describe.skipIf(!run)("integration: admin content (tips)", () => {
     const res = await app.request("/api/v1/admin/tips", {
       method: "POST",
       headers: {
-        Cookie: await adminCookie(),
+        authorization: adminBearer(),
         Origin: ALLOWED_ORIGIN,
         "Content-Type": "application/json",
       },
@@ -66,7 +61,7 @@ describe.skipIf(!run)("integration: admin content (tips)", () => {
     ]);
     const app = buildApp();
     const res = await app.request("/api/v1/admin/tips?page=1&pageSize=10", {
-      headers: { cookie: await adminCookie() },
+      headers: { authorization: adminBearer() },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown };
@@ -85,8 +80,7 @@ describe.skipIf(!run)("integration: admin content (tips)", () => {
     const patch = await app.request(`/api/v1/admin/tips/${tip.id}`, {
       method: "PATCH",
       headers: {
-        Cookie: await adminCookie(),
-        Origin: ALLOWED_ORIGIN,
+        authorization: adminBearer(),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ body: "Edited", isActive: false }),
@@ -95,7 +89,7 @@ describe.skipIf(!run)("integration: admin content (tips)", () => {
 
     const del = await app.request(`/api/v1/admin/tips/${tip.id}`, {
       method: "DELETE",
-      headers: { Cookie: await adminCookie(), Origin: ALLOWED_ORIGIN },
+      headers: { authorization: adminBearer() },
     });
     expect(del.status).toBe(200);
 

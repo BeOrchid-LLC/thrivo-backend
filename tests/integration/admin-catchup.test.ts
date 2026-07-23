@@ -3,7 +3,6 @@ import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { emailLogs } from "../../db/schema";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
 import { makeAdminUser } from "../helpers/factories";
 import {
   adminEmailLogSchema,
@@ -16,20 +15,14 @@ import {
 
 const run = process.env.RUN_DB_TESTS === "1";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-token:test_admin:admin@test.thrivo.fit";
 }
 
 async function getData(path: string): Promise<{ status: number; data: unknown }> {
   const app = buildApp();
   const res = await app.request(`/api/v1/admin${path}`, {
-    headers: { cookie: await adminCookie() },
+    headers: { authorization: adminBearer() },
   });
   const body = (await res.json()) as { data: unknown };
   return { status: res.status, data: body.data };

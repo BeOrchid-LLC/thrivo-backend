@@ -5,25 +5,19 @@ import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog, foodItems } from "../../db/schema";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { makeAdminUser } from "../helpers/factories";
 import { foodItemRepo } from "../../src/repositories";
 import { adminFoodDetailResponseSchema, adminFoodListResponseSchema } from "../../contracts/src";
 
 const run = process.env.RUN_DB_TESTS === "1";
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
-async function cookieFor(role: "admin" | "support" | "read-only"): Promise<string> {
-  const token = await signAdminSession({
-    id: `${role}@test.thrivo.fit`,
-    email: `${role}@test.thrivo.fit`,
-    name: null,
-    role,
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function bearerFor(role: "admin" | "support" | "read-only") {
+  return `Bearer test-clerk-token:test_${role.replace(/-/g, "")}:${role}@test.thrivo.fit`;
 }
 
-const jsonHeaders = (cookie: string) => ({
-  Cookie: cookie,
+const jsonHeaders = (bearer: string) => ({
+  authorization: bearer,
   Origin: ALLOWED_ORIGIN,
   "Content-Type": "application/json",
 });
@@ -35,6 +29,11 @@ async function makeCommunityItem(name: string, status: "pending" | "active" = "p
 describe.skipIf(!run)("integration: admin food moderation", () => {
   beforeEach(async () => {
     await resetDb();
+    await Promise.all([
+      makeAdminUser("admin@test.thrivo.fit", "admin"),
+      makeAdminUser("support@test.thrivo.fit", "support"),
+      makeAdminUser("read-only@test.thrivo.fit", "read-only"),
+    ]);
   });
   afterAll(async () => {
     await closeDb();
@@ -46,7 +45,7 @@ describe.skipIf(!run)("integration: admin food moderation", () => {
 
     const app = buildApp();
     const res = await app.request("/api/v1/admin/foods?limit=50", {
-      headers: { cookie: await cookieFor("read-only") },
+      headers: { authorization: bearerFor("read-only") },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown };
@@ -64,7 +63,7 @@ describe.skipIf(!run)("integration: admin food moderation", () => {
     const app = buildApp();
     const res = await app.request(`/api/v1/admin/foods/${item.id}/approve`, {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("support")),
+      headers: jsonHeaders(bearerFor("support")),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown };
@@ -85,14 +84,14 @@ describe.skipIf(!run)("integration: admin food moderation", () => {
 
     const ro = await app.request(`/api/v1/admin/foods/${item.id}/approve`, {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("read-only")),
+      headers: jsonHeaders(bearerFor("read-only")),
     });
     expect(ro.status).toBe(403);
 
     const target = await makeCommunityItem("Canonical", "active");
     const supportMerge = await app.request(`/api/v1/admin/foods/${item.id}/merge`, {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("support")),
+      headers: jsonHeaders(bearerFor("support")),
       body: JSON.stringify({ mergeIntoId: target.id }),
     });
     expect(supportMerge.status).toBe(403);
@@ -105,7 +104,7 @@ describe.skipIf(!run)("integration: admin food moderation", () => {
 
     const res = await app.request(`/api/v1/admin/foods/${dupe.id}/merge`, {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("admin")),
+      headers: jsonHeaders(bearerFor("admin")),
       body: JSON.stringify({ mergeIntoId: canonical.id, reason: "duplicate" }),
     });
     expect(res.status).toBe(200);
@@ -123,7 +122,7 @@ describe.skipIf(!run)("integration: admin food moderation", () => {
     });
     const app = buildApp();
     const res = await app.request(`/api/v1/admin/foods/${personal.id}`, {
-      headers: { cookie: await cookieFor("admin") },
+      headers: { authorization: bearerFor("admin") },
     });
     expect(res.status).toBe(404);
   });

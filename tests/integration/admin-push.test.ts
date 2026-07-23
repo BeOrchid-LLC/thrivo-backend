@@ -5,9 +5,8 @@ import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog, pushCampaigns } from "../../db/schema";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { makeAdminUser, makeUser } from "../helpers/factories";
 import { pushTokenRepo } from "../../src/repositories";
-import { makeUser } from "../helpers/factories";
 import {
   adminAudienceEstimateResponseSchema,
   adminPushCampaignDetailResponseSchema,
@@ -17,17 +16,12 @@ import {
 const run = process.env.RUN_DB_TESTS === "1";
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
-async function cookieFor(role: "admin" | "support" | "read-only"): Promise<string> {
-  const token = await signAdminSession({
-    id: `${role}@test.thrivo.fit`,
-    email: `${role}@test.thrivo.fit`,
-    name: null,
-    role,
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function bearerFor(role: "admin" | "support" | "read-only") {
+  return `Bearer test-clerk-token:test_${role.replace(/-/g, "")}:${role}@test.thrivo.fit`;
 }
-const jsonHeaders = (cookie: string) => ({
-  Cookie: cookie,
+
+const jsonHeaders = (bearer: string) => ({
+  authorization: bearer,
   Origin: ALLOWED_ORIGIN,
   "Content-Type": "application/json",
 });
@@ -41,6 +35,11 @@ async function seedUserWithToken(tier: "free" | "premium", token: string) {
 describe.skipIf(!run)("integration: admin push campaigns", () => {
   beforeEach(async () => {
     await resetDb();
+    await Promise.all([
+      makeAdminUser("admin@test.thrivo.fit", "admin"),
+      makeAdminUser("support@test.thrivo.fit", "support"),
+      makeAdminUser("read-only@test.thrivo.fit", "read-only"),
+    ]);
   });
   afterAll(async () => {
     await closeDb();
@@ -53,7 +52,7 @@ describe.skipIf(!run)("integration: admin push campaigns", () => {
 
     const res = await app.request("/api/v1/admin/push/audience-estimate", {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("read-only")),
+      headers: jsonHeaders(bearerFor("read-only")),
       body: JSON.stringify({ segment: { tier: "premium" } }),
     });
     expect(res.status).toBe(200);
@@ -76,14 +75,14 @@ describe.skipIf(!run)("integration: admin push campaigns", () => {
 
     const ro = await app.request("/api/v1/admin/push/campaigns", {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("read-only")),
+      headers: jsonHeaders(bearerFor("read-only")),
       body: JSON.stringify(payload),
     });
     expect(ro.status).toBe(403);
 
     const res = await app.request("/api/v1/admin/push/campaigns", {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("support")),
+      headers: jsonHeaders(bearerFor("support")),
       body: JSON.stringify(payload),
     });
     expect(res.status).toBe(201);
@@ -97,7 +96,7 @@ describe.skipIf(!run)("integration: admin push campaigns", () => {
     expect(audit).toHaveLength(1);
 
     const list = await app.request("/api/v1/admin/push/campaigns", {
-      headers: { cookie: await cookieFor("read-only") },
+      headers: { authorization: bearerFor("read-only") },
     });
     const listBody = (await list.json()) as { data: unknown };
     expect(adminPushCampaignListResponseSchema.safeParse(listBody.data).success).toBe(true);
@@ -107,7 +106,7 @@ describe.skipIf(!run)("integration: admin push campaigns", () => {
     const app = buildApp();
     const create = await app.request("/api/v1/admin/push/campaigns", {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("support")),
+      headers: jsonHeaders(bearerFor("support")),
       body: JSON.stringify({ title: "T", body: "B", segment: { all: true } }),
     });
     const created = (await create.json()) as { data: { campaign: { id: string } } };
@@ -115,13 +114,13 @@ describe.skipIf(!run)("integration: admin push campaigns", () => {
 
     const supportSend = await app.request(`/api/v1/admin/push/campaigns/${id}/send`, {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("support")),
+      headers: jsonHeaders(bearerFor("support")),
     });
     expect(supportSend.status).toBe(403);
 
     const adminSend = await app.request(`/api/v1/admin/push/campaigns/${id}/send`, {
       method: "POST",
-      headers: jsonHeaders(await cookieFor("admin")),
+      headers: jsonHeaders(bearerFor("admin")),
     });
     expect(adminSend.status).toBe(202);
 

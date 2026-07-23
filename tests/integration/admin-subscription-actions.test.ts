@@ -5,26 +5,20 @@ import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog } from "../../db/schema";
-import { signAdminSession, ADMIN_COOKIE } from "../../src/admin/session.service";
+import { makeAdminUser, makeUser } from "../helpers/factories";
 import { subscriptionRepo, userRepo } from "../../src/repositories";
-import { makeUser } from "../helpers/factories";
 
 const run = process.env.RUN_DB_TESTS === "1";
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 
-async function adminCookie(): Promise<string> {
-  const token = await signAdminSession({
-    id: "admin@test.thrivo.fit",
-    email: "admin@test.thrivo.fit",
-    name: null,
-    role: "admin",
-  });
-  return `${ADMIN_COOKIE}=${token}`;
+function adminBearer() {
+  return "Bearer test-clerk-token:test_admin:admin@test.thrivo.fit";
 }
 
 describe.skipIf(!run)("integration: admin subscription actions", () => {
   beforeEach(async () => {
     await resetDb();
+    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();
@@ -46,7 +40,7 @@ describe.skipIf(!run)("integration: admin subscription actions", () => {
     const res = await app.request(`/api/v1/admin/users/${user.id}/subscription/cancel`, {
       method: "POST",
       headers: {
-        Cookie: await adminCookie(),
+        authorization: adminBearer(),
         Origin: ALLOWED_ORIGIN,
         "Content-Type": "application/json",
       },
@@ -72,7 +66,7 @@ describe.skipIf(!run)("integration: admin subscription actions", () => {
     const res = await app.request(`/api/v1/admin/users/${user.id}/subscription/cancel`, {
       method: "POST",
       headers: {
-        Cookie: await adminCookie(),
+        authorization: adminBearer(),
         Origin: ALLOWED_ORIGIN,
         "Content-Type": "application/json",
       },
@@ -88,7 +82,7 @@ describe.skipIf(!run)("integration: admin subscription actions", () => {
     const res = await app.request(`/api/v1/admin/users/${user.id}/subscription/refund`, {
       method: "POST",
       headers: {
-        Cookie: await adminCookie(),
+        authorization: adminBearer(),
         Origin: ALLOWED_ORIGIN,
         "Content-Type": "application/json",
       },
