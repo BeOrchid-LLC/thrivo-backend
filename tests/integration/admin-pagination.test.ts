@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
-import { makeAdminUser, makeUser } from "../helpers/factories";
+import { makeUser } from "../helpers/factories";
 import { buildApp } from "../../src/app";
 
 // Integration suite — real test Postgres, gated by RUN_DB_TESTS=1.
@@ -17,7 +17,6 @@ type ListResponse = {
 describe.skipIf(!run)("integration: admin keyset pagination (R5-4 / I16)", () => {
   beforeEach(async () => {
     await resetDb();
-    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();

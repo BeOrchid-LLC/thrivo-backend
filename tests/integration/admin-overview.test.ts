@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
-import { makeAdminUser } from "../helpers/factories";
 import {
   adminOverviewMetricsResponseSchema,
   adminOverviewPlanBreakdownResponseSchema,
@@ -18,7 +17,6 @@ function adminBearer() {
 describe.skipIf(!run)("integration: admin overview", () => {
   beforeEach(async () => {
     await resetDb();
-    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();

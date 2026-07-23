@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
-import { makeAdminUser } from "../helpers/factories";
 import { adminDashboardMetricsResponseSchema } from "../../contracts/src/admin-analytics";
 
 const run = process.env.RUN_DB_TESTS === "1";
@@ -13,7 +12,6 @@ function adminBearer() {
 describe.skipIf(!run)("integration: admin dashboard metrics", () => {
   beforeEach(async () => {
     await resetDb();
-    await makeAdminUser("admin@test.thrivo.fit", "admin");
   });
   afterAll(async () => {
     await closeDb();
