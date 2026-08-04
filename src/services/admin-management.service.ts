@@ -5,7 +5,9 @@ import type { AuditActor } from "../repositories/admin-audit-log.repository";
 import type { AdminRole } from "../admin/otp.service";
 import { invalidateAdminSnapshot } from "../admin/snapshot.service";
 import { issueInviteToken, adminInviteLink, ADMIN_INVITE_TTL_SEC } from "../admin/token.service";
-import { sendTemplatedEmail } from "./email.service";
+import { queueTemplatedEmail } from "./email.service";
+import { db } from "../../db";
+import type { Executor } from "../../db/tx";
 
 /** Serialize an admin row into the `adminAccountSchema` contract shape. */
 export function toAdminAccountDto(row: AdminAccount) {
@@ -22,10 +24,16 @@ export function toAdminAccountDto(row: AdminAccount) {
   };
 }
 
-async function sendInviteEmail(row: AdminAccount): Promise<void> {
-  const token = await issueInviteToken(row.email);
-  await sendTemplatedEmail({
+async function sendInviteEmail(
+  row: AdminAccount,
+  token: string,
+  transaction: Executor
+): Promise<void> {
+  await queueTemplatedEmail({
+    kind: "admin_invite",
     to: row.email,
+    expiresAt: new Date(Date.now() + ADMIN_INVITE_TTL_SEC * 1000),
+    transaction,
     template: "admin-invite",
     props: {
       url: adminInviteLink(row.email, token),
@@ -49,23 +57,32 @@ export async function inviteAdmin(
   const existing = await adminAccountRepo.findByEmail(email);
   if (existing) throw new ConflictError("An admin with this email already exists");
 
-  const row = await adminAccountRepo.insertInvited({
-    email,
-    name: input.name,
-    role: input.role,
-    invitedByEmail: actor.actorAdminEmail,
+  const token = await issueInviteToken(email);
+  return db.transaction(async (tx) => {
+    const row = await adminAccountRepo.insertInvited(
+      {
+        email,
+        name: input.name,
+        role: input.role,
+        invitedByEmail: actor.actorAdminEmail,
+      },
+      tx
+    );
+    await sendInviteEmail(row, token, tx);
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: actor.actorAdminEmail,
+        action: "admin.invite",
+        targetType: "admin",
+        targetId: row.id,
+        after: { email: row.email, role: row.role },
+        requestId: actor.requestId,
+        ip: actor.ip,
+      },
+      tx
+    );
+    return row;
   });
-  await sendInviteEmail(row);
-  await adminAuditLogRepo.append({
-    actorAdminEmail: actor.actorAdminEmail,
-    action: "admin.invite",
-    targetType: "admin",
-    targetId: row.id,
-    after: { email: row.email, role: row.role },
-    requestId: actor.requestId,
-    ip: actor.ip,
-  });
-  return row;
 }
 
 /** Patch name/role/status, guarding against super-admin lockout. */
@@ -127,14 +144,20 @@ export async function resendInvite(id: string, actor: AuditActor): Promise<Admin
   if (target.status !== "invited") {
     throw new ConflictError("This admin has already accepted their invite");
   }
-  await sendInviteEmail(target);
-  await adminAuditLogRepo.append({
-    actorAdminEmail: actor.actorAdminEmail,
-    action: "admin.reinvite",
-    targetType: "admin",
-    targetId: id,
-    requestId: actor.requestId,
-    ip: actor.ip,
+  const token = await issueInviteToken(target.email);
+  await db.transaction(async (tx) => {
+    await sendInviteEmail(target, token, tx);
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: actor.actorAdminEmail,
+        action: "admin.reinvite",
+        targetType: "admin",
+        targetId: id,
+        requestId: actor.requestId,
+        ip: actor.ip,
+      },
+      tx
+    );
   });
   return target;
 }

@@ -10,6 +10,7 @@ export interface EffectiveSettingsResult {
     pushNotificationsEnabled: boolean;
     dailyFoodLogReminderEnabled: boolean;
     emailFoodLogReminderEnabled: boolean;
+    weeklyReviewEmailEnabled: boolean;
     weightCheckReminderEnabled: boolean;
     hydrationReminderEnabled: boolean;
     subscriptionsEnabled: boolean;
@@ -32,7 +33,13 @@ export async function updateUserSettings(
   userId: string,
   input: UpdateUserSettingsPayload
 ): Promise<settingsRepo.UserSettings> {
-  return settingsRepo.updateUserSettings(userId, input);
+  const weekly = input.weeklyReviewEmailEnabled ?? input.emailFoodLogReminderEnabled;
+  return settingsRepo.updateUserSettings(userId, {
+    ...input,
+    ...(weekly === undefined
+      ? {}
+      : { weeklyReviewEmailEnabled: weekly, emailFoodLogReminderEnabled: weekly }),
+  });
 }
 
 export async function getEffectiveSettings(userId: string): Promise<EffectiveSettingsResult> {
@@ -51,6 +58,7 @@ export async function getEffectiveSettings(userId: string): Promise<EffectiveSet
       // Independent of the push master toggle above — email is its own channel.
       emailFoodLogReminderEnabled:
         global.emailFoodLogReminderEnabled && user.emailFoodLogReminderEnabled,
+      weeklyReviewEmailEnabled: global.weeklyReviewEmailEnabled && user.weeklyReviewEmailEnabled,
       weightCheckReminderEnabled:
         global.pushNotificationsEnabled &&
         global.weightCheckReminderEnabled &&

@@ -85,6 +85,24 @@ function startWorker(name: QueueName): void {
 async function registerSchedulers(): Promise<void> {
   const maintenance = getQueue(QUEUE_NAMES.maintenance);
   await maintenance.upsertJobScheduler(
+    "relay-email-outbox",
+    { every: 10_000 },
+    { name: "relay-email-outbox", data: {} }
+  );
+  logger.info(
+    { queue: QUEUE_NAMES.maintenance, schedulerId: "relay-email-outbox", everyMs: 10_000 },
+    "worker scheduler registered"
+  );
+  await maintenance.upsertJobScheduler(
+    "reconcile-resend-events",
+    { every: 60_000 },
+    { name: "reconcile-resend-events", data: {} }
+  );
+  logger.info(
+    { queue: QUEUE_NAMES.maintenance, schedulerId: "reconcile-resend-events", everyMs: 60_000 },
+    "worker scheduler registered"
+  );
+  await maintenance.upsertJobScheduler(
     "reconcile-daily-summaries",
     { pattern: "0 3 * * *", tz: "UTC" },
     { name: "reconcile-daily-summaries", data: {} }
@@ -156,19 +174,18 @@ async function registerSchedulers(): Promise<void> {
     },
     "worker scheduler registered"
   );
-  // Hourly, not daily: each run only touches the timezone bucket currently at
-  // TARGET_LOCAL_HOUR (weekly-review.ts), so the send lands near each user's
-  // local morning instead of one fixed UTC time for everyone.
+  // Every 15 minutes so quarter-hour timezone offsets can enter the user's
+  // Sunday-at-or-after-09:00 eligibility window without a 45-minute delay.
   await maintenance.upsertJobScheduler(
     "weekly-review",
-    { pattern: "0 * * * *", tz: "UTC" },
+    { pattern: "*/15 * * * *", tz: "UTC" },
     { name: "weekly-review", data: {} }
   );
   logger.info(
     {
       queue: QUEUE_NAMES.maintenance,
       schedulerId: "weekly-review",
-      pattern: "0 * * * *",
+      pattern: "*/15 * * * *",
       timezone: "UTC",
     },
     "worker scheduler registered"

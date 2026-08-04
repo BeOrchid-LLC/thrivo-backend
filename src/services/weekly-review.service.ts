@@ -1,115 +1,83 @@
-import { dailySummaryRepo } from "../repositories";
-import { localDateFor, shiftLocalDate, tryLocalDateFor } from "../lib/local-date";
-
-const WEEK_DAYS = 7;
+import { foodLogRepo } from "../repositories";
+import { shiftLocalDate, tryLocalDateFor } from "../lib/local-date";
 
 export interface WeeklyReviewCandidateInput {
   id: string;
   timezone: string | null;
-}
-
-export interface WeeklyReviewBatchItem extends WeeklyReviewStats {
-  loggedToday: boolean;
-}
-
-export interface WeeklyReviewBatchResult {
-  byUserId: Map<string, WeeklyReviewBatchItem>;
-  skippedUnsupportedTimezone: number;
+  createdAt: Date;
 }
 
 export interface WeeklyReviewStats {
-  /** The user's local day the stats are computed as of. */
-  asOfLocalDate: string;
-  /** Distinct days logged in the rolling 7-day window ending today (0-7). */
-  loggedThisWeek: number;
-  /** Distinct days logged in the 7-day window immediately before that (0-7). */
-  loggedLastWeek: number;
+  sendLocalDate: string;
+  periodStart: string;
+  periodEnd: string;
+  loggedDays: number;
+  previousLoggedDays: number;
+  includeComparison: boolean;
+  joinedDuringPeriod: boolean;
 }
 
-/** Load all weekly-review gates and rolling windows for a page in one query. */
+export interface WeeklyReviewBatchResult {
+  byUserId: Map<string, WeeklyReviewStats>;
+  skippedUnsupportedTimezone: number;
+}
+
+/** Completed local Sunday-Saturday periods; the current sending Sunday is excluded. */
 export async function getWeeklyReviewBatch(
   candidates: WeeklyReviewCandidateInput[],
   at: Date = new Date()
 ): Promise<WeeklyReviewBatchResult> {
   const windows = candidates.flatMap((candidate) => {
-    const today = tryLocalDateFor(candidate.timezone, at);
-    if (!today) return [];
-    const thisWeekStart = shiftLocalDate(today, -(WEEK_DAYS - 1));
-    const lastWeekEnd = shiftLocalDate(thisWeekStart, -1);
-    const lastWeekStart = shiftLocalDate(lastWeekEnd, -(WEEK_DAYS - 1));
-    return [{ candidate, today, thisWeekStart, lastWeekStart, lastWeekEnd }];
+    const sendLocalDate = tryLocalDateFor(candidate.timezone, at);
+    const createdLocalDate = tryLocalDateFor(candidate.timezone, candidate.createdAt);
+    if (!sendLocalDate || !createdLocalDate) return [];
+    const periodEnd = shiftLocalDate(sendLocalDate, -1);
+    const periodStart = shiftLocalDate(sendLocalDate, -7);
+    const previousEnd = shiftLocalDate(sendLocalDate, -8);
+    const previousStart = shiftLocalDate(sendLocalDate, -14);
+    return [
+      {
+        candidate,
+        sendLocalDate,
+        createdLocalDate,
+        periodStart,
+        periodEnd,
+        previousStart,
+        previousEnd,
+      },
+    ];
   });
 
-  const rows = await dailySummaryRepo.listForWeeklyReview(
-    windows.map(({ candidate, today, lastWeekStart }) => ({
+  const rows = await foodLogRepo.listDistinctDatesForWeeklyReview(
+    windows.map(({ candidate, previousStart, periodEnd }) => ({
       userId: candidate.id,
-      lastWeekStart,
-      today,
+      fromDate: previousStart,
+      toDate: periodEnd,
     }))
   );
-  const datesByUserId = new Map<string, string[]>();
+  const datesByUser = new Map<string, string[]>();
   for (const row of rows) {
-    const dates = datesByUserId.get(row.userId) ?? [];
+    const dates = datesByUser.get(row.userId) ?? [];
     dates.push(row.localDate);
-    datesByUserId.set(row.userId, dates);
+    datesByUser.set(row.userId, dates);
   }
 
-  const byUserId = new Map<string, WeeklyReviewBatchItem>();
-  for (const { candidate, today, thisWeekStart, lastWeekStart, lastWeekEnd } of windows) {
-    const dates = datesByUserId.get(candidate.id) ?? [];
-    byUserId.set(candidate.id, {
-      asOfLocalDate: today,
-      loggedToday: dates.includes(today),
-      loggedThisWeek: dates.filter((date) => date >= thisWeekStart && date <= today).length,
-      loggedLastWeek: dates.filter((date) => date >= lastWeekStart && date <= lastWeekEnd).length,
+  const byUserId = new Map<string, WeeklyReviewStats>();
+  for (const window of windows) {
+    const dates = datesByUser.get(window.candidate.id) ?? [];
+    byUserId.set(window.candidate.id, {
+      sendLocalDate: window.sendLocalDate,
+      periodStart: window.periodStart,
+      periodEnd: window.periodEnd,
+      loggedDays: dates.filter((date) => date >= window.periodStart && date <= window.periodEnd)
+        .length,
+      previousLoggedDays: dates.filter(
+        (date) => date >= window.previousStart && date <= window.previousEnd
+      ).length,
+      includeComparison: window.createdLocalDate <= window.previousStart,
+      joinedDuringPeriod: window.createdLocalDate > window.periodStart,
     });
   }
 
-  return {
-    byUserId,
-    skippedUnsupportedTimezone: candidates.length - windows.length,
-  };
-}
-
-/**
- * Rolling 7-day windows, not calendar weeks — a calendar week (Mon-Sun) would
- * make "N of 7" degenerate to "0 of 0" every Monday. This mirrors how
- * streak.service already thinks about logged days: consecutive-day-based,
- * not calendar-based.
- *
- * Called only after confirming the user hasn't logged their local "today"
- * (see hasLoggedToday) — today's row won't exist yet, so it correctly
- * contributes 0 without any special-casing here.
- */
-export async function getWeeklyReviewStats(
-  userId: string,
-  timezone: string | null,
-  at: Date = new Date()
-): Promise<WeeklyReviewStats> {
-  const today = localDateFor(timezone, at);
-  const thisWeekStart = shiftLocalDate(today, -(WEEK_DAYS - 1));
-  const lastWeekEnd = shiftLocalDate(thisWeekStart, -1);
-  const lastWeekStart = shiftLocalDate(lastWeekEnd, -(WEEK_DAYS - 1));
-
-  const [thisWeek, lastWeek] = await Promise.all([
-    dailySummaryRepo.listRange(userId, thisWeekStart, today),
-    dailySummaryRepo.listRange(userId, lastWeekStart, lastWeekEnd),
-  ]);
-
-  return {
-    asOfLocalDate: today,
-    loggedThisWeek: thisWeek.length,
-    loggedLastWeek: lastWeek.length,
-  };
-}
-
-/** Has the user already logged on their local "today"? Gates the weekly-review nudge — no email once they have. */
-export async function hasLoggedToday(
-  userId: string,
-  timezone: string | null,
-  at: Date = new Date()
-): Promise<boolean> {
-  const today = localDateFor(timezone, at);
-  const row = await dailySummaryRepo.getForDay(userId, today);
-  return row !== null;
+  return { byUserId, skippedUnsupportedTimezone: candidates.length - windows.length };
 }

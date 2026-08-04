@@ -101,11 +101,39 @@ export const envSchema = z
       .positive()
       .default(60 * 60),
 
-    // Transactional email (Resend). Optional — without a key the send path fails
-    // at use: it logs that RESEND_API_KEY is missing and marks email_logs as
-    // failed rather than crashing the request (see integrations/resend.ts).
+    // Transactional email (Resend). Local development and tests may omit these;
+    // production fails startup unless the complete delivery configuration exists.
     RESEND_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
-    EMAIL_FROM: z.string().min(1).default("Thrivo <noreply@thrivo.fit>"),
+    EMAIL_FROM: z
+      .string()
+      .regex(/^(?:[^<>]+\s+<)?[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>?$/, "Must be a valid sender")
+      .default("Thrivo <noreply@thrivo.fit>"),
+    RESEND_WEBHOOK_SECRET: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.string().min(1).optional()
+    ),
+    PUBLIC_APP_URL: z.string().url().default("http://localhost:3001"),
+    EMAIL_LINK_SECRET: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.string().min(32).optional()
+    ),
+    EMAIL_OUTBOX_ACTIVE_KEY_ID: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.string().min(1).optional()
+    ),
+    // JSON object mapping key ids to base64-encoded 32-byte AES keys.
+    EMAIL_OUTBOX_ENCRYPTION_KEYS: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.string().optional()
+    ),
+    EMAIL_SENDING_ENABLED: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
+    WEEKLY_REVIEW_DRY_RUN: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
 
     // Admin panel auth. ADMIN_EMAILS is a comma-separated allowlist of staff email
     // addresses permitted to sign in to the admin panel via OTP. Empty = no one can
@@ -198,17 +226,68 @@ export const envSchema = z
     R2_PUBLIC_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
   })
   /**
-   * Env policy: the server always boots as long as the core infrastructure vars
-   * (DATABASE_URL, REDIS_URL, AUTH_SECRET) are present. Feature vars
-   * (ANTHROPIC_API_KEY, REVENUECAT_WEBHOOK_AUTH, RESEND_API_KEY, SENTRY_DSN,
-   * OAuth, Expo push) are intentionally optional even in production — a missing
-   * one does NOT crash the process. Instead, the specific action that needs it
-   * fails at point-of-use with an operator log naming the missing var and a clear
-   * error returned to the caller (see anthropic/client.ts, billing-webhook.service.ts,
-   * integrations/resend.ts). This keeps a partially-configured deploy running
-   * rather than refusing to start over a feature that may not be exercised yet.
+   * Most optional features fail at point-of-use when not configured. Email is an
+   * exception in production because accepting durable messages without provider,
+   * webhook, signing, and encryption keys would create an unsafe partial deploy.
    */
   .superRefine((parsed, ctx) => {
+    if (parsed.NODE_ENV === "production") {
+      const requiredEmailValues: ReadonlyArray<readonly [string, unknown]> = [
+        ["RESEND_API_KEY", parsed.RESEND_API_KEY],
+        ["RESEND_WEBHOOK_SECRET", parsed.RESEND_WEBHOOK_SECRET],
+        ["EMAIL_LINK_SECRET", parsed.EMAIL_LINK_SECRET],
+        ["EMAIL_OUTBOX_ACTIVE_KEY_ID", parsed.EMAIL_OUTBOX_ACTIVE_KEY_ID],
+        ["EMAIL_OUTBOX_ENCRYPTION_KEYS", parsed.EMAIL_OUTBOX_ENCRYPTION_KEYS],
+      ];
+      for (const [key, value] of requiredEmailValues) {
+        if (!value) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: "Required for production email delivery",
+          });
+        }
+      }
+      for (const [key, value] of [
+        ["AUTH_BASE_URL", parsed.AUTH_BASE_URL],
+        ["PUBLIC_APP_URL", parsed.PUBLIC_APP_URL],
+        ["ADMIN_APP_URL", parsed.ADMIN_APP_URL],
+      ] as const) {
+        const url = new URL(value);
+        if (url.protocol !== "https:" || url.hostname === "localhost") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: "Production email links require a public HTTPS origin",
+          });
+        }
+      }
+    }
+
+    if (parsed.EMAIL_OUTBOX_ENCRYPTION_KEYS) {
+      try {
+        const keys = JSON.parse(parsed.EMAIL_OUTBOX_ENCRYPTION_KEYS) as Record<string, unknown>;
+        for (const [keyId, encoded] of Object.entries(keys)) {
+          const decoded = typeof encoded === "string" ? Buffer.from(encoded, "base64") : null;
+          const canonical = decoded?.toString("base64");
+          if (typeof encoded !== "string" || decoded?.length !== 32 || canonical !== encoded) {
+            throw new Error(`key ${keyId} is not a base64-encoded 32-byte value`);
+          }
+        }
+        if (
+          parsed.EMAIL_OUTBOX_ACTIVE_KEY_ID &&
+          !Object.hasOwn(keys, parsed.EMAIL_OUTBOX_ACTIVE_KEY_ID)
+        ) {
+          throw new Error("active key id is absent from the key map");
+        }
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["EMAIL_OUTBOX_ENCRYPTION_KEYS"],
+          message: err instanceof Error ? err.message : "Invalid encryption key map",
+        });
+      }
+    }
     // R2 is all-or-nothing on its four core credentials: a half-configured bucket
     // is a misconfiguration that should fail loudly, not silently disable uploads.
     const r2Core: ReadonlyArray<readonly [string, unknown]> = [

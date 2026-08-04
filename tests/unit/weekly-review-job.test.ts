@@ -1,18 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { listEligibleForWeeklyReviewPage, listRecentSends, getGlobalSettings } = vi.hoisted(() => ({
+const { listEligibleForWeeklyReviewPage, getGlobalSettings } = vi.hoisted(() => ({
   listEligibleForWeeklyReviewPage: vi.fn(),
-  listRecentSends: vi.fn(),
   getGlobalSettings: vi.fn(),
 }));
 vi.mock("../../src/repositories", () => ({
   userRepo: { listEligibleForWeeklyReviewPage },
-  emailLogRepo: { listRecentSends },
   settingsRepo: { getGlobalSettings },
 }));
 
-const { sendTemplatedEmail } = vi.hoisted(() => ({ sendTemplatedEmail: vi.fn() }));
-vi.mock("../../src/services/email.service", () => ({ sendTemplatedEmail }));
+const { queueTemplatedEmail } = vi.hoisted(() => ({ queueTemplatedEmail: vi.fn() }));
+vi.mock("../../src/services/email.service", () => ({ queueTemplatedEmail }));
 
 const { getWeeklyReviewBatch } = vi.hoisted(() => ({ getWeeklyReviewBatch: vi.fn() }));
 vi.mock("../../src/services/weekly-review.service", () => ({ getWeeklyReviewBatch }));
@@ -20,19 +18,22 @@ vi.mock("../../src/services/weekly-review.service", () => ({ getWeeklyReviewBatc
 import { handleWeeklyReview } from "../../src/jobs/handlers/weekly-review";
 
 function candidate(id: string, email: string, timezone: string | null = "UTC") {
-  return { id, email, timezone };
+  return { id, email, timezone, createdAt: new Date("2023-12-01T00:00:00Z") };
 }
 
-function batchFor(page: Array<{ id: string }>, loggedToday = false) {
+function batchFor(page: Array<{ id: string }>) {
   return {
     byUserId: new Map(
       page.map((user) => [
         user.id,
         {
-          asOfLocalDate: "2024-01-15",
-          loggedToday,
-          loggedThisWeek: 5,
-          loggedLastWeek: 3,
+          sendLocalDate: "2024-01-21",
+          periodStart: "2024-01-14",
+          periodEnd: "2024-01-20",
+          loggedDays: 5,
+          previousLoggedDays: 3,
+          includeComparison: true,
+          joinedDuringPeriod: false,
         },
       ])
     ),
@@ -41,17 +42,17 @@ function batchFor(page: Array<{ id: string }>, loggedToday = false) {
 }
 
 describe("weekly-review job", () => {
-  afterEach(() => vi.resetAllMocks());
+  afterEach(() => vi.clearAllMocks());
 
-  it("skips the whole run when disabled globally", async () => {
-    getGlobalSettings.mockResolvedValue({ emailFoodLogReminderEnabled: false });
+  it("skips the whole run when weekly reviews are disabled globally", async () => {
+    getGlobalSettings.mockResolvedValue({ weeklyReviewEmailEnabled: false });
 
     await handleWeeklyReview({} as never);
 
     expect(listEligibleForWeeklyReviewPage).not.toHaveBeenCalled();
   });
 
-  it("proceeds when there's no global_settings row yet (fail-open, matches push-token convention)", async () => {
+  it("proceeds when there is no global settings row", async () => {
     getGlobalSettings.mockResolvedValue(null);
     listEligibleForWeeklyReviewPage.mockResolvedValueOnce([]);
 
@@ -60,69 +61,65 @@ describe("weekly-review job", () => {
     expect(listEligibleForWeeklyReviewPage).toHaveBeenCalledTimes(1);
   });
 
-  it("emails eligible users who haven't logged today, and skips those who have", async () => {
-    getGlobalSettings.mockResolvedValue({ emailFoodLogReminderEnabled: true });
+  it("queues every eligible user with period-semantic deduplication", async () => {
+    getGlobalSettings.mockResolvedValue({ weeklyReviewEmailEnabled: true });
     const page = [candidate("u1", "a@x.com"), candidate("u2", "b@x.com")];
-    listEligibleForWeeklyReviewPage.mockResolvedValueOnce(page).mockResolvedValueOnce([]);
-    getWeeklyReviewBatch.mockResolvedValue({
-      ...batchFor(page),
-      byUserId: new Map([
-        [
-          "u1",
-          { asOfLocalDate: "2024-01-15", loggedToday: false, loggedThisWeek: 5, loggedLastWeek: 3 },
-        ],
-        [
-          "u2",
-          { asOfLocalDate: "2024-01-15", loggedToday: true, loggedThisWeek: 5, loggedLastWeek: 3 },
-        ],
-      ]),
-    });
-    listRecentSends.mockResolvedValue(new Set());
+    listEligibleForWeeklyReviewPage.mockResolvedValueOnce(page);
+    getWeeklyReviewBatch.mockResolvedValue(batchFor(page));
 
     await handleWeeklyReview({} as never);
 
-    expect(sendTemplatedEmail).toHaveBeenCalledTimes(1);
-    expect(sendTemplatedEmail).toHaveBeenCalledWith({
+    expect(queueTemplatedEmail).toHaveBeenCalledTimes(2);
+    expect(queueTemplatedEmail).toHaveBeenCalledWith({
+      kind: "weekly_review",
       to: "a@x.com",
       userId: "u1",
       template: "weekly-review",
-      props: { loggedThisWeek: 5, loggedLastWeek: 3 },
+      dedupeKey: "weekly-review:u1:2024-01-14",
+      expiresAt: new Date("2024-01-22T00:00:00.000Z"),
+      props: {
+        periodStart: "2024-01-14",
+        periodEnd: "2024-01-20",
+        loggedDays: 5,
+        previousLoggedDays: 3,
+        includeComparison: true,
+        joinedDuringPeriod: false,
+        progressUrl: expect.stringMatching(/\/metrics$/),
+      },
     });
   });
 
-  it("does not double-send within the dedupe window", async () => {
-    getGlobalSettings.mockResolvedValue({ emailFoodLogReminderEnabled: true });
-    const page = [candidate("u1", "a@x.com")];
-    listEligibleForWeeklyReviewPage.mockResolvedValueOnce(page).mockResolvedValueOnce([]);
-    getWeeklyReviewBatch.mockResolvedValue(batchFor(page));
-    listRecentSends.mockResolvedValue(new Set(["u1"]));
-
-    await handleWeeklyReview({} as never);
-
-    expect(sendTemplatedEmail).not.toHaveBeenCalled();
-  });
-
-  it("continues after one user's send fails", async () => {
-    getGlobalSettings.mockResolvedValue({ emailFoodLogReminderEnabled: true });
+  it("continues after one recipient fails to queue", async () => {
+    getGlobalSettings.mockResolvedValue({ weeklyReviewEmailEnabled: true });
     const page = [candidate("u1", "a@x.com"), candidate("u2", "b@x.com")];
-    listEligibleForWeeklyReviewPage.mockResolvedValueOnce(page).mockResolvedValueOnce([]);
+    listEligibleForWeeklyReviewPage.mockResolvedValueOnce(page);
     getWeeklyReviewBatch.mockResolvedValue(batchFor(page));
-    listRecentSends.mockResolvedValue(new Set());
-    sendTemplatedEmail
-      .mockRejectedValueOnce(new Error("provider failed"))
-      .mockResolvedValueOnce({});
+    queueTemplatedEmail.mockRejectedValueOnce(new Error("database unavailable"));
 
     await handleWeeklyReview({} as never);
 
-    expect(sendTemplatedEmail).toHaveBeenCalledTimes(2);
+    expect(queueTemplatedEmail).toHaveBeenCalledTimes(2);
   });
 
-  it("pages through eligible users via keyset cursor until a short page ends the loop", async () => {
-    getGlobalSettings.mockResolvedValue({ emailFoodLogReminderEnabled: true });
-    const fullPage = Array.from({ length: 200 }, (_, i) => candidate(`u${i}`, `u${i}@x.com`));
+  it("supports candidate and calculation dry runs without creating outbox rows", async () => {
+    getGlobalSettings.mockResolvedValue({ weeklyReviewEmailEnabled: true });
+    const page = [candidate("u1", "a@x.com")];
+    listEligibleForWeeklyReviewPage.mockResolvedValueOnce(page);
+    getWeeklyReviewBatch.mockResolvedValue(batchFor(page));
+
+    await handleWeeklyReview({} as never, { dryRun: true });
+
+    expect(getWeeklyReviewBatch).toHaveBeenCalledWith(page, expect.any(Date));
+    expect(queueTemplatedEmail).not.toHaveBeenCalled();
+  });
+
+  it("pages through eligible users via a keyset cursor", async () => {
+    getGlobalSettings.mockResolvedValue({ weeklyReviewEmailEnabled: true });
+    const fullPage = Array.from({ length: 200 }, (_, index) =>
+      candidate(`u${index}`, `u${index}@x.com`)
+    );
     listEligibleForWeeklyReviewPage.mockResolvedValueOnce(fullPage).mockResolvedValueOnce([]);
-    getWeeklyReviewBatch.mockResolvedValue(batchFor(fullPage, true));
-    listRecentSends.mockResolvedValue(new Set());
+    getWeeklyReviewBatch.mockResolvedValue(batchFor(fullPage));
 
     await handleWeeklyReview({} as never);
 

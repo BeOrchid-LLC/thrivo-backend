@@ -69,7 +69,7 @@ describe.skipIf(!run)("integration: admin Phase-0 catch-up endpoints", () => {
     expect(adminEngagementAnalyticsResponseSchema.safeParse(data).success).toBe(true);
   });
 
-  it("GET /admin/email-logs maps toEmail->to and delivered->sent", async () => {
+  it("GET /admin/email-logs maps toEmail->to and preserves delivered status", async () => {
     await db.insert(emailLogs).values({
       toEmail: "user@test.thrivo.fit",
       template: "welcome",
@@ -81,7 +81,7 @@ describe.skipIf(!run)("integration: admin Phase-0 catch-up endpoints", () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.items[0]?.to).toBe("user@test.thrivo.fit");
-      expect(parsed.data.items[0]?.status).toBe("sent");
+      expect(parsed.data.items[0]?.status).toBe("delivered");
     }
   });
 

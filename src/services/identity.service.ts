@@ -17,10 +17,8 @@ export type ResolvedUser = { user: User; created: boolean };
  *    (ADR-0017) only fires for verified emails, so this stays one-account-per-email.
  * 3. Otherwise create a fresh profile bound to the subject.
  *
- * `created` tells the caller whether branch 3 fired, so a welcome email can be
- * sent exactly once, after the enclosing transaction commits — never from
- * inside this function, since every caller wraps it in one (see auth/emails.ts
- * callers) and an email side effect has no place inside a DB transaction.
+ * `created` tells the caller whether branch 3 fired, so it can persist the
+ * welcome email outbox entry inside the same enclosing transaction.
  */
 export async function resolveUser(
   principal: AuthPrincipal,
@@ -38,6 +36,7 @@ export async function resolveUser(
   const user = await userRepo.createUser(
     {
       email: principal.email,
+      emailVerified: principal.emailVerified,
       name: principal.name ?? principal.email.split("@")[0] ?? "Thrivo user",
       authSubjectId: principal.subjectId,
     },

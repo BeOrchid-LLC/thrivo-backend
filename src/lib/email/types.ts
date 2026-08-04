@@ -9,7 +9,7 @@ export type RenderedBody = { html: string; text?: string };
 /** Per-send context every template gets for free, independent of its own props. */
 export type EmailRenderContext = {
   recipientEmail: string;
-  unsubscribeUrl: string;
+  unsubscribeUrl?: string;
 };
 
 export type EmailTemplate<P> = {

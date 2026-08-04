@@ -17,6 +17,7 @@ export const DEFAULT_GLOBAL_SETTINGS = {
   pushNotificationsEnabled: true,
   dailyFoodLogReminderEnabled: true,
   emailFoodLogReminderEnabled: true,
+  weeklyReviewEmailEnabled: true,
   weightCheckReminderEnabled: true,
   hydrationReminderEnabled: true,
   subscriptionsEnabled: true,
@@ -32,6 +33,7 @@ export const DEFAULT_USER_SETTINGS = {
   dailyFoodLogReminderEnabled: true,
   dailyFoodLogReminderTime: "08:00",
   emailFoodLogReminderEnabled: true,
+  weeklyReviewEmailEnabled: true,
   weightCheckReminderEnabled: true,
   weightCheckReminderDay: "friday",
   weightCheckReminderTime: "09:00",
@@ -67,6 +69,14 @@ export async function updateGlobalSettings(
   patch: Partial<NewGlobalSettingsRow>,
   tx: Executor = db
 ): Promise<GlobalSettings> {
+  const weekly = patch.weeklyReviewEmailEnabled ?? patch.emailFoodLogReminderEnabled;
+  if (weekly !== undefined) {
+    patch = {
+      ...patch,
+      weeklyReviewEmailEnabled: weekly,
+      emailFoodLogReminderEnabled: weekly,
+    };
+  }
   const [row] = await tx
     .insert(globalSettings)
     .values({ ...DEFAULT_GLOBAL_SETTINGS, ...patch, key: GLOBAL_SETTINGS_KEY })
@@ -110,6 +120,14 @@ export async function updateUserSettings(
   patch: Partial<NewUserSettingsRow>,
   tx: Executor = db
 ): Promise<UserSettings> {
+  const weekly = patch.weeklyReviewEmailEnabled ?? patch.emailFoodLogReminderEnabled;
+  if (weekly !== undefined) {
+    patch = {
+      ...patch,
+      weeklyReviewEmailEnabled: weekly,
+      emailFoodLogReminderEnabled: weekly,
+    };
+  }
   const set = Object.keys(patch).length > 0 ? patch : { userId };
   const [row] = await tx
     .insert(userSettings)

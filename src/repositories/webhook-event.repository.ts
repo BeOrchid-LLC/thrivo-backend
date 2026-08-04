@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -60,4 +60,17 @@ export async function markProcessed(
     .update(webhookEvents)
     .set({ status, processedAt: new Date() })
     .where(eq(webhookEvents.id, id));
+}
+
+export async function listReceived(
+  provider: WebhookProvider,
+  limit: number,
+  tx: Executor = db
+): Promise<WebhookEvent[]> {
+  return tx
+    .select()
+    .from(webhookEvents)
+    .where(and(eq(webhookEvents.provider, provider), eq(webhookEvents.status, "received")))
+    .orderBy(asc(webhookEvents.receivedAt))
+    .limit(limit);
 }

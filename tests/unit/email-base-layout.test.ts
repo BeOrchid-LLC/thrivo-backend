@@ -47,9 +47,10 @@ describe("email base layout", () => {
     expect(html).not.toContain("<b>Your week in review</b>");
   });
 
-  it("renders a recognizable icon badge for each variant", () => {
-    expect(emailIconBadge("seal-check")).toContain("<svg");
-    expect(emailIconBadge("envelope")).toContain("<svg");
+  it("renders accessible raster-safe icon badges without inline SVG", () => {
+    expect(emailIconBadge("seal-check")).toContain('aria-label="Verified"');
+    expect(emailIconBadge("envelope")).toContain('aria-label="Email"');
+    expect(emailIconBadge("seal-check")).not.toContain("<svg");
   });
 
   it("renders an icon row with escaped text", () => {
@@ -77,7 +78,8 @@ describe("email base layout", () => {
     });
     expect(html).toContain("Sign in");
     expect(html).toContain("https://thrivo.fit/x?a=1&amp;b=2");
-    expect(html).toContain("<svg");
+    expect(html).toContain("↗");
+    expect(html).not.toContain("<svg");
   });
 
   it("renders the fallback link card with an escaped url", () => {

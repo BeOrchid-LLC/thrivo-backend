@@ -1,7 +1,8 @@
 import type { Job } from "bullmq";
 import { subscriptionRepo, userRepo } from "../../repositories";
-import { sendTemplatedEmail } from "../../services/email.service";
+import { queueTemplatedEmail } from "../../services/email.service";
 import { logger } from "../../lib/logger";
+import { emailAppLink } from "../../lib/email/links";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -17,20 +18,35 @@ export async function handleTrialReminder(_job: Job): Promise<void> {
     new Date(now.getTime() + DAY_MS)
   );
 
+  let queued = 0;
+  let failed = 0;
   for (const sub of ending) {
-    const user = await userRepo.findById(sub.userId);
-    if (!user?.email) continue;
-    await sendTemplatedEmail({
-      to: user.email,
-      userId: user.id,
-      template: "notification",
-      props: {
-        title: "Your Thrivo trial is ending soon",
-        body: "Your free trial wraps up within a day. Keep your streak and premium insights going by choosing a plan.",
-        cta: { label: "View plans", url: "https://thrivo.fit/app/subscription" },
-      },
-    });
+    try {
+      const user = await userRepo.findById(sub.userId);
+      if (!user?.email || !user.emailVerified || !sub.trialEnd) continue;
+      await queueTemplatedEmail({
+        kind: "trial_ending",
+        to: user.email,
+        userId: user.id,
+        dedupeKey: `trial-ending:${sub.id}:${sub.trialEnd.toISOString()}`,
+        expiresAt: new Date(Date.now() + DAY_MS),
+        template: "notification",
+        props: {
+          title: "Your Thrivo trial is ending soon",
+          body: "Your free trial wraps up within a day. Keep your streak and premium insights going by choosing a plan.",
+          cta: { label: "View plans", url: emailAppLink("subscription") },
+        },
+      });
+      queued += 1;
+    } catch (err) {
+      failed += 1;
+      logger.error(
+        { err, subscriptionId: sub.id, userId: sub.userId },
+        "trial reminder queue failed"
+      );
+    }
   }
 
-  if (ending.length > 0) logger.info({ reminded: ending.length }, "trial reminders queued");
+  if (ending.length > 0)
+    logger.info({ eligible: ending.length, queued, failed }, "trial reminders queued");
 }

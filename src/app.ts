@@ -17,6 +17,7 @@ import { metricsRouter } from "./routes/metrics";
 import { subscriptionsRouter } from "./routes/subscriptions";
 import { checkinsRouter } from "./routes/checkins";
 import { leadsRouter } from "./routes/leads";
+import { emailPreferencesRouter } from "./routes/email-preferences";
 import { webhooksRouter } from "./routes/webhooks";
 import { adminRouter } from "./routes/admin";
 import { errorHandler } from "./middleware/error";
@@ -59,6 +60,7 @@ export function buildApp(): Hono<AppEnv> {
   // blocks anonymous requests — this route uses neither requireAuth nor
   // requireAdmin, so it's reachable with no session at all.
   app.route("/api/v1/leads", leadsRouter);
+  app.route("/api/v1/email-preferences", emailPreferencesRouter);
 
   // Provider webhooks — authenticated by a shared secret in the handler, not the
   // user session. RevenueCat entitlement events are the source of truth.

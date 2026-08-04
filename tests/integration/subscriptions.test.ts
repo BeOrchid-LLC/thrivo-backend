@@ -35,14 +35,15 @@ describe.skipIf(!run)("integration: subscriptions", () => {
     const session = await createSession();
     const user = await userRepo.findActiveByEmail(session.email);
     expect(user).not.toBeNull();
+    const now = Date.now();
 
     await subscriptionRepo.upsertFromWebhook({
       userId: user!.id,
       provider: "app_store",
       productId: "thrivo_premium_monthly",
       status: "canceled",
-      currentPeriodStart: new Date("2026-06-26T00:00:00.000Z"),
-      currentPeriodEnd: new Date("2026-07-26T00:00:00.000Z"),
+      currentPeriodStart: new Date(now - 24 * 60 * 60 * 1000),
+      currentPeriodEnd: new Date(now + 30 * 24 * 60 * 60 * 1000),
       cancelAtPeriodEnd: true,
     });
     await userRepo.updateProfile(user!.id, {

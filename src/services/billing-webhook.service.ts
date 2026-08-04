@@ -6,7 +6,10 @@ import { ForbiddenError } from "../lib/errors";
 import { subscriptionRepo, userRepo, webhookEventRepo } from "../repositories";
 import type { SubProvider, SubscriptionEventType, SubStatus } from "../../db/schema";
 import { persistSubscriptionAndMirror } from "./subscription.service";
-import { sendTemplatedEmail } from "./email.service";
+import { queueTemplatedEmail } from "./email.service";
+import { db } from "../../db";
+import type { Executor } from "../../db/tx";
+import { emailAppLink } from "../lib/email/links";
 
 /**
  * RevenueCat v1 webhook envelope — only the fields we consume. Unknown fields are
@@ -56,15 +59,25 @@ function isAuthorized(header: string | undefined): boolean {
  * the user already saw the cancel flow in-app/in-store; this just confirms it
  * landed, per the "honest, no-surprises" brand promise (~60s of the action).
  */
-async function sendCancellationEmail(email: string, userId: string): Promise<void> {
-  await sendTemplatedEmail({
+async function sendCancellationEmail(
+  email: string,
+  userId: string,
+  subscriptionId: string,
+  effectiveEnd: Date | null,
+  transaction: Executor
+): Promise<void> {
+  await queueTemplatedEmail({
+    kind: "cancellation_confirmation",
     to: email,
     userId,
+    dedupeKey: `cancellation:${subscriptionId}:${effectiveEnd?.toISOString() ?? "unknown"}`,
+    expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+    transaction,
     template: "notification",
     props: {
       title: "Your Thrivo cancellation is confirmed",
       body: "Auto-renew is off. You'll keep premium access until the end of your current billing period, then move to the free plan automatically — no further charges.",
-      cta: { label: "Manage subscription", url: "https://thrivo.fit/app/subscription" },
+      cta: { label: "Manage subscription", url: emailAppLink("subscription") },
     },
   });
 }
@@ -193,49 +206,45 @@ export async function handleRevenueCatWebhook(
 
     const eventAt = event.event_timestamp_ms ? new Date(event.event_timestamp_ms) : new Date();
     const periodEnd = event.expiration_at_ms ? new Date(event.expiration_at_ms) : null;
-    const previousSub = await subscriptionRepo.getByUser(user.id);
-    const funnelEventType = classifySubscriptionEvent(
-      event.type,
-      event.period_type,
-      previousSub?.status ?? null
-    );
-    const applied = await persistSubscriptionAndMirror(
-      user.id,
-      {
-        userId: user.id,
-        rcAppUserId: event.app_user_id,
-        provider: mapStore(event.store),
-        productId: event.product_id ?? null,
-        status,
-        trialEnd: status === "trialing" ? periodEnd : (user.trialEndsAt ?? null),
-        currentPeriodStart: event.purchased_at_ms ? new Date(event.purchased_at_ms) : null,
-        currentPeriodEnd: periodEnd,
-        cancelAtPeriodEnd: status === "canceled",
-        lastEventAt: eventAt,
-      },
-      funnelEventType
-        ? {
-            userId: user.id,
-            eventType: funnelEventType,
-            productId: event.product_id ?? null,
-            occurredAt: eventAt,
-            rawEventId: ledger.id,
-            ...extractPriceFields(event),
-          }
-        : undefined
-    );
-
-    // `applied === null` ⇒ the atomic write's monotonic guard dropped this event
-    // as stale/out-of-order — same externally-visible outcome as an ignored event
-    // type, just decided by the DB instead of the mapping above.
-    await webhookEventRepo.markProcessed(ledger.id, "processed");
-
-    // Only the CANCELLATION event itself, and only when it actually applied —
-    // never on EXPIRATION (already communicated via the trial-ending reminder)
-    // and never on a stale/out-of-order event the monotonic guard dropped.
-    if (applied && event.type === "CANCELLATION" && user.email) {
-      await sendCancellationEmail(user.email, user.id);
-    }
+    const applied = await db.transaction(async (tx) => {
+      const previousSub = await subscriptionRepo.getByUser(user.id, tx);
+      const funnelEventType = classifySubscriptionEvent(
+        event.type,
+        event.period_type,
+        previousSub?.status ?? null
+      );
+      const saved = await persistSubscriptionAndMirror(
+        user.id,
+        {
+          userId: user.id,
+          rcAppUserId: event.app_user_id,
+          provider: mapStore(event.store),
+          productId: event.product_id ?? null,
+          status,
+          trialEnd: status === "trialing" ? periodEnd : (user.trialEndsAt ?? null),
+          currentPeriodStart: event.purchased_at_ms ? new Date(event.purchased_at_ms) : null,
+          currentPeriodEnd: periodEnd,
+          cancelAtPeriodEnd: status === "canceled",
+          lastEventAt: eventAt,
+        },
+        funnelEventType
+          ? {
+              userId: user.id,
+              eventType: funnelEventType,
+              productId: event.product_id ?? null,
+              occurredAt: eventAt,
+              rawEventId: ledger.id,
+              ...extractPriceFields(event),
+            }
+          : undefined,
+        tx
+      );
+      if (saved && event.type === "CANCELLATION" && user.email) {
+        await sendCancellationEmail(user.email, user.id, saved.id, saved.currentPeriodEnd, tx);
+      }
+      await webhookEventRepo.markProcessed(ledger.id, "processed", tx);
+      return saved;
+    });
 
     return applied ? "processed" : "ignored";
   } catch (err) {

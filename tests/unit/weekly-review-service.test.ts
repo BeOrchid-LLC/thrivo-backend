@@ -1,79 +1,73 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { listRange, getForDay, listForWeeklyReview } = vi.hoisted(() => ({
-  listRange: vi.fn(),
-  getForDay: vi.fn(),
-  listForWeeklyReview: vi.fn(),
+const { listDistinctDatesForWeeklyReview } = vi.hoisted(() => ({
+  listDistinctDatesForWeeklyReview: vi.fn(),
 }));
 vi.mock("../../src/repositories", () => ({
-  dailySummaryRepo: { listRange, getForDay, listForWeeklyReview },
+  foodLogRepo: { listDistinctDatesForWeeklyReview },
 }));
 
-import {
-  getWeeklyReviewBatch,
-  getWeeklyReviewStats,
-  hasLoggedToday,
-} from "../../src/services/weekly-review.service";
+import { getWeeklyReviewBatch } from "../../src/services/weekly-review.service";
 
 describe("weekly-review.service", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("batches the rolling windows and skips zones unsupported by the runtime", async () => {
-    listForWeeklyReview.mockResolvedValue([
-      { userId: "u1", localDate: "2024-01-15" },
-      { userId: "u1", localDate: "2024-01-10" },
-      { userId: "u1", localDate: "2024-01-08" },
+  it("reviews the completed Sunday-Saturday period and excludes the sending Sunday", async () => {
+    listDistinctDatesForWeeklyReview.mockResolvedValue([
+      { userId: "u1", localDate: "2024-01-14" },
+      { userId: "u1", localDate: "2024-01-20" },
+      { userId: "u1", localDate: "2024-01-21" },
+      { userId: "u1", localDate: "2024-01-13" },
     ]);
 
     const result = await getWeeklyReviewBatch(
-      [
-        { id: "u1", timezone: "America/New_York" },
-        { id: "u2", timezone: "not-a-real-zone" },
-      ],
-      new Date("2024-01-15T09:00:00Z")
+      [{ id: "u1", timezone: "UTC", createdAt: new Date("2023-12-01T12:00:00Z") }],
+      new Date("2024-01-21T09:00:00Z")
     );
 
-    expect(listForWeeklyReview).toHaveBeenCalledWith([
-      { userId: "u1", lastWeekStart: "2024-01-02", today: "2024-01-15" },
+    expect(listDistinctDatesForWeeklyReview).toHaveBeenCalledWith([
+      { userId: "u1", fromDate: "2024-01-07", toDate: "2024-01-20" },
     ]);
-    expect(result.skippedUnsupportedTimezone).toBe(1);
     expect(result.byUserId.get("u1")).toEqual({
-      asOfLocalDate: "2024-01-15",
-      loggedToday: true,
-      loggedThisWeek: 2,
-      loggedLastWeek: 1,
+      sendLocalDate: "2024-01-21",
+      periodStart: "2024-01-14",
+      periodEnd: "2024-01-20",
+      loggedDays: 2,
+      previousLoggedDays: 1,
+      includeComparison: true,
+      joinedDuringPeriod: false,
     });
-    expect(result.byUserId.has("u2")).toBe(false);
-  });
-  it("computes rolling 7-day windows for this week and last week, ending on the user's local today", async () => {
-    listRange.mockImplementation((_userId: string, from: string, to: string) => {
-      // This-week window.
-      if (from === "2024-01-09" && to === "2024-01-15") {
-        return Promise.resolve([{ localDate: "2024-01-10" }, { localDate: "2024-01-12" }]);
-      }
-      // Last-week window.
-      if (from === "2024-01-02" && to === "2024-01-08") {
-        return Promise.resolve(
-          Array.from({ length: 5 }, (_, i) => ({ localDate: `2024-01-0${i + 2}` }))
-        );
-      }
-      throw new Error(`unexpected range ${from}..${to}`);
-    });
-
-    const stats = await getWeeklyReviewStats("u1", "UTC", new Date("2024-01-15T09:00:00Z"));
-
-    expect(stats.asOfLocalDate).toBe("2024-01-15");
-    expect(stats.loggedThisWeek).toBe(2);
-    expect(stats.loggedLastWeek).toBe(5);
   });
 
-  it("hasLoggedToday reflects whether a daily_summaries row exists for the user's local today", async () => {
-    getForDay.mockResolvedValueOnce({ userId: "u1", localDate: "2024-01-15" });
-    await expect(hasLoggedToday("u1", "UTC", new Date("2024-01-15T09:00:00Z"))).resolves.toBe(true);
+  it("omits comparison and uses join-aware wording metadata for a part-week user", async () => {
+    listDistinctDatesForWeeklyReview.mockResolvedValue([]);
 
-    getForDay.mockResolvedValueOnce(null);
-    await expect(hasLoggedToday("u1", "UTC", new Date("2024-01-15T09:00:00Z"))).resolves.toBe(
-      false
+    const result = await getWeeklyReviewBatch(
+      [{ id: "u1", timezone: "UTC", createdAt: new Date("2024-01-17T12:00:00Z") }],
+      new Date("2024-01-21T09:00:00Z")
     );
+
+    expect(result.byUserId.get("u1")).toMatchObject({
+      periodStart: "2024-01-14",
+      periodEnd: "2024-01-20",
+      includeComparison: false,
+      joinedDuringPeriod: true,
+    });
+  });
+
+  it("quarantines unsupported timezones instead of silently treating them as UTC", async () => {
+    listDistinctDatesForWeeklyReview.mockResolvedValue([]);
+
+    const result = await getWeeklyReviewBatch(
+      [
+        { id: "u1", timezone: "not-a-real-zone", createdAt: new Date("2024-01-01T00:00:00Z") },
+        { id: "u2", timezone: null, createdAt: new Date("2024-01-01T00:00:00Z") },
+      ],
+      new Date("2024-01-21T09:00:00Z")
+    );
+
+    expect(result.skippedUnsupportedTimezone).toBe(1);
+    expect(result.byUserId.has("u1")).toBe(false);
+    expect(result.byUserId.has("u2")).toBe(true);
   });
 });

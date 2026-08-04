@@ -59,12 +59,40 @@ export const userEventTypeEnum = pgEnum("user_event_type", [
 
 export const emailStatusEnum = pgEnum("email_status", [
   "queued",
+  "processing",
+  "retrying",
   "sent",
   "delivered",
   "bounced",
+  "complained",
+  "suppressed",
   "failed",
+  "expired",
 ]);
-export const webhookProviderEnum = pgEnum("webhook_provider", ["revenuecat", "stripe"]);
+export const emailKindEnum = pgEnum("email_kind", [
+  "welcome",
+  "weekly_review",
+  "trial_ending",
+  "cancellation_confirmation",
+  "admin_otp",
+  "admin_invite",
+  "admin_password_reset",
+  "legacy_notification",
+]);
+export const emailOutboxStateEnum = pgEnum("email_outbox_state", [
+  "pending",
+  "dispatching",
+  "dispatched",
+  "completed",
+  "failed",
+  "expired",
+]);
+export const emailSuppressionReasonEnum = pgEnum("email_suppression_reason", [
+  "complained",
+  "provider_suppressed",
+  "permanent_bounce",
+]);
+export const webhookProviderEnum = pgEnum("webhook_provider", ["revenuecat", "stripe", "resend"]);
 export const webhookStatusEnum = pgEnum("webhook_status", ["received", "processed", "failed"]);
 
 // Admin push-campaign lifecycle and per-recipient delivery state.
@@ -110,6 +138,9 @@ export type SubStatus = (typeof subStatusEnum.enumValues)[number];
 export type SubscriptionEventType = (typeof subscriptionEventTypeEnum.enumValues)[number];
 export type UserEventType = (typeof userEventTypeEnum.enumValues)[number];
 export type EmailStatus = (typeof emailStatusEnum.enumValues)[number];
+export type EmailKind = (typeof emailKindEnum.enumValues)[number];
+export type EmailOutboxState = (typeof emailOutboxStateEnum.enumValues)[number];
+export type EmailSuppressionReason = (typeof emailSuppressionReasonEnum.enumValues)[number];
 export type WebhookProvider = (typeof webhookProviderEnum.enumValues)[number];
 export type WebhookStatus = (typeof webhookStatusEnum.enumValues)[number];
 export type PushCampaignStatus = (typeof pushCampaignStatusEnum.enumValues)[number];

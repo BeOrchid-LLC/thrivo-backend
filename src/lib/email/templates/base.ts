@@ -15,11 +15,7 @@ export function escapeHtml(value: string): string {
  * rather than re-derived from Figma's rotated/flipped div transforms, so the
  * mark stays pixel-true to the one already shipping on the web/admin apps.
  */
-const LOGOMARK_SVG = `<svg width="22" height="22" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Thrivo">
-  <path d="M30.1369 0C41.0313 0 49.863 8.83164 49.863 19.726V70.137C49.863 75.5842 45.4471 80 39.9999 80C34.5528 80 30.1369 75.5842 30.1369 70.137V0Z" fill="#09823C"/>
-  <path d="M19.726 19.726C8.83163 19.726 0 10.8944 0 0L30.137 0C41.0314 0 49.863 8.83163 49.863 19.726L19.726 19.726Z" fill="#09823C"/>
-  <path d="M49.8629 0C38.9686 0 30.1369 8.83165 30.1369 19.726L60.2739 19.726C71.1683 19.726 79.9999 10.8944 79.9999 0L49.8629 0Z" fill="#F39C12"/>
-</svg>`;
+const LOGOMARK_SVG = `<img src="cid:thrivo-logo" width="22" height="22" alt="Thrivo logo" style="display:block;border:0;outline:none;"/>`;
 
 /**
  * Icon glyphs, ported from Figma where noted (OTP frame 277:472, magic-link
@@ -196,9 +192,10 @@ export function emailHeader(opts?: { eyebrow?: string; eyebrowIcon?: "trending" 
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">${brand}</td></tr></table>`;
   }
 
-  const iconHtml = opts.eyebrowIcon
-    ? `<svg width="13" height="13" viewBox="${ICONS[opts.eyebrowIcon].viewBox}" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-right:4px;">${ICONS[opts.eyebrowIcon].content}</svg>`
-    : "";
+  const iconHtml =
+    opts.eyebrowIcon && Object.hasOwn(ICONS, opts.eyebrowIcon)
+      ? `<span aria-hidden="true">↗&nbsp;</span>`
+      : "";
 
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       <td align="left">${brand}</td>
@@ -210,11 +207,11 @@ export function emailHeader(opts?: { eyebrow?: string; eyebrowIcon?: "trending" 
 
 /** Centered circular icon badge used above the heading in OTP/magic-link — 60px circle, 32px glyph (Figma 277:485). */
 export function emailIconBadge(variant: "seal-check" | "envelope"): string {
-  const icon = ICONS[variant];
+  const glyph = variant === "seal-check" ? "✓" : "✉";
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:8px 0 0;">
       <table role="presentation" cellpadding="0" cellspacing="0"><tr><td class="email-icon-tint" style="width:60px;height:60px;border-radius:30px;background:${emailTokens.light.iconTint};text-align:center;vertical-align:middle;">
         <table role="presentation" width="100%" height="60" cellpadding="0" cellspacing="0"><tr><td align="center" valign="middle" class="email-accent" style="color:${emailTokens.light.accent};">
-          <svg width="32" height="32" viewBox="${icon.viewBox}" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;">${icon.content}</svg>
+          <span role="img" aria-label="${variant === "seal-check" ? "Verified" : "Email"}" style="font-size:28px;line-height:32px;">${glyph}</span>
         </td></tr></table>
       </td></tr></table>
     </td></tr></table>`;
@@ -250,12 +247,18 @@ export function emailIconRow(opts: {
   text: string;
   muted?: boolean;
 }): string {
-  const icon = ICONS[opts.icon];
+  const glyph: Record<typeof opts.icon, string> = {
+    clock: "◷",
+    check: "✓",
+    "check-circle": "✓",
+    shield: "◆",
+    warning: "!",
+  };
   const textClass = opts.muted ? "email-soft-muted" : "email-body";
   const color = opts.muted ? emailTokens.light.softMutedText : emailTokens.light.bodyText;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       <td class="${textClass}" width="20" valign="top" style="padding:16px 10px 16px 0;color:${color};">
-        <svg width="20" height="20" viewBox="${icon.viewBox}" xmlns="http://www.w3.org/2000/svg">${icon.content}</svg>
+        <span aria-hidden="true" style="font-size:16px;line-height:20px;">${glyph[opts.icon]}</span>
       </td>
       <td class="${textClass}" style="font-size:14px;line-height:1.4;padding:16px 0;color:${color};">${escapeHtml(opts.text)}</td>
     </tr></table>`;
@@ -289,30 +292,20 @@ export function emailProgressRing(opts: {
   line1?: string;
   line2?: string;
 }): string {
-  const size = 172;
-  const strokeWidth = 11;
-  const radius = (size - strokeWidth) / 2;
-  const center = size / 2;
-  const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(100, opts.percent));
-  const dashoffset = circumference * (1 - clamped / 100);
-
   const light = emailTokens.light;
   const line1 = opts.line1
-    ? `<text class="email-soft-muted" x="${center}" y="${center + 20}" text-anchor="middle" font-size="12" font-family="${emailFonts.body}" fill="currentColor" style="color:${light.softMutedText};">${escapeHtml(opts.line1)}</text>`
+    ? `<div class="email-soft-muted" style="margin-top:6px;font-size:12px;line-height:16px;color:${light.softMutedText};">${escapeHtml(opts.line1)}</div>`
     : "";
   const line2 = opts.line2
-    ? `<text class="email-heading" x="${center}" y="${center + 38}" text-anchor="middle" font-size="13" font-weight="700" font-family="${emailFonts.body}" fill="currentColor" style="color:${light.headingText};">${escapeHtml(opts.line2)}</text>`
+    ? `<div class="email-heading" style="font-size:13px;font-weight:700;line-height:18px;color:${light.headingText};">${escapeHtml(opts.line2)}</div>`
     : "";
 
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:8px 0 4px;">
-      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-        <circle class="email-ring-track" cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="currentColor" stroke-width="${strokeWidth}" style="color:${light.ringTrack};"/>
-        <circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${emailBrand.brightGreen}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${dashoffset}" transform="rotate(-90 ${center} ${center})"/>
-        <text class="email-heading" x="${center}" y="${center - 6}" text-anchor="middle" font-size="34" font-weight="700" font-family="${emailFonts.body}" fill="currentColor" style="color:${light.headingText};">${escapeHtml(`${Math.round(clamped)}%`)}</text>
-        ${line1}
-        ${line2}
-      </svg>
+      <table role="presentation" width="172" height="172" cellpadding="0" cellspacing="0" style="width:172px;height:172px;border:11px solid ${emailBrand.brightGreen};border-radius:50%;"><tr><td align="center" valign="middle">
+        <div class="email-heading" style="font-size:34px;font-weight:700;line-height:40px;color:${light.headingText};">${escapeHtml(`${Math.round(clamped)}%`)}</div>
+        ${line1}${line2}
+      </td></tr></table>
     </td></tr></table>`;
 }
 
@@ -334,7 +327,7 @@ export function emailButton(opts: {
     margin: "margin-right" | "margin-left"
   ) =>
     name
-      ? `<svg width="16" height="16" viewBox="${ICONS[name].viewBox}" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;${margin}:9px;">${ICONS[name].content}</svg>`
+      ? `<span aria-hidden="true" style="display:inline-block;${margin}:9px;">${name === "arrow-right" ? "→" : name === "fork" ? "•" : "↗"}</span>`
       : "";
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:${emailBrand.green};border-radius:12px;text-align:center;">
       <a href="${escapeHtml(
@@ -378,12 +371,15 @@ export function emailFallbackLinkCard(opts: { url: string }): string {
 }
 
 /** "Sent to {email}" + copyright + unsubscribe, shared by every redesigned template. */
-export function emailFooter(opts: { recipientEmail: string; unsubscribeUrl: string }): string {
+export function emailFooter(opts: { recipientEmail: string; unsubscribeUrl?: string }): string {
   const year = new Date().getFullYear();
+  const unsubscribe = opts.unsubscribeUrl
+    ? ` · <a href="${escapeHtml(
+        opts.unsubscribeUrl
+      )}" class="email-muted" style="text-decoration:underline;">Unsubscribe</a>`
+    : "";
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" class="email-muted" style="font-size:12px;line-height:1.5;">
       Sent to ${escapeHtml(opts.recipientEmail)}<br/>
-      © ${year} Thrivo · BeOrchid LLC · <a href="${escapeHtml(
-        opts.unsubscribeUrl
-      )}" class="email-muted" style="text-decoration:underline;">Unsubscribe</a>
+      © ${year} Thrivo · BeOrchid LLC${unsubscribe}
     </td></tr></table>`;
 }

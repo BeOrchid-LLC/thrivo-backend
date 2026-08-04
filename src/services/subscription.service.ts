@@ -7,6 +7,7 @@ import type {
   SubscriptionState,
 } from "../../contracts/src/subscriptions";
 import { db } from "../../db";
+import type { Executor } from "../../db/tx";
 import type { NewSubscriptionEventRow, NewSubscriptionRow, UserRow } from "../../db/schema";
 import { billingAdapter } from "../integrations/billing";
 import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from "../lib/errors";
@@ -228,9 +229,10 @@ export async function cancelSubscription(
 export async function persistSubscriptionAndMirror(
   userId: string,
   subscription: NewSubscriptionRow,
-  event?: NewSubscriptionEventRow
+  event?: NewSubscriptionEventRow,
+  executor?: Executor
 ): Promise<Subscription | null> {
-  return db.transaction(async (tx) => {
+  const persist = async (tx: Executor): Promise<Subscription | null> => {
     const row = await subscriptionRepo.upsertFromWebhook(subscription, tx);
     if (!row) return null;
     await userRepo.updateProfile(
@@ -245,7 +247,8 @@ export async function persistSubscriptionAndMirror(
     );
     if (event) await subscriptionEventRepo.insert(event, tx);
     return row;
-  });
+  };
+  return executor ? persist(executor) : db.transaction((tx) => persist(tx));
 }
 
 export const subscriptionPlans = PLANS;

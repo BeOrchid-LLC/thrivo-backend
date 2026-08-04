@@ -17,7 +17,32 @@ const isoDate = z
   .transform((v) => new Date(v));
 
 const emailLogQuerySchema = paginationSchema.extend({
-  status: z.enum(["queued", "sent", "delivered", "bounced", "failed"]).optional(),
+  status: z
+    .enum([
+      "queued",
+      "processing",
+      "retrying",
+      "sent",
+      "delivered",
+      "bounced",
+      "complained",
+      "suppressed",
+      "failed",
+      "expired",
+    ])
+    .optional(),
+  kind: z
+    .enum([
+      "welcome",
+      "weekly_review",
+      "trial_ending",
+      "cancellation_confirmation",
+      "admin_otp",
+      "admin_invite",
+      "admin_password_reset",
+      "legacy_notification",
+    ])
+    .optional(),
   template: z.string().optional(),
   to: z.string().optional(),
   from: isoDate.optional(),
@@ -34,7 +59,7 @@ const auditLogQuerySchema = paginationSchema.extend({
 
 /** GET /admin/email-logs — offset-paginated transactional-email delivery log. */
 export async function listAdminEmailLogs(c: Context<AppEnv>) {
-  const { page, pageSize, status, template, to, from, toDate } = emailLogQuerySchema.parse(
+  const { page, pageSize, status, kind, template, to, from, toDate } = emailLogQuerySchema.parse(
     c.req.query()
   );
   const params = parseOffset(page, pageSize);
@@ -42,6 +67,7 @@ export async function listAdminEmailLogs(c: Context<AppEnv>) {
     offset: params.offset,
     limit: params.pageSize,
     status,
+    kind,
     template,
     toEmail: to,
     from,

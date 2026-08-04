@@ -8,6 +8,9 @@ import { userRepo, settingsRepo } from "../../src/repositories";
 // with RUN_DB_TESTS=1.
 const run = process.env.RUN_DB_TESTS === "1";
 
+const makeVerifiedUser = (overrides: Parameters<typeof makeUser>[0] = {}) =>
+  makeUser({ emailVerified: true, ...overrides });
+
 describe.skipIf(!run)("integration: listEligibleForWeeklyReviewPage", () => {
   beforeEach(async () => {
     await resetDb();
@@ -16,67 +19,100 @@ describe.skipIf(!run)("integration: listEligibleForWeeklyReviewPage", () => {
     await closeDb();
   });
 
-  // now.getUTCHours() is also this user's local hour, since their timezone is UTC.
-  const currentUtcHour = () => new Date().getUTCHours();
+  const sundayAtNineUtc = new Date("2026-08-02T09:00:00.000Z");
 
-  it("includes a UTC user only at their matching local hour", async () => {
-    const user = await makeUser({ timezone: "UTC" });
+  it("includes a UTC user on Sunday at 09:00 and excludes 08:59", async () => {
+    const user = await makeVerifiedUser({ timezone: "UTC" });
 
-    const atHour = await userRepo.listEligibleForWeeklyReviewPage(currentUtcHour(), null, 50);
-    expect(atHour.map((u) => u.id)).toContain(user.id);
+    const atNine = await userRepo.listEligibleForWeeklyReviewPage(sundayAtNineUtc, null, 50);
+    expect(atNine.map((u) => u.id)).toContain(user.id);
 
-    const otherHour = (currentUtcHour() + 5) % 24;
-    const atOtherHour = await userRepo.listEligibleForWeeklyReviewPage(otherHour, null, 50);
-    expect(atOtherHour.map((u) => u.id)).not.toContain(user.id);
+    const beforeNine = await userRepo.listEligibleForWeeklyReviewPage(
+      new Date("2026-08-02T08:59:00.000Z"),
+      null,
+      50
+    );
+    expect(beforeNine.map((u) => u.id)).not.toContain(user.id);
+  });
+
+  it("never includes a UTC user on Saturday or Monday", async () => {
+    const user = await makeVerifiedUser({ timezone: "UTC" });
+
+    const saturday = await userRepo.listEligibleForWeeklyReviewPage(
+      new Date("2026-08-01T09:00:00.000Z"),
+      null,
+      50
+    );
+    const monday = await userRepo.listEligibleForWeeklyReviewPage(
+      new Date("2026-08-03T09:00:00.000Z"),
+      null,
+      50
+    );
+
+    expect(saturday.map((u) => u.id)).not.toContain(user.id);
+    expect(monday.map((u) => u.id)).not.toContain(user.id);
+  });
+
+  it("supports quarter-hour timezone offsets", async () => {
+    const user = await makeVerifiedUser({ timezone: "Asia/Kathmandu" });
+
+    const atNine = await userRepo.listEligibleForWeeklyReviewPage(
+      new Date("2026-08-02T03:15:00.000Z"),
+      null,
+      50
+    );
+    expect(atNine.map((u) => u.id)).toContain(user.id);
   });
 
   it("treats a missing user_settings row as enabled", async () => {
-    const user = await makeUser({ timezone: "UTC" });
+    const user = await makeVerifiedUser({ timezone: "UTC" });
     // No settings row created — DEFAULT_USER_SETTINGS never inserted for this user.
-    const page = await userRepo.listEligibleForWeeklyReviewPage(currentUtcHour(), null, 50);
+    const page = await userRepo.listEligibleForWeeklyReviewPage(sundayAtNineUtc, null, 50);
     expect(page.map((u) => u.id)).toContain(user.id);
   });
 
-  it("excludes a user who has opted out via emailFoodLogReminderEnabled", async () => {
-    const user = await makeUser({ timezone: "UTC" });
-    await settingsRepo.updateUserSettings(user.id, { emailFoodLogReminderEnabled: false });
+  it("excludes a user who has opted out of weekly reviews", async () => {
+    const user = await makeVerifiedUser({ timezone: "UTC" });
+    await settingsRepo.updateUserSettings(user.id, { weeklyReviewEmailEnabled: false });
 
-    const page = await userRepo.listEligibleForWeeklyReviewPage(currentUtcHour(), null, 50);
+    const page = await userRepo.listEligibleForWeeklyReviewPage(sundayAtNineUtc, null, 50);
     expect(page.map((u) => u.id)).not.toContain(user.id);
   });
 
   it("excludes a soft-deleted user", async () => {
-    const user = await makeUser({ timezone: "UTC" });
+    const user = await makeVerifiedUser({ timezone: "UTC" });
     await userRepo.softDeleteUser(user.id);
 
-    const page = await userRepo.listEligibleForWeeklyReviewPage(currentUtcHour(), null, 50);
+    const page = await userRepo.listEligibleForWeeklyReviewPage(sundayAtNineUtc, null, 50);
     expect(page.map((u) => u.id)).not.toContain(user.id);
   });
 
   it("excludes a user with an invalid stored timezone instead of erroring the whole query", async () => {
-    const user = await makeUser({ timezone: "not-a-real-zone" });
+    const user = await makeVerifiedUser({ timezone: "not-a-real-zone" });
 
     await expect(
-      userRepo.listEligibleForWeeklyReviewPage(currentUtcHour(), null, 50)
+      userRepo.listEligibleForWeeklyReviewPage(sundayAtNineUtc, null, 50)
     ).resolves.not.toThrow();
-    const page = await userRepo.listEligibleForWeeklyReviewPage(currentUtcHour(), null, 50);
+    const page = await userRepo.listEligibleForWeeklyReviewPage(sundayAtNineUtc, null, 50);
     expect(page.map((u) => u.id)).not.toContain(user.id);
   });
 
   it("falls back to UTC for a null timezone", async () => {
-    const user = await makeUser({ timezone: null });
-    const page = await userRepo.listEligibleForWeeklyReviewPage(currentUtcHour(), null, 50);
+    const user = await makeVerifiedUser({ timezone: null });
+    const page = await userRepo.listEligibleForWeeklyReviewPage(sundayAtNineUtc, null, 50);
     expect(page.map((u) => u.id)).toContain(user.id);
   });
 
   it("paginates via keyset cursor", async () => {
-    const users = await Promise.all(Array.from({ length: 3 }, () => makeUser({ timezone: "UTC" })));
+    const users = await Promise.all(
+      Array.from({ length: 3 }, () => makeVerifiedUser({ timezone: "UTC" }))
+    );
     const ids = users.map((u) => u.id).sort();
 
-    const firstPage = await userRepo.listEligibleForWeeklyReviewPage(currentUtcHour(), null, 2);
+    const firstPage = await userRepo.listEligibleForWeeklyReviewPage(sundayAtNineUtc, null, 2);
     expect(firstPage).toHaveLength(2);
     const secondPage = await userRepo.listEligibleForWeeklyReviewPage(
-      currentUtcHour(),
+      sundayAtNineUtc,
       firstPage[1]!.id,
       2
     );

@@ -105,40 +105,52 @@ export interface WeeklyReviewCandidate {
   id: string;
   email: string;
   timezone: string | null;
+  createdAt: Date;
 }
 
 /**
- * Keyset page of users whose local clock currently reads `targetLocalHour` —
- * backs the weekly-review email's per-timezone-bucketed send (an hourly cron
- * calls this with the current UTC hour's bucket instead of one fixed daily
- * run). A missing settings row counts as enabled, same convention as
- * `pushTokenRepo.listActiveForNudgesPage`. An invalid `users.timezone` (it's
- * unvalidated free text) simply excludes that user rather than erroring the
- * whole query.
+ * Keyset page of users whose local calendar is Sunday and clock is at least
+ * 09:00. The 15-minute scheduler provides same-Sunday outage recovery while
+ * the semantic email dedupe key prevents repeat delivery. A missing settings
+ * row counts as enabled; invalid legacy timezone values are excluded.
  */
 export async function listEligibleForWeeklyReviewPage(
-  targetLocalHour: number,
+  at: Date,
   afterUserId: string | null,
   limit: number,
   tx: Executor = db
 ): Promise<WeeklyReviewCandidate[]> {
   return tx
-    .select({ id: users.id, email: users.email, timezone: users.timezone })
+    .select({
+      id: users.id,
+      email: users.email,
+      timezone: users.timezone,
+      createdAt: users.createdAt,
+    })
     .from(users)
     .leftJoin(userSettings, eq(userSettings.userId, users.id))
     .where(
       and(
         isNull(users.deletedAt),
-        or(isNull(userSettings.userId), eq(userSettings.emailFoodLogReminderEnabled, true)),
+        eq(users.emailVerified, true),
+        or(isNull(userSettings.userId), eq(userSettings.weeklyReviewEmailEnabled, true)),
         sql`(${users.timezone} is null or exists (select 1 from pg_timezone_names where name = ${users.timezone}))`,
         sql`(
           case
             when ${users.timezone} is null
               or exists (select 1 from pg_timezone_names where name = ${users.timezone})
-            then extract(hour from (now() at time zone coalesce(${users.timezone}, 'UTC')))::int
+            then extract(dow from (${at} at time zone coalesce(${users.timezone}, 'UTC')))::int
             else null
           end
-        ) = ${targetLocalHour}`,
+        ) = 0`,
+        sql`(
+          case
+            when ${users.timezone} is null
+              or exists (select 1 from pg_timezone_names where name = ${users.timezone})
+            then (${at} at time zone coalesce(${users.timezone}, 'UTC'))::time
+            else null
+          end
+        ) >= time '09:00'`,
         afterUserId ? gt(users.id, afterUserId) : undefined
       )
     )
