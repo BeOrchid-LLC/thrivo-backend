@@ -74,3 +74,8 @@ export const adminAuthRateLimit = rateLimit({ windowSec: 60, max: 10, keyPrefix:
 
 /** Public unauthenticated write endpoint (email capture) — the classic spam-bot target. */
 export const leadsRateLimit = rateLimit({ windowSec: 600, max: 5, keyPrefix: "leads-capture" });
+export const emailPreferenceRateLimit = rateLimit({
+  windowSec: 60,
+  max: 20,
+  keyPrefix: "email-preferences",
+});

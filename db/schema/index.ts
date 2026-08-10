@@ -20,6 +20,8 @@ export * from "./user-events";
 export * from "./settings";
 export * from "./email-captures";
 export * from "./email-logs";
+export * from "./email-outbox";
+export * from "./email-suppressions";
 export * from "./push-tokens";
 export * from "./push-campaigns";
 export * from "./webhook-events";

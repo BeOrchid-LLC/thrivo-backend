@@ -19,10 +19,37 @@ describe("env policy", () => {
     expect(envSchema.safeParse({ ...base, NODE_ENV: "development" }).success).toBe(true);
   });
 
-  it("boots in production without feature secrets (they fail at point-of-use, not boot)", () => {
-    // Missing ANTHROPIC_API_KEY / REVENUECAT_WEBHOOK_AUTH / RESEND_API_KEY / SENTRY_DSN
-    // must NOT crash startup — only the action that needs one fails, with a log.
-    expect(envSchema.safeParse({ ...base, NODE_ENV: "production" }).success).toBe(true);
+  it("refuses production startup without the complete email security configuration", () => {
+    const result = envSchema.safeParse({ ...base, NODE_ENV: "production" });
+    expect(result.success).toBe(false);
+    const keys = result.success ? [] : result.error.issues.map((issue) => issue.path.join("."));
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        "RESEND_API_KEY",
+        "RESEND_WEBHOOK_SECRET",
+        "EMAIL_LINK_SECRET",
+        "EMAIL_OUTBOX_ACTIVE_KEY_ID",
+        "EMAIL_OUTBOX_ENCRYPTION_KEYS",
+      ])
+    );
+  });
+
+  it("accepts production when the complete email configuration is valid", () => {
+    const key = Buffer.alloc(32, 7).toString("base64");
+    expect(
+      envSchema.safeParse({
+        ...base,
+        NODE_ENV: "production",
+        RESEND_API_KEY: "re_live_key",
+        RESEND_WEBHOOK_SECRET: "whsec_resend",
+        EMAIL_LINK_SECRET: "l".repeat(32),
+        EMAIL_OUTBOX_ACTIVE_KEY_ID: "primary",
+        EMAIL_OUTBOX_ENCRYPTION_KEYS: JSON.stringify({ primary: key }),
+        AUTH_BASE_URL: "https://api.thrivo.fit",
+        PUBLIC_APP_URL: "https://thrivo.fit",
+        ADMIN_APP_URL: "https://admin.thrivo.fit",
+      }).success
+    ).toBe(true);
   });
 
   it("still refuses to boot without a core infrastructure var", () => {

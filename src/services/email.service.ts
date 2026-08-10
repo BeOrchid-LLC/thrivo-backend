@@ -1,56 +1,138 @@
-import { emailLogRepo } from "../repositories";
-import { enqueue, QUEUE_NAMES } from "../lib/queue";
-import type { TemplateName, TemplateProps } from "../lib/email/registry";
+import { z } from "zod";
+import { db } from "../../db";
+import type { Executor } from "../../db/tx";
+import type { EmailKind } from "../../db/schema";
+import { emailLogRepo, emailOutboxRepo, emailSuppressionRepo } from "../repositories";
+import { encryptEmailPayload } from "../lib/email/outbox-crypto";
+import { emailAppLink } from "../lib/email/links";
+import {
+  parseTemplateProps,
+  templateSchemas,
+  type TemplateName,
+  type TemplateProps,
+} from "../lib/email/registry";
+import { env } from "../env";
 
-/** Job payload for the `emails` queue. Rendered in the worker, not here. */
-export type SendEmailJobData = {
-  emailLogId: string;
-  to: string;
-  template: TemplateName;
-  props: unknown;
-};
+/** The only data allowed in Redis for an email job. */
+export type SendEmailJobData = { emailLogId: string };
 
-export type SendTemplatedEmailInput<K extends TemplateName> = {
+export type StoredEmailPayload<K extends TemplateName = TemplateName> = {
   to: string;
   template: K;
   props: TemplateProps[K];
-  /** Owning user, when the send is tied to one (null for pre-signup leads). */
+};
+
+export type QueueTemplatedEmailInput<K extends TemplateName> = {
+  kind: EmailKind;
+  to: string;
+  template: K;
+  props: TemplateProps[K];
+  expiresAt: Date;
+  dedupeKey?: string;
   userId?: string;
+  transaction?: Executor;
 };
 
-// BullMQ-level retries for transient send failures (handler rethrows them);
-// failed jobs are kept for inspection rather than dropped.
-const EMAIL_JOB_OPTS = {
-  attempts: 4,
-  backoff: { type: "exponential" as const, delay: 5000 },
-  removeOnComplete: true,
-  removeOnFail: false,
+const emailSchema = z
+  .string()
+  .email()
+  .transform((value) => value.toLowerCase());
+
+const templatesByKind: Record<EmailKind, readonly TemplateName[]> = {
+  welcome: ["notification"],
+  weekly_review: ["weekly-review"],
+  trial_ending: ["notification"],
+  cancellation_confirmation: ["notification"],
+  admin_otp: ["otp"],
+  admin_invite: ["admin-invite"],
+  admin_password_reset: ["admin-password-reset"],
+  legacy_notification: ["notification", "magic-link", "otp"],
 };
 
-/**
- * Queue a transactional email. Records an `email_logs` row (status `queued`)
- * and enqueues a `send-email` job carrying the log id; the worker renders,
- * sends via Resend, and flips the status. Returns the email log id.
- *
- * If the enqueue fails (e.g. Redis down) it rethrows — the caller decides — and
- * the `queued` row remains as a recoverable artifact for a future sweep.
- */
-export async function sendTemplatedEmail<K extends TemplateName>(
-  input: SendTemplatedEmailInput<K>
-): Promise<string> {
-  const log = await emailLogRepo.logSend({
-    userId: input.userId,
-    toEmail: input.to,
-    template: input.template,
-    status: "queued",
+const notificationCtaSchema = (destination: "dashboard" | "subscription") =>
+  z.object({
+    label: z.string().min(1).max(80),
+    url: z.literal(emailAppLink(destination)),
   });
 
-  const data: SendEmailJobData = {
-    emailLogId: log.id,
-    to: input.to,
+const adminUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => new URL(value).origin === new URL(env.ADMIN_APP_URL).origin, {
+    message: "Admin email links must use the configured admin origin",
+  });
+
+/** Runtime schemas bind each logical kind to its allowed props and central link destination. */
+const kindPropsSchemas: Record<Exclude<EmailKind, "legacy_notification">, z.ZodTypeAny> = {
+  welcome: templateSchemas.notification.extend({ cta: notificationCtaSchema("dashboard") }),
+  weekly_review: templateSchemas["weekly-review"].extend({
+    progressUrl: z.literal(emailAppLink("metrics")),
+  }),
+  trial_ending: templateSchemas.notification.extend({
+    cta: notificationCtaSchema("subscription"),
+  }),
+  cancellation_confirmation: templateSchemas.notification.extend({
+    cta: notificationCtaSchema("subscription"),
+  }),
+  admin_otp: templateSchemas.otp,
+  admin_invite: templateSchemas["admin-invite"].extend({ url: adminUrlSchema }),
+  admin_password_reset: templateSchemas["admin-password-reset"].extend({ url: adminUrlSchema }),
+};
+
+async function persistEmail<K extends TemplateName>(
+  input: QueueTemplatedEmailInput<K>,
+  tx: Executor
+): Promise<string> {
+  const to = emailSchema.parse(input.to);
+  if (input.expiresAt <= new Date()) throw new Error("Email expiry must be in the future");
+  if (!templatesByKind[input.kind].includes(input.template)) {
+    throw new Error(`Template ${input.template} is not valid for email kind ${input.kind}`);
+  }
+  const templateProps = parseTemplateProps(input.template, input.props);
+  const props =
+    input.kind === "legacy_notification"
+      ? templateProps
+      : kindPropsSchemas[input.kind].parse(templateProps);
+  const suppression = await emailSuppressionRepo.findActive(to, tx);
+  const { row: log, created } = await emailLogRepo.logSendIdempotent(
+    {
+      userId: input.userId,
+      toEmail: to,
+      template: input.template,
+      kind: input.kind,
+      dedupeKey: input.dedupeKey,
+      status: suppression ? "suppressed" : "queued",
+      failureCode: suppression ? `suppressed:${suppression.reason}` : null,
+      failedAt: suppression ? new Date() : null,
+    },
+    tx
+  );
+  if (!created || suppression) return log.id;
+
+  const payload: StoredEmailPayload<K> = {
+    to,
     template: input.template,
-    props: input.props,
+    props: props as TemplateProps[K],
   };
-  await enqueue(QUEUE_NAMES.emails, "send-email", data, EMAIL_JOB_OPTS);
+  const encrypted = encryptEmailPayload(payload, log.id, input.kind);
+  await emailOutboxRepo.create(
+    {
+      emailLogId: log.id,
+      encryptionKeyId: encrypted.keyId,
+      payloadIv: encrypted.iv,
+      payloadAuthTag: encrypted.authTag,
+      payloadCiphertext: encrypted.ciphertext,
+      expiresAt: input.expiresAt,
+    },
+    tx
+  );
   return log.id;
+}
+
+/** Persist a validated email intent and encrypted payload; Redis is not touched here. */
+export async function queueTemplatedEmail<K extends TemplateName>(
+  input: QueueTemplatedEmailInput<K>
+): Promise<string> {
+  if (input.transaction) return persistEmail(input, input.transaction);
+  return db.transaction((tx) => persistEmail(input, tx));
 }

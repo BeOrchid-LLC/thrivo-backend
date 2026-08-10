@@ -18,6 +18,8 @@ export * as userEventRepo from "./user-event.repository";
 export * as settingsRepo from "./settings.repository";
 export * as emailCaptureRepo from "./email-capture.repository";
 export * as emailLogRepo from "./email-log.repository";
+export * as emailOutboxRepo from "./email-outbox.repository";
+export * as emailSuppressionRepo from "./email-suppression.repository";
 export * as pushTokenRepo from "./push-token.repository";
 export * as webhookEventRepo from "./webhook-event.repository";
 export * as adminAuditLogRepo from "./admin-audit-log.repository";

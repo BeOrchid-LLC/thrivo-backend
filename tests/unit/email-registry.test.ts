@@ -13,17 +13,16 @@ describe("email template registry", () => {
     expect(out.text).toContain("123456");
   });
 
-  it("renders the otp template's recipient and expiry into the footer/body via render context", () => {
+  it("renders the otp template's recipient and expiry with a transactional footer", () => {
     const out = renderTemplate(
       "otp",
       { code: "123456", purpose: "email-verification", expiresInMinutes: 5 },
       {
         recipientEmail: "maya@example.com",
-        unsubscribeUrl: "https://thrivo.fit/unsubscribe?email=maya%40example.com",
       }
     );
     expect(out.html).toContain("Sent to maya@example.com");
-    expect(out.html).toContain("https://thrivo.fit/unsubscribe?email=maya%40example.com");
+    expect(out.html).not.toContain("unsubscribe");
     expect(out.html).toContain("expires in 5 minutes");
   });
 
@@ -36,7 +35,6 @@ describe("email template registry", () => {
       },
       {
         recipientEmail: "maya@example.com",
-        unsubscribeUrl: "https://thrivo.fit/unsubscribe?email=maya%40example.com",
       }
     );
     expect(out.subject).toBe("Your Thrivo sign-in link");
@@ -47,31 +45,50 @@ describe("email template registry", () => {
     expect(out.text).toContain("https://thrivo.fit/api/v1/auth/magic-link/callback?token=abc123");
   });
 
-  it("renders the weekly-review template with rounded, clamped counts", () => {
+  it("renders the weekly-review template with the exact completed period and opt-out link", () => {
     const out = renderTemplate(
       "weekly-review",
-      { loggedThisWeek: 7, loggedLastWeek: 4 },
+      {
+        periodStart: "2024-01-14",
+        periodEnd: "2024-01-20",
+        loggedDays: 7,
+        previousLoggedDays: 4,
+        includeComparison: true,
+        joinedDuringPeriod: false,
+        progressUrl: "https://thrivo.fit/metrics",
+      },
       {
         recipientEmail: "maya@example.com",
-        unsubscribeUrl: "https://thrivo.fit/unsubscribe?email=maya%40example.com",
+        unsubscribeUrl: "https://thrivo.fit/unsubscribe?token=signed-token",
       }
     );
-    expect(out.subject).toBe("Your week in review");
+    expect(out.subject).toBe("Your Thrivo week: 7 of 7 days logged");
     expect(out.html).toContain(">100%<");
     expect(out.html).toContain("7 of 7 days");
-    expect(out.html).toContain("Last week: 4 of 7.");
+    expect(out.html).toContain("Jan 14, 2024");
+    expect(out.html).toContain("Jan 20, 2024");
+    expect(out.html).toContain("3 more days than the previous week");
     expect(out.html).toContain("Sent to maya@example.com");
-    expect(out.text).toContain("Log today's meals: https://thrivo.fit/app/log");
+    expect(out.text).toContain("View your progress: https://thrivo.fit/metrics");
+    expect(out.html).toContain("https://thrivo.fit/unsubscribe?token=signed-token");
   });
 
-  it("clamps weekly-review counts to 0-7 instead of trusting the caller", () => {
+  it("uses neutral join-aware wording and omits an unhelpful comparison", () => {
     const out = renderTemplate(
       "weekly-review",
-      { loggedThisWeek: 9, loggedLastWeek: -3 },
+      {
+        periodStart: "2024-01-14",
+        periodEnd: "2024-01-20",
+        loggedDays: 0,
+        previousLoggedDays: 0,
+        includeComparison: false,
+        joinedDuringPeriod: true,
+        progressUrl: "https://thrivo.fit/metrics",
+      },
       undefined
     );
-    expect(out.html).toContain(">100%<");
-    expect(out.html).toContain("Last week: 0 of 7.");
+    expect(out.html).toContain("You joined partway through this week");
+    expect(out.html).not.toContain("previous week");
   });
 
   it("renders the notification template with subject, html and text", () => {
@@ -86,6 +103,15 @@ describe("email template registry", () => {
     expect(out.html).toContain("Let&#39;s hit your goals.");
     expect(out.html).toContain("https://thrivo.fit/app");
     expect(out.text).toContain("Open app: https://thrivo.fit/app");
+    expect(out.html).toContain('src="cid:thrivo-logo"');
+    expect(out.html).not.toContain("<svg");
+    expect(out.attachments).toEqual([
+      expect.objectContaining({
+        filename: "thrivo-logo.png",
+        contentType: "image/png",
+        contentId: "thrivo-logo",
+      }),
+    ]);
   });
 
   it("escapes HTML in props to prevent markup injection", () => {

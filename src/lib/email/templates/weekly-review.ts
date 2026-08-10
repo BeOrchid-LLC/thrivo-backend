@@ -1,5 +1,5 @@
 import type { EmailTemplate } from "../types";
-import { emailBrand, emailTokens } from "../tokens";
+import { emailTokens } from "../tokens";
 import {
   emailButton,
   emailDivider,
@@ -12,29 +12,46 @@ import {
   escapeHtml,
 } from "./base";
 
-/** Daily "you haven't logged yet today" nudge, framed around the trailing 7-day count. */
+/** Completed Sunday-Saturday food-logging review. */
 export type WeeklyReviewProps = {
-  /** Distinct days logged in the rolling 7-day window ending yesterday (0-7) — see weekly-review.service. */
-  loggedThisWeek: number;
-  /** Distinct days logged in the 7-day window before that (0-7). */
-  loggedLastWeek: number;
+  periodStart: string;
+  periodEnd: string;
+  loggedDays: number;
+  previousLoggedDays: number;
+  includeComparison: boolean;
+  joinedDuringPeriod: boolean;
+  progressUrl: string;
 };
 
-const HEADING = "Keep the momentum going.";
-const PARAGRAPH =
-  "Log today before it gets busy - your streak and weekly number depend on it. One entry is a good place to start.";
-const NUDGE_NOTE =
-  "You'll get this nudge every day you haven't logged. Weekends included — consistency is the point.";
+const HEADING = "Your week in Thrivo";
 const OPT_OUT_NOTE =
-  "If you'd rather not get these, you can adjust your notification preferences in the app.";
+  "You can turn weekly review emails off or back on from notification settings in the app.";
+
+function formatPeriodDate(value: string): string {
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${value}T00:00:00Z`));
+}
 
 export const weeklyReviewTemplate: EmailTemplate<WeeklyReviewProps> = {
-  subject: () => "Your week in review",
+  subject: (p) => `Your Thrivo week: ${p.loggedDays} of 7 days logged`,
   render: (p, ctx) => {
-    const thisWeek = Math.max(0, Math.min(7, Math.round(p.loggedThisWeek)));
-    const lastWeek = Math.max(0, Math.min(7, Math.round(p.loggedLastWeek)));
+    const thisWeek = Math.max(0, Math.min(7, Math.round(p.loggedDays)));
+    const lastWeek = Math.max(0, Math.min(7, Math.round(p.previousLoggedDays)));
     const percent = Math.round((thisWeek / 7) * 100);
-    const lastWeekLine = `Last week: ${lastWeek} of 7. You're building something real — this is exactly how it's supposed to go.`;
+    const range = `${formatPeriodDate(p.periodStart)} – ${formatPeriodDate(p.periodEnd)}`;
+    const comparison =
+      thisWeek === lastWeek
+        ? `That is the same as the previous week: ${lastWeek} days.`
+        : thisWeek > lastWeek
+          ? `That is ${thisWeek - lastWeek} more day${thisWeek - lastWeek === 1 ? "" : "s"} than the previous week.`
+          : `That is ${lastWeek - thisWeek} fewer day${lastWeek - thisWeek === 1 ? "" : "s"} than the previous week.`;
+    const summary = p.joinedDuringPeriod
+      ? `You joined partway through this week and logged food on ${thisWeek} day${thisWeek === 1 ? "" : "s"}.`
+      : `You logged food on ${thisWeek} of 7 days.`;
 
     // Top zone follows the theme (white card / dark card). The bottom CTA zone
     // is a contrast device that's light-mode-only: a fixed dark navy panel
@@ -45,27 +62,25 @@ export const weeklyReviewTemplate: EmailTemplate<WeeklyReviewProps> = {
       <div style="padding:28px 24px 24px;text-align:center;">
         ${emailProgressRing({ percent, line1: "You logged", line2: `${thisWeek} of 7 days` })}
         <p class="email-soft-muted" style="margin:18px 0 0;font-size:14px;line-height:1.5;color:${emailTokens.light.softMutedText};">${escapeHtml(
-          lastWeekLine
+          range
         )}</p>
       </div>
       ${emailDivider()}
       <div class="email-cta-panel-bg" style="background:${emailTokens.light.ctaPanelBg};padding:22px 24px 24px;">
         <p class="email-cta-panel-text" style="margin:0;font-size:16px;font-weight:700;line-height:1.3;letter-spacing:-0.2px;color:${emailTokens.light.ctaPanelText};">${escapeHtml(
-          HEADING
+          summary
         )}</p>
-        <p class="email-cta-panel-text" style="margin:8px 0 0;font-size:14px;line-height:1.55;color:${emailTokens.light.ctaPanelText};">${escapeHtml(PARAGRAPH)}</p>
+        ${p.includeComparison ? `<p class="email-cta-panel-text" style="margin:8px 0 0;font-size:14px;line-height:1.55;color:${emailTokens.light.ctaPanelText};">${escapeHtml(comparison)}</p>` : ""}
         <div style="padding-top:20px;">${emailButton({
-          label: "Log today's meals",
-          url: "https://thrivo.fit/app/log",
-          icon: "fork",
+          label: "View your progress",
+          url: p.progressUrl,
           trailingIcon: "arrow-right",
         })}</div>
-        <p style="margin:10px 0 0;font-size:12px;font-weight:500;text-align:center;color:${emailBrand.ctaPanelCaption};">Takes less than 2 minutes</p>
       </div>`;
 
     const infoCardHtml = emailSecondaryCard(
       emailRowList([
-        { icon: "check-circle", text: NUDGE_NOTE, muted: true },
+        { icon: "check-circle", text: `Reviewed period: ${range}.`, muted: true },
         { icon: "warning", text: OPT_OUT_NOTE, muted: true },
       ])
     );
@@ -78,7 +93,7 @@ export const weeklyReviewTemplate: EmailTemplate<WeeklyReviewProps> = {
         emailFooter({ recipientEmail: ctx.recipientEmail, unsubscribeUrl: ctx.unsubscribeUrl }),
     });
 
-    const text = `${HEADING}\n\nYou logged ${thisWeek} of 7 days this week. ${lastWeekLine}\n\n${PARAGRAPH}\n\nLog today's meals: https://thrivo.fit/app/log\n\n${NUDGE_NOTE}\n${OPT_OUT_NOTE}`;
+    const text = `${HEADING}\n\n${range}\n${summary}${p.includeComparison ? ` ${comparison}` : ""}\n\nView your progress: ${p.progressUrl}\n\n${OPT_OUT_NOTE}`;
     return { html, text };
   },
 };

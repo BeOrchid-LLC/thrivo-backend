@@ -3,6 +3,7 @@ import {
   postRevenueCatWebhook,
   postClerkWebhook,
   postClerkAdminWebhook,
+  postResendWebhook,
 } from "../controllers/webhooks.controller";
 import type { AppEnv } from "../types/http";
 
@@ -18,3 +19,4 @@ export const webhooksRouter = new Hono<AppEnv>();
 webhooksRouter.post("/revenuecat", postRevenueCatWebhook);
 webhooksRouter.post("/clerk", postClerkWebhook);
 webhooksRouter.post("/clerk-admin", postClerkAdminWebhook);
+webhooksRouter.post("/resend", postResendWebhook);

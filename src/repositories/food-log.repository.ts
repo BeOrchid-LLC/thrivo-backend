@@ -86,6 +86,19 @@ export async function totalsForDay(
   };
 }
 
+export async function hasLogsForDay(
+  userId: string,
+  localDate: string,
+  tx: Executor = db
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: foodLogs.id })
+    .from(foodLogs)
+    .where(and(eq(foodLogs.userId, userId), eq(foodLogs.localDate, localDate)))
+    .limit(1);
+  return Boolean(row);
+}
+
 /**
  * Distinct logged days in range, served by the (user_id, local_date) index —
  * backs the progress calendar (R5-2/I14), which only needs a Set of days and
@@ -108,6 +121,34 @@ export async function listDistinctLocalDatesInRange(
       )
     );
   return rows.map((row) => row.localDate);
+}
+
+export interface WeeklyFoodLogWindow {
+  userId: string;
+  fromDate: string;
+  toDate: string;
+}
+
+/** One set-based source-of-truth read for weekly review activity. */
+export async function listDistinctDatesForWeeklyReview(
+  windows: WeeklyFoodLogWindow[],
+  tx: Executor = db
+): Promise<Array<{ userId: string; localDate: string }>> {
+  if (windows.length === 0) return [];
+  return tx
+    .selectDistinct({ userId: foodLogs.userId, localDate: foodLogs.localDate })
+    .from(foodLogs)
+    .where(
+      or(
+        ...windows.map((window) =>
+          and(
+            eq(foodLogs.userId, window.userId),
+            gte(foodLogs.localDate, window.fromDate),
+            lte(foodLogs.localDate, window.toDate)
+          )
+        )
+      )
+    );
 }
 
 export async function listLogsByLocalDateRange(

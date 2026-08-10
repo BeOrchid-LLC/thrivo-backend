@@ -13,6 +13,20 @@ export const activityLevelSchema = z.enum([
   "very_active",
 ]);
 export const activationIntentSchema = z.enum(["skip", "start_free_trial", "complete"]);
+const timezoneSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (timezone) => {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: "Timezone must be a valid IANA timezone" }
+  );
 
 export const userProfileSchema = z.object({
   id: z.string().uuid(),
@@ -67,7 +81,7 @@ export const updateProfilePayloadSchema = z.object({
     .array(z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/))
     .max(3)
     .optional(),
-  timezone: z.string().min(1).optional(),
+  timezone: timezoneSchema.optional(),
   onboardingStep: z.number().int().min(1).optional(),
   activationIntent: activationIntentSchema.optional(),
 });

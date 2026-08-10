@@ -876,6 +876,10 @@ export async function refreshDailySummary(
   // can't miss a concurrently-inserted row (see daily-summary.repository.lockForDay).
   await dailySummaryRepo.lockForDay(user.id, day, tx);
   const totals = await dailyTotals(user, day, tx);
+  if (!(await foodLogRepo.hasLogsForDay(user.id, day, tx))) {
+    await dailySummaryRepo.deleteForDay(user.id, day, tx);
+    return totals;
+  }
   await dailySummaryRepo.upsertForDay(
     {
       userId: user.id,

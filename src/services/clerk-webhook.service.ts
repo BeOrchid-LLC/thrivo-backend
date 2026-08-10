@@ -6,16 +6,19 @@ import { sendWelcomeEmail } from "../auth/emails";
 import { logger } from "../lib/logger";
 import { ForbiddenError } from "../lib/errors";
 import type { AuthPrincipal } from "../auth";
+import { db } from "../../db";
 
 // Minimal shapes for the Clerk webhook payloads we handle. Clerk sends far more
 // fields; we only destructure what we need so the rest is safely ignored.
 interface ClerkEmailAddress {
+  id: string;
   email_address: string;
   verification?: { status: string } | null;
 }
 
 interface ClerkUserCreatedData {
   id: string;
+  primary_email_address_id: string | null;
   email_addresses: ClerkEmailAddress[];
   first_name: string | null;
   last_name: string | null;
@@ -23,6 +26,7 @@ interface ClerkUserCreatedData {
 
 interface ClerkUserUpdatedData {
   id: string;
+  primary_email_address_id: string | null;
   email_addresses: ClerkEmailAddress[];
   first_name: string | null;
   last_name: string | null;
@@ -51,12 +55,16 @@ export function parseClerkWebhook(
   }
 }
 
-/** Primary email from Clerk's email_addresses array (first verified, else first). */
-function primaryEmail(addresses: ClerkEmailAddress[]): string {
-  const verified = addresses.find((a) => a.verification?.status === "verified");
-  const addr = verified ?? addresses[0];
+/** Resolve Clerk's declared primary address and preserve its real verification state. */
+function primaryEmail(
+  primaryEmailAddressId: string | null,
+  addresses: ClerkEmailAddress[]
+): { email: string; verified: boolean } {
+  const addr = primaryEmailAddressId
+    ? addresses.find((candidate) => candidate.id === primaryEmailAddressId)
+    : addresses[0];
   if (!addr) throw new Error("Clerk user has no email address");
-  return addr.email_address;
+  return { email: addr.email_address, verified: addr.verification?.status === "verified" };
 }
 
 function fullName(first: string | null, last: string | null): string | undefined {
@@ -65,24 +73,20 @@ function fullName(first: string | null, last: string | null): string | undefined
 }
 
 export async function handleClerkUserCreated(data: ClerkUserCreatedData): Promise<void> {
-  const email = primaryEmail(data.email_addresses);
+  const primary = primaryEmail(data.primary_email_address_id, data.email_addresses);
   const name = fullName(data.first_name, data.last_name);
 
   const principal: AuthPrincipal = {
     subjectId: data.id,
-    email,
-    emailVerified: true,
+    email: primary.email,
+    emailVerified: primary.verified,
     name,
   };
 
-  const { user, created } = await resolveUser(principal);
-
-  if (created) {
-    // Fire-and-forget: email failure must never break webhook delivery.
-    sendWelcomeEmail(user.email, user.id).catch((err) =>
-      logger.warn({ err, userId: user.id }, "clerk-webhook: welcome email failed")
-    );
-  }
+  await db.transaction(async (tx) => {
+    const { user, created } = await resolveUser(principal, tx);
+    if (created && primary.verified) await sendWelcomeEmail(user.email, user.id, tx);
+  });
 }
 
 export async function handleClerkUserUpdated(data: ClerkUserUpdatedData): Promise<void> {
@@ -93,10 +97,19 @@ export async function handleClerkUserUpdated(data: ClerkUserUpdatedData): Promis
     return;
   }
 
-  const email = primaryEmail(data.email_addresses);
+  const primary = primaryEmail(data.primary_email_address_id, data.email_addresses);
   const name = fullName(data.first_name, data.last_name);
 
-  await userRepo.updateProfile(existing.id, { email, ...(name ? { name } : {}) });
+  await db.transaction(async (tx) => {
+    const updated = await userRepo.updateProfile(
+      existing.id,
+      { email: primary.email, emailVerified: primary.verified, ...(name ? { name } : {}) },
+      tx
+    );
+    if (updated && !existing.emailVerified && primary.verified) {
+      await sendWelcomeEmail(updated.email, updated.id, tx);
+    }
+  });
 }
 
 export async function handleClerkUserDeleted(data: ClerkUserDeletedData): Promise<void> {

@@ -7,6 +7,7 @@ import {
   handleAdminClerkWebhookEvent,
 } from "../services/admin-clerk-webhook.service";
 import type { AppEnv } from "../types/http";
+import { handleResendWebhook, parseResendWebhook } from "../services/resend-webhook.service";
 
 /**
  * RevenueCat webhook sink. Authenticated by the shared Authorization secret
@@ -53,5 +54,17 @@ export async function postClerkAdminWebhook(c: Context<AppEnv>) {
 
   const event = parseAdminClerkWebhook(rawBody, svixHeaders);
   const outcome = await handleAdminClerkWebhookEvent(event);
+  return respondOk(c, { outcome }, "Webhook received");
+}
+
+export async function postResendWebhook(c: Context<AppEnv>) {
+  const rawBody = await c.req.text();
+  const headers = {
+    "svix-id": c.req.header("svix-id") ?? "",
+    "svix-timestamp": c.req.header("svix-timestamp") ?? "",
+    "svix-signature": c.req.header("svix-signature") ?? "",
+  };
+  const payload = parseResendWebhook(rawBody, headers);
+  const outcome = await handleResendWebhook(headers["svix-id"], payload);
   return respondOk(c, { outcome }, "Webhook received");
 }

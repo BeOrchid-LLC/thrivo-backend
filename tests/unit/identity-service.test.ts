@@ -42,7 +42,7 @@ describe("identity.service.resolveUser", () => {
     const { created } = await resolveUser(principal);
     expect(created).toBe(true);
     expect(repo.createUser).toHaveBeenCalledWith(
-      { email: "a@b.com", name: "Ada", authSubjectId: "sub_1" },
+      { email: "a@b.com", emailVerified: true, name: "Ada", authSubjectId: "sub_1" },
       expect.anything()
     );
   });

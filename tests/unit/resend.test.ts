@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mutable mocked env so each test can flip RESEND_API_KEY.
 const state = vi.hoisted(() => ({
   env: {
     RESEND_API_KEY: "re_test_key" as string | undefined,
@@ -9,39 +8,44 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("../../src/env", () => ({ env: state.env }));
 
-import { sendEmail, EmailNotConfiguredError, EmailSendError } from "../../src/integrations/resend";
+import {
+  sendEmail,
+  EmailNotConfiguredError,
+  EmailSendError,
+  isRetryableEmailError,
+} from "../../src/integrations/resend";
 
 const okResponse = (id: string) =>
-  ({
-    ok: true,
-    status: 200,
-    json: async () => ({ id }),
-    text: async () => "",
-  }) as unknown as Response;
+  ({ ok: true, status: 200, json: async () => ({ id }) }) as unknown as Response;
 const errResponse = (status: number) =>
-  ({ ok: false, status, json: async () => ({}), text: async () => "boom" }) as unknown as Response;
+  ({ ok: false, status, json: async () => ({}) }) as unknown as Response;
 
-const input = { to: "a@b.com", subject: "Hi", html: "<p>hi</p>" };
+const input = {
+  to: "a@b.com",
+  subject: "Hi",
+  html: "<p>hi</p>",
+  idempotencyKey: "thrivo-email/log_1",
+};
 
 describe("resend client", () => {
   beforeEach(() => {
     state.env.RESEND_API_KEY = "re_test_key";
-    // Zero out jitter so retry backoff doesn't actually wait.
-    vi.spyOn(Math, "random").mockReturnValue(0);
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("posts to Resend and returns the message id on success", async () => {
+  it("posts once with the stable idempotency key and returns the provider message id", async () => {
     const fetchMock = vi.fn(async () => okResponse("msg_123"));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await sendEmail(input);
+    await expect(sendEmail(input)).resolves.toEqual({ id: "msg_123" });
 
-    expect(result).toEqual({ id: "msg_123" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain("api.resend.com");
-    expect((init.headers as Record<string, string>).authorization).toBe("Bearer re_test_key");
+    expect(init.headers).toMatchObject({
+      authorization: "Bearer re_test_key",
+      "idempotency-key": "thrivo-email/log_1",
+    });
   });
 
   it("throws EmailNotConfiguredError and never calls fetch when the key is missing", async () => {
@@ -53,29 +57,36 @@ describe("resend client", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("does not retry a 4xx (bad payload won't heal)", async () => {
-    const fetchMock = vi.fn(async () => errResponse(422));
-    vi.stubGlobal("fetch", fetchMock);
+  it("classifies permanent 4xx responses as non-retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => errResponse(422))
+    );
 
-    await expect(sendEmail(input)).rejects.toBeInstanceOf(EmailSendError);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const error = await sendEmail(input).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmailSendError);
+    expect(isRetryableEmailError(error)).toBe(false);
   });
 
-  it("retries a 5xx then gives up with EmailSendError", async () => {
+  it("does not perform nested retries and classifies 5xx responses as retryable", async () => {
     const fetchMock = vi.fn(async () => errResponse(503));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(sendEmail(input)).rejects.toBeInstanceOf(EmailSendError);
-    expect(fetchMock).toHaveBeenCalledTimes(3); // 1 + 2 retries
+    const error = await sendEmail(input).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmailSendError);
+    expect(isRetryableEmailError(error)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("normalizes a network failure to a retryable EmailSendError", async () => {
+  it("normalizes one network failure to a retryable EmailSendError", async () => {
     const fetchMock = vi.fn(async () => {
       throw new Error("ECONNRESET");
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(sendEmail(input)).rejects.toBeInstanceOf(EmailSendError);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const error = await sendEmail(input).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmailSendError);
+    expect(isRetryableEmailError(error)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

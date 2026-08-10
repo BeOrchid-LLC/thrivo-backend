@@ -17,6 +17,7 @@ export const users = pgTable(
   {
     id: idPk(),
     email: citext("email").notNull().unique(),
+    emailVerified: boolean("email_verified").notNull().default(false),
     name: text("name").notNull(),
 
     // Neutral link to the provider-owned auth identity (auth_user.id). Nullable

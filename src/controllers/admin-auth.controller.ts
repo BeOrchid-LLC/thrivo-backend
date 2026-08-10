@@ -31,8 +31,10 @@ import {
 import { hashPassword, verifyPassword } from "../admin/password";
 import { adminAccountRepo, adminAuditLogRepo } from "../repositories";
 import type { AdminAccount } from "../repositories/admin-account.repository";
-import { sendTemplatedEmail } from "../services/email.service";
+import { queueTemplatedEmail } from "../services/email.service";
 import type { AppEnv } from "../types/http";
+import { db } from "../../db";
+import type { Executor } from "../../db/tx";
 
 const emailSchema = z
   .string()
@@ -72,15 +74,23 @@ async function establishSession(c: Context<AppEnv>, account: AdminAccount): Prom
 }
 
 /** Append an admin-auth audit row. Actor is the authenticating email itself. */
-async function auditAuth(c: Context<AppEnv>, email: string, action: string): Promise<void> {
-  await adminAuditLogRepo.append({
-    actorAdminEmail: email,
-    action,
-    targetType: "admin",
-    targetId: email,
-    requestId: c.get("requestId") ?? null,
-    ip: getClientIp(c),
-  });
+async function auditAuth(
+  c: Context<AppEnv>,
+  email: string,
+  action: string,
+  transaction?: Executor
+): Promise<void> {
+  await adminAuditLogRepo.append(
+    {
+      actorAdminEmail: email,
+      action,
+      targetType: "admin",
+      targetId: email,
+      requestId: c.get("requestId") ?? null,
+      ip: getClientIp(c),
+    },
+    transaction
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -99,10 +109,20 @@ export async function postAdminRequestOtp(c: Context<AppEnv>) {
   if (account && account.status === "active") {
     const code = await issueAdminOtp(email);
     if (code) {
-      await sendTemplatedEmail({
-        to: email,
-        template: "otp",
-        props: { code, purpose: "sign-in", expiresInMinutes: Math.round(ADMIN_OTP_TTL_SEC / 60) },
+      await db.transaction(async (tx) => {
+        await queueTemplatedEmail({
+          kind: "admin_otp",
+          to: email,
+          expiresAt: new Date(Date.now() + ADMIN_OTP_TTL_SEC * 1000),
+          transaction: tx,
+          template: "otp",
+          props: {
+            code,
+            purpose: "sign-in",
+            expiresInMinutes: Math.round(ADMIN_OTP_TTL_SEC / 60),
+          },
+        });
+        await auditAuth(c, email, "admin.otp_requested", tx);
       });
     }
   }
@@ -204,13 +224,19 @@ export async function postAdminRequestPasswordReset(c: Context<AppEnv>) {
   const account = await adminAccountRepo.findByEmail(lower);
   if (account && account.status === "active" && !(await resetRequestThrottled(lower))) {
     const token = await issueResetToken(lower);
-    await sendTemplatedEmail({
-      to: lower,
-      template: "admin-password-reset",
-      props: {
-        url: adminResetLink(lower, token),
-        expiresInMinutes: Math.round(ADMIN_RESET_TTL_SEC / 60),
-      },
+    await db.transaction(async (tx) => {
+      await queueTemplatedEmail({
+        kind: "admin_password_reset",
+        to: lower,
+        expiresAt: new Date(Date.now() + ADMIN_RESET_TTL_SEC * 1000),
+        transaction: tx,
+        template: "admin-password-reset",
+        props: {
+          url: adminResetLink(lower, token),
+          expiresInMinutes: Math.round(ADMIN_RESET_TTL_SEC / 60),
+        },
+      });
+      await auditAuth(c, lower, "admin.password_reset_requested", tx);
     });
   }
 

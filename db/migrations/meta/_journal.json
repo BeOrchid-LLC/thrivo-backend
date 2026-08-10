@@ -253,6 +253,13 @@
       "when": 1784677711215,
       "tag": "0035_clerk_admin_id",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785827784992,
+      "tag": "0036_flashy_giant_girl",
+      "breakpoints": true
     }
   ]
 }

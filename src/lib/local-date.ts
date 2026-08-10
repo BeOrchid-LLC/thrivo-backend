@@ -1,9 +1,8 @@
 const DEFAULT_TIMEZONE = "UTC";
 
 /**
- * `users.timezone` is free-text, never validated at write time (see users.ts) —
- * this is the one place we can't just trust it, since a garbage value throws
- * inside `Intl.DateTimeFormat` and would otherwise take down the caller.
+ * Profile writes validate IANA zones. This remains defensive for legacy rows
+ * and environments whose ICU timezone catalog differs from PostgreSQL's.
  */
 export function isValidTimezone(timezone: string): boolean {
   try {
@@ -54,4 +53,37 @@ export function shiftLocalDate(localDate: string, deltaDays: number): string {
   const date = new Date(`${localDate}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + deltaDays);
   return date.toISOString().slice(0, 10);
+}
+
+/** Convert local midnight for an IANA zone to its UTC instant (DST-safe iteration). */
+export function startOfLocalDateUtc(localDate: string, timezone: string | null | undefined): Date {
+  const zone = resolveZone(timezone);
+  const [year, month, day] = localDate.split("-").map(Number);
+  const target = Date.UTC(year!, month! - 1, day!);
+  let guess = target;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  for (let index = 0; index < 3; index += 1) {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(guess)).map((part) => [part.type, part.value])
+    );
+    const represented = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second)
+    );
+    guess += target - represented;
+  }
+  return new Date(guess);
 }

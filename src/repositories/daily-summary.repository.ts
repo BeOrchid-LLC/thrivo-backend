@@ -44,6 +44,14 @@ export async function reconcileRecentSummaries(
   sinceDate: string,
   tx: Executor = db
 ): Promise<number> {
+  const deleted = await tx.execute(sql`
+    DELETE FROM ${dailySummaries} AS ds
+    WHERE ds.local_date >= ${sinceDate}
+      AND NOT EXISTS (
+        SELECT 1 FROM ${foodLogs} fl
+        WHERE fl.user_id = ds.user_id AND fl.local_date = ds.local_date
+      )
+  `);
   const result = await tx.execute(sql`
     UPDATE ${dailySummaries} AS ds
     SET total_calories = agg.cal,
@@ -69,7 +77,17 @@ export async function reconcileRecentSummaries(
         OR ds.total_carbs_g <> agg.carb
         OR ds.total_fat_g <> agg.fat)
   `);
-  return result.rowCount ?? 0;
+  return (result.rowCount ?? 0) + (deleted.rowCount ?? 0);
+}
+
+export async function deleteForDay(
+  userId: string,
+  localDate: string,
+  tx: Executor = db
+): Promise<void> {
+  await tx
+    .delete(dailySummaries)
+    .where(and(eq(dailySummaries.userId, userId), eq(dailySummaries.localDate, localDate)));
 }
 
 export async function getForDay(
