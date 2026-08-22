@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RouteContract } from "./common";
 import { userProfileSchema } from "./users";
+import { idSchema, isoDateSchema } from "./common";
 
 // ---------------------------------------------------------------------------
 // Admin identity
@@ -146,6 +147,35 @@ export const adminSubscriptionStatusSchema = z.enum([
 ]);
 export type AdminSubscriptionStatus = z.infer<typeof adminSubscriptionStatusSchema>;
 
+export const adminDeleteUserPayloadSchema = z.object({ confirmationEmail: z.string().email() });
+export type AdminDeleteUserPayload = z.infer<typeof adminDeleteUserPayloadSchema>;
+
+export const adminErasureStatusSchema = z.enum([
+  "pending",
+  "processing",
+  "retryable",
+  "failed",
+  "completed",
+]);
+export const adminAccountErasureSchema = z.object({
+  id: idSchema,
+  status: adminErasureStatusSchema,
+  requestedAt: isoDateSchema,
+  completedAt: isoDateSchema.nullable(),
+  lastErrorCode: z.string().nullable(),
+  attempts: z.number().int(),
+});
+export const adminAccountErasureListResponseSchema = z.object({
+  erasures: z.array(adminAccountErasureSchema),
+});
+export const adminRetryErasurePayloadSchema = z.object({ confirmation: z.literal("RETRY") });
+
+export const moneySchema = z.object({
+  amountCents: z.number().int(),
+  currency: z.string().length(3),
+});
+export type Money = z.infer<typeof moneySchema>;
+
 export const adminUserSubscriptionSchema = z.object({
   status: adminSubscriptionStatusSchema,
   priceLabel: z.string().nullable(),
@@ -160,6 +190,11 @@ export const adminUserSubscriptionSchema = z.object({
   /** Sum of subscription_events.priceAmountCents. Null (not 0) means "no
    *  priced events yet", not "$0 of revenue". */
   revenueToDateCents: z.number().int().nullable(),
+  /** Deprecated currency-ambiguous totals retained for old clients. */
+  firstCharge: moneySchema.nullable().default(null),
+  revenueTotalsByCurrency: z.array(moneySchema).default([]),
+  lastSyncedAt: z.string().nullable().default(null),
+  lastWebhookAt: z.string().nullable().default(null),
   /** Always null today — no Stripe webhook path exists in this codebase,
    *  only RevenueCat. Present so the frontend has a stable field to render "—". */
   stripeCustomerId: z.string().nullable(),

@@ -3,6 +3,8 @@ import {
   PutObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { nanoid } from "nanoid";
@@ -138,6 +140,29 @@ export async function deleteObject(key: string): Promise<void> {
     logger.error({ err: error, key }, "Failed to delete object from R2");
     throw error;
   }
+}
+
+/** Delete every object below a user prefix, including late/unguarded uploads. */
+export async function deletePrefix(prefix: string): Promise<void> {
+  const { client: r2, bucket } = requireR2();
+  let continuationToken: string | undefined;
+  do {
+    const page = await r2.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      })
+    );
+    const keys = (page.Contents ?? []).flatMap((object) =>
+      object.Key ? [{ Key: object.Key }] : []
+    );
+    if (keys.length > 0)
+      await r2.send(
+        new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys, Quiet: true } })
+      );
+    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (continuationToken);
 }
 
 /**

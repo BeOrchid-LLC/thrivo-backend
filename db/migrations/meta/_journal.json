@@ -260,6 +260,13 @@
       "when": 1785827784992,
       "tag": "0036_flashy_giant_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1787414016741,
+      "tag": "0037_fearless_owl",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import { handleWeeklyReview } from "./weekly-review";
 import { handleRelayEmailOutbox } from "./relay-email-outbox";
 import { handleSnapshotMrr } from "./snapshot-mrr";
 import { handleReconcileResendEvents } from "./reconcile-resend-events";
+import { handleProcessAccountErasure } from "./process-account-erasure";
 
 /**
  * Router for the `maintenance` queue. Scheduled system jobs share one queue and
@@ -21,6 +22,7 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
   "relay-email-outbox": handleRelayEmailOutbox,
   "snapshot-mrr": handleSnapshotMrr,
   "reconcile-resend-events": handleReconcileResendEvents,
+  "process-account-erasure": handleProcessAccountErasure,
 };
 
 export async function handleMaintenance(job: Job): Promise<void> {

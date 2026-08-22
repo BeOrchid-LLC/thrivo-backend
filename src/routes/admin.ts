@@ -50,6 +50,8 @@ import {
   getAdminUserTimeline,
   getAdminUserActivity,
   hardDeleteAdminUser,
+  listAdminAccountErasures,
+  retryAdminAccountErasure,
 } from "../controllers/admin-users.controller";
 import { getAdminDashboardMetrics } from "../controllers/admin-metrics.controller";
 import {
@@ -181,6 +183,18 @@ adminRouter.get("/users/:id/timeline", requireAdmin, getAdminUserTimeline);
 adminRouter.get("/users/:id/activity", requireAdmin, getAdminUserActivity);
 // Destructive: hard delete is admin-only (support/read-only get 403).
 adminRouter.delete("/users/:id", requireAdmin, requireAdminRole("admin"), hardDeleteAdminUser);
+adminRouter.get(
+  "/account-erasures",
+  requireAdmin,
+  requireAdminRole("admin"),
+  listAdminAccountErasures
+);
+adminRouter.post(
+  "/account-erasures/:id/retry",
+  requireAdmin,
+  requireAdminRole("admin"),
+  retryAdminAccountErasure
+);
 
 // Subscription actions on a specific user (operator overrides, audited).
 // Money-adjacent → admin-only.

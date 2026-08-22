@@ -78,6 +78,23 @@ export async function sumPriceAmountCentsByUser(
   return row?.total ?? null;
 }
 
+export async function sumPriceAmountCentsByCurrencyByUser(
+  userId: string,
+  tx: Executor = db
+): Promise<{ amountCents: number; currency: string }[]> {
+  const rows = await tx
+    .select({
+      amountCents: sql<number>`sum(${subscriptionEvents.priceAmountCents})::int`,
+      currency: subscriptionEvents.currency,
+    })
+    .from(subscriptionEvents)
+    .where(eq(subscriptionEvents.userId, userId))
+    .groupBy(subscriptionEvents.currency);
+  return rows
+    .filter((row): row is { amountCents: number; currency: string } => Boolean(row.currency))
+    .map((row) => ({ amountCents: row.amountCents, currency: row.currency.toUpperCase() }));
+}
+
 /** scripts/backfill-subscription-event-prices.ts — write the reconstructed price. */
 export async function updatePrice(
   id: string,

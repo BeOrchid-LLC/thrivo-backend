@@ -1,18 +1,13 @@
 import type { Context } from "hono";
-import {
-  cancelSubscriptionPayloadSchema,
-  purchaseSubscriptionPayloadSchema,
-  startTrialPayloadSchema,
-} from "../../contracts/src/subscriptions";
 import { respondOk } from "../lib/response";
-import { getValidatedInput } from "../middleware/validate";
-import {
-  cancelSubscription,
-  getSubscriptionState,
-  purchaseSubscription,
-  startTrial,
-} from "../services/subscription.service";
+import { getSubscriptionState } from "../services/subscription.service";
+import { syncRevenueCatSubscription } from "../services/revenuecat.service";
 import type { AppEnv } from "../types/http";
+import { AppUpdateRequiredError } from "../lib/errors";
+
+function rejectLegacyBillingMutation(): never {
+  throw new AppUpdateRequiredError();
+}
 
 export async function getMySubscription(c: Context<AppEnv>) {
   const user = c.get("user")!;
@@ -20,23 +15,20 @@ export async function getMySubscription(c: Context<AppEnv>) {
   return respondOk(c, state);
 }
 
-export async function postStartTrial(c: Context<AppEnv>) {
+export async function postSyncSubscription(c: Context<AppEnv>) {
   const user = c.get("user")!;
-  const input = startTrialPayloadSchema.parse(getValidatedInput(c, "json"));
-  const state = await startTrial(user, input);
-  return respondOk(c, state, "Trial started", 201);
+  const state = await syncRevenueCatSubscription(user);
+  return respondOk(c, state, "Subscription synchronized");
 }
 
-export async function postPurchaseSubscription(c: Context<AppEnv>) {
-  const user = c.get("user")!;
-  const input = purchaseSubscriptionPayloadSchema.parse(getValidatedInput(c, "json"));
-  const state = await purchaseSubscription(user, input);
-  return respondOk(c, state, "Subscription updated");
+export async function postStartTrial(_c: Context<AppEnv>) {
+  rejectLegacyBillingMutation();
 }
 
-export async function postCancelSubscription(c: Context<AppEnv>) {
-  const user = c.get("user")!;
-  const input = cancelSubscriptionPayloadSchema.parse(getValidatedInput(c, "json"));
-  const state = await cancelSubscription(user, input);
-  return respondOk(c, state, "Subscription cancelled");
+export async function postPurchaseSubscription(_c: Context<AppEnv>) {
+  rejectLegacyBillingMutation();
+}
+
+export async function postCancelSubscription(_c: Context<AppEnv>) {
+  rejectLegacyBillingMutation();
 }

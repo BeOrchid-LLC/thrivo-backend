@@ -61,6 +61,10 @@ const NULL_SUBSCRIPTION_EXTRAS = {
   firstChargeAt: null,
   firstChargeAmountCents: null,
   revenueToDateCents: null,
+  firstCharge: null,
+  revenueTotalsByCurrency: [],
+  lastSyncedAt: null,
+  lastWebhookAt: null,
   stripeCustomerId: null,
   rcAppUserId: null,
 } satisfies AdminUserDetailExtras["subscriptionExtras"];

@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { userSettings, users, type NewUserRow, type UserRow } from "../../db/schema";
@@ -40,6 +40,16 @@ export async function findById(id: string, tx: Executor = db): Promise<User | nu
     .where(and(eq(users.id, id), isNull(users.deletedAt)))
     .limit(1);
   return row ?? null;
+}
+
+/** Resolve every active domain UUID candidate supplied by RevenueCat. */
+export async function findByIds(ids: string[], tx: Executor = db): Promise<User[]> {
+  const unique = [...new Set(ids)].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  if (unique.length === 0) return [];
+  return tx
+    .select()
+    .from(users)
+    .where(and(inArray(users.id, unique), isNull(users.deletedAt)));
 }
 
 export async function findActiveByEmail(email: string, tx: Executor = db): Promise<User | null> {

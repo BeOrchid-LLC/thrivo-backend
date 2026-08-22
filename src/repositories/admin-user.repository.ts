@@ -107,6 +107,7 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
     totalCheckIns,
     avgDailyKcal,
     revenueToDateCents,
+    revenueTotalsByCurrency,
     subscriptionEvents,
     device,
     upgradePrompt,
@@ -115,6 +116,7 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
     checkInRepo.countByUserId(userId),
     dailySummaryRepo.getAvgDailyKcal(userId),
     subscriptionEventRepo.sumPriceAmountCentsByUser(userId),
+    subscriptionEventRepo.sumPriceAmountCentsByCurrencyByUser(userId),
     subscriptionEventRepo.listByUser(userId),
     userDeviceRepo.getByUser(userId),
     userEventRepo.findLatestByType(userId, "upgrade_prompt_shown"),
@@ -139,6 +141,18 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
           firstChargeAt: firstPriced?.occurredAt.toISOString() ?? null,
           firstChargeAmountCents: firstPriced?.priceAmountCents ?? null,
           revenueToDateCents,
+          revenueTotalsByCurrency,
+          firstCharge:
+            firstPriced?.priceAmountCents !== null &&
+            firstPriced?.priceAmountCents !== undefined &&
+            firstPriced.currency
+              ? {
+                  amountCents: firstPriced.priceAmountCents,
+                  currency: firstPriced.currency.toUpperCase(),
+                }
+              : null,
+          lastSyncedAt: subscriptionRow.lastSyncedAt?.toISOString() ?? null,
+          lastWebhookAt: subscriptionRow.lastWebhookAt?.toISOString() ?? null,
           stripeCustomerId: null,
           rcAppUserId: subscriptionRow.rcAppUserId,
         }

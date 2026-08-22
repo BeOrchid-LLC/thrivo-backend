@@ -10,6 +10,9 @@ export type AuthPrincipal = {
   email: string;
   emailVerified: boolean;
   name?: string;
+  /** Clerk fva claim: minutes since first-factor and second-factor verification. */
+  factorVerificationAge?: readonly [number, number] | null;
+  reverificationId?: string;
 };
 
 /**

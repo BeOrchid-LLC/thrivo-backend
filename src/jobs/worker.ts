@@ -98,6 +98,11 @@ async function registerSchedulers(): Promise<void> {
     { every: 60_000 },
     { name: "reconcile-resend-events", data: {} }
   );
+  await maintenance.upsertJobScheduler(
+    "process-account-erasure",
+    { every: 30_000 },
+    { name: "process-account-erasure", data: {} }
+  );
   logger.info(
     { queue: QUEUE_NAMES.maintenance, schedulerId: "reconcile-resend-events", everyMs: 60_000 },
     "worker scheduler registered"

@@ -43,15 +43,24 @@ export async function upsertFromWebhook(
 ): Promise<Subscription | null> {
   const { id: _id, createdAt: _c, ...set } = input;
   const eventAt = input.lastEventAt;
+  const hasWebhookTimestamp = Object.hasOwn(input, "lastWebhookAt");
+  const lastWebhookAt = input.lastWebhookAt ?? eventAt;
+  const hasSnapshotTimestamp = Object.hasOwn(input, "lastSyncedAt");
   const [row] = await tx
     .insert(subscriptions)
     .values(input)
     .onConflictDoUpdate({
       target: subscriptions.userId,
-      set,
-      setWhere: eventAt
-        ? or(isNull(subscriptions.lastEventAt), lt(subscriptions.lastEventAt, eventAt))
-        : undefined,
+      set: hasWebhookTimestamp ? { ...set, lastWebhookAt } : set,
+      setWhere:
+        hasWebhookTimestamp && eventAt
+          ? or(isNull(subscriptions.lastWebhookAt), lt(subscriptions.lastWebhookAt, eventAt))
+          : hasSnapshotTimestamp && eventAt
+            ? and(
+                or(isNull(subscriptions.lastSyncedAt), lt(subscriptions.lastSyncedAt, eventAt)),
+                or(isNull(subscriptions.lastWebhookAt), lte(subscriptions.lastWebhookAt, eventAt))
+              )
+            : undefined,
     })
     .returning();
   return row ?? null;

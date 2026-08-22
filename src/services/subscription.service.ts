@@ -14,6 +14,7 @@ import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from "../
 import { subscriptionEventRepo, subscriptionRepo, userRepo } from "../repositories";
 import type { Subscription } from "../repositories/subscription.repository";
 import { getEffectiveSettings } from "./settings.service";
+import { env } from "../env";
 
 const PLANS: Record<SubscriptionPlan, SubscriptionPlanInfo> = {
   monthly: {
@@ -91,6 +92,9 @@ export async function getSubscriptionState(
       trialUsed: Boolean(user.trialEndsAt ?? row?.trialEnd),
       trialDays: settings.effective.trialDays,
       plans: Object.values(PLANS),
+      billingAvailable:
+        settings.effective.purchasesEnabled && env.BILLING_PROVIDER === "revenuecat",
+      lastSyncedAt: row?.lastSyncedAt?.toISOString() ?? null,
     },
   };
 }

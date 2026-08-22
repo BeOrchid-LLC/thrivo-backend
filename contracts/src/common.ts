@@ -10,6 +10,7 @@ export const errorCodeSchema = z.enum([
   "RATE_LIMITED",
   "PAYLOAD_TOO_LARGE",
   "UPSTREAM_ERROR",
+  "APP_UPDATE_REQUIRED",
   "INTERNAL_ERROR",
 ]);
 

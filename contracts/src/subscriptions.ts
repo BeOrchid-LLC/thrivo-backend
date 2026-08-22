@@ -36,6 +36,10 @@ export const subscriptionStateSchema = z.object({
   trialUsed: z.boolean(),
   trialDays: z.number().int().positive(),
   plans: z.array(subscriptionPlanInfoSchema),
+  /** Whether the backend is ready to accept store purchases. */
+  billingAvailable: z.boolean().default(false),
+  /** Last server-to-server RevenueCat snapshot, when one exists. */
+  lastSyncedAt: z.string().nullable().default(null),
 });
 export type SubscriptionState = z.infer<typeof subscriptionStateSchema>;
 
@@ -78,6 +82,11 @@ export const subscriptionRoutes = {
   cancel: {
     method: "POST",
     path: "/api/v1/subscriptions/cancel",
+    auth: "user",
+  },
+  sync: {
+    method: "POST",
+    path: "/api/v1/subscriptions/sync",
     auth: "user",
   },
 } satisfies Record<string, RouteContract>;

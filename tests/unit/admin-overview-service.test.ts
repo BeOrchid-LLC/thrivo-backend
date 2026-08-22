@@ -56,6 +56,7 @@ describe("admin-overview.service", () => {
 
       const metrics = await getOverviewMetrics(NOW);
 
+      expect(metrics.reportingCurrency).toBe("USD");
       expect(metrics.mrr).toEqual({ cents: 220000, deltaPct: 10 });
       expect(metrics.arr).toEqual({
         cents: 220000 * 12,

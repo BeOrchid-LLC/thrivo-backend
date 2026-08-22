@@ -1,15 +1,19 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { env } from "../env";
 import { logger } from "../lib/logger";
 import { ForbiddenError } from "../lib/errors";
-import { subscriptionRepo, userRepo, webhookEventRepo } from "../repositories";
+import { accountErasureRepo, subscriptionRepo, userRepo, webhookEventRepo } from "../repositories";
 import type { SubProvider, SubscriptionEventType, SubStatus } from "../../db/schema";
 import { persistSubscriptionAndMirror } from "./subscription.service";
 import { queueTemplatedEmail } from "./email.service";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { emailAppLink } from "../lib/email/links";
+
+function identityDigest(value: string): string {
+  return createHmac("sha256", env.AUTH_SECRET).update(value).digest("hex");
+}
 
 /**
  * RevenueCat v1 webhook envelope — only the fields we consume. Unknown fields are
@@ -20,6 +24,8 @@ const revenueCatEventSchema = z.object({
     id: z.string().min(1),
     type: z.string().min(1),
     app_user_id: z.string().min(1),
+    original_app_user_id: z.string().min(1).nullish(),
+    aliases: z.array(z.string().min(1)).default([]),
     product_id: z.string().nullish(),
     period_type: z.string().nullish(), // NORMAL | TRIAL | INTRO
     store: z.string().nullish(), // APP_STORE | PLAY_STORE | STRIPE | ...
@@ -194,15 +200,37 @@ export async function handleRevenueCatWebhook(
       return "ignored";
     }
 
-    const user = await userRepo.findById(event.app_user_id);
-    if (!user) {
+    const userCandidates = await userRepo.findByIds([
+      event.app_user_id,
+      event.original_app_user_id ?? "",
+      ...event.aliases,
+    ]);
+    if (userCandidates.length !== 1) {
+      const erased = await Promise.all(
+        [event.app_user_id, event.original_app_user_id, ...event.aliases]
+          .filter((id): id is string => Boolean(id))
+          .map((id) => accountErasureRepo.hasActiveTombstone("revenuecat", identityDigest(id)))
+      );
+      if (erased.some(Boolean)) {
+        await webhookEventRepo.markProcessed(ledger.id, "processed");
+        return "ignored";
+      }
       logger.warn(
-        { appUserId: event.app_user_id, type: event.type },
-        "revenuecat webhook for unknown app_user_id"
+        {
+          appUserId: event.app_user_id,
+          originalAppUserId: event.original_app_user_id,
+          aliases: event.aliases,
+          candidates: userCandidates.length,
+          type: event.type,
+        },
+        userCandidates.length === 0
+          ? "revenuecat webhook for unknown app_user_id"
+          : "revenuecat webhook matched multiple users"
       );
       await webhookEventRepo.markProcessed(ledger.id, "processed");
       return "ignored";
     }
+    const user = userCandidates[0]!;
 
     const eventAt = event.event_timestamp_ms ? new Date(event.event_timestamp_ms) : new Date();
     const periodEnd = event.expiration_at_ms ? new Date(event.expiration_at_ms) : null;
@@ -226,6 +254,7 @@ export async function handleRevenueCatWebhook(
           currentPeriodEnd: periodEnd,
           cancelAtPeriodEnd: status === "canceled",
           lastEventAt: eventAt,
+          lastWebhookAt: eventAt,
         },
         funnelEventType
           ? {

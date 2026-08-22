@@ -203,6 +203,12 @@ export const envSchema = z
     // without this secret every inbound webhook is rejected (fail closed) and an
     // operator log flags the missing var (see billing-webhook.service.ts).
     REVENUECAT_WEBHOOK_AUTH: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+    BILLING_PROVIDER: z.enum(["disabled", "revenuecat"]).default("disabled"),
+    REVENUECAT_SECRET_API_KEY: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.string().min(1).optional()
+    ),
+    REVENUECAT_ENTITLEMENT_ID: z.string().default("Thrivo Premium"),
 
     // Expo push access token. Optional — Expo push sends work without it; a token
     // raises rate limits and enables enhanced push security. The daily nudge
@@ -246,6 +252,22 @@ export const envSchema = z
             path: [key],
             message: "Required for production email delivery",
           });
+        }
+      }
+
+      if (parsed.BILLING_PROVIDER === "revenuecat") {
+        for (const [key, value] of [
+          ["REVENUECAT_SECRET_API_KEY", parsed.REVENUECAT_SECRET_API_KEY],
+          ["REVENUECAT_WEBHOOK_AUTH", parsed.REVENUECAT_WEBHOOK_AUTH],
+          ["REVENUECAT_ENTITLEMENT_ID", parsed.REVENUECAT_ENTITLEMENT_ID],
+        ] as const) {
+          if (!value) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [key],
+              message: "Required when BILLING_PROVIDER=revenuecat",
+            });
+          }
         }
       }
       for (const [key, value] of [

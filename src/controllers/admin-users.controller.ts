@@ -2,9 +2,10 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { respondOk } from "../lib/response";
 import { NotFoundError, ValidationError } from "../lib/errors";
-import { getClientIp } from "../lib/request-ip";
-import { adminUserRepo } from "../repositories";
-import { adminActivityTypeSchema } from "../../contracts/src/admin";
+import { accountErasureRepo, adminUserRepo, userRepo } from "../repositories";
+import { adminActivityTypeSchema, adminDeleteUserPayloadSchema } from "../../contracts/src/admin";
+import { requestAccountErasure } from "../services/account-erasure.service";
+import { retryAccountErasure } from "../services/account-erasure.service";
 import { getUserTimeline } from "../services/admin-timeline.service";
 import { getUserActivity } from "../services/admin-activity.service";
 import type { AppEnv } from "../types/http";
@@ -57,17 +58,42 @@ export async function getAdminUserActivity(c: Context<AppEnv>) {
 }
 
 /**
- * DELETE /admin/users/:id — permanent hard delete for test teardown.
- * Cascades FK-linked rows (food_logs, sessions, etc.) via the DB constraint.
- * Returns 200 with a null ack envelope whether or not the user existed (idempotent).
+ * DELETE /admin/users/:id — enqueue the same durable erasure workflow used by users.
  */
 export async function hardDeleteAdminUser(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
-  const admin = c.get("adminUser")!;
-  await adminUserRepo.hardDeleteUser(id, {
-    actorAdminEmail: admin.email,
-    requestId: c.get("requestId") ?? null,
-    ip: getClientIp(c),
+  const payload = adminDeleteUserPayloadSchema.parse({
+    confirmationEmail: c.req.query("confirmationEmail"),
   });
-  return respondOk(c, null, "User deleted permanently");
+  const user = await userRepo.findById(id);
+  if (!user) return respondOk(c, null, "Erasure already queued");
+  if (payload.confirmationEmail.toLowerCase() !== user.email.toLowerCase()) {
+    throw new ValidationError("Confirmation email does not match the current user");
+  }
+  const request = await requestAccountErasure(user.id, user.authSubjectId ?? user.id, user.email);
+  return respondOk(
+    c,
+    null,
+    request.status === "completed" ? "Erasure completed" : "Erasure queued"
+  );
+}
+
+export async function listAdminAccountErasures(c: Context<AppEnv>) {
+  const rows = await accountErasureRepo.list(Number(c.req.query("limit") ?? 100));
+  return respondOk(c, {
+    erasures: rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      requestedAt: row.requestedAt.toISOString(),
+      completedAt: row.completedAt?.toISOString() ?? null,
+      lastErrorCode: row.lastErrorCode,
+      attempts: row.attempts,
+    })),
+  });
+}
+
+export async function retryAdminAccountErasure(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  await retryAccountErasure(id);
+  return respondOk(c, null, "Erasure retry queued");
 }
