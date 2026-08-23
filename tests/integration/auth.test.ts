@@ -56,7 +56,7 @@ describe.skipIf(!run)("integration: auth", () => {
       method: "DELETE",
       headers: authed(session),
     });
-    expect(del.status).toBe(200);
+    expect(del.status).toBe(202);
     const body = (await del.json()) as { success: boolean; data: null };
     expect(body.success).toBe(true);
     expect(body.data).toBeNull();

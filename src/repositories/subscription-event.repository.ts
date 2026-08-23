@@ -19,7 +19,10 @@ export async function insert(
   const [row] = await tx
     .insert(subscriptionEvents)
     .values(input)
-    .onConflictDoNothing({ target: subscriptionEvents.rawEventId })
+    // The raw-event unique index is partial (legacy rows have NULL raw IDs),
+    // so use PostgreSQL's general conflict arbiter rather than naming the
+    // column and failing to infer the partial index.
+    .onConflictDoNothing()
     .returning();
   return row;
 }

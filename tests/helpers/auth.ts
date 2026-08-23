@@ -13,7 +13,15 @@ export type TestSession = { email: string; accessToken: string };
 export async function createSession(): Promise<TestSession> {
   const email = `${newId()}@test.thrivo.fit`;
   const subjectId = `user_test_${newId()}`;
-  const principal: AuthPrincipal = { subjectId, email, emailVerified: true, name: "Test User" };
+  const principal: AuthPrincipal = {
+    subjectId,
+    email,
+    emailVerified: true,
+    name: "Test User",
+    // Test sessions represent a recently reverified Clerk session so account
+    // deletion tests exercise the accepted 202 path.
+    factorVerificationAge: [0, 0],
+  };
   await resolveUser(principal);
   const accessToken = `test-clerk-token:${subjectId}:${email}`;
   return { email, accessToken };

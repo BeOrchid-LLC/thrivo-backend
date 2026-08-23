@@ -23,11 +23,16 @@ type OutcomeBody = { data: { outcome: string } };
 
 function rcEvent(over: Record<string, unknown> = {}) {
   const now = Date.now();
+  const appUserId =
+    typeof over.app_user_id === "string"
+      ? over.app_user_id
+      : "00000000-0000-0000-0000-000000000000";
   return {
     event: {
       id: `evt_${Math.random().toString(36).slice(2)}`,
       type: "INITIAL_PURCHASE",
-      app_user_id: "",
+      app_user_id: appUserId,
+      original_app_user_id: appUserId,
       product_id: "thrivo_premium_monthly",
       period_type: "NORMAL",
       store: "APP_STORE",
