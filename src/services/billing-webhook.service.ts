@@ -1,15 +1,27 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { env } from "../env";
 import { logger } from "../lib/logger";
-import { ForbiddenError } from "../lib/errors";
-import { subscriptionRepo, userRepo, webhookEventRepo } from "../repositories";
+import { ForbiddenError, ValidationError } from "../lib/errors";
+import {
+  accountErasureRepo,
+  subscriptionRepo,
+  subscriptionEventRepo,
+  userRepo,
+  webhookEventRepo,
+  webhookIdentityOwnershipRepo,
+} from "../repositories";
 import type { SubProvider, SubscriptionEventType, SubStatus } from "../../db/schema";
 import { persistSubscriptionAndMirror } from "./subscription.service";
 import { queueTemplatedEmail } from "./email.service";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { emailAppLink } from "../lib/email/links";
+import { enqueue, QUEUE_NAMES } from "../lib/queue";
+
+function identityDigest(value: string): string {
+  return createHmac("sha256", env.AUTH_SECRET).update(value).digest("hex");
+}
 
 /**
  * RevenueCat v1 webhook envelope — only the fields we consume. Unknown fields are
@@ -20,12 +32,16 @@ const revenueCatEventSchema = z.object({
     id: z.string().min(1),
     type: z.string().min(1),
     app_user_id: z.string().min(1),
-    product_id: z.string().nullish(),
-    period_type: z.string().nullish(), // NORMAL | TRIAL | INTRO
-    store: z.string().nullish(), // APP_STORE | PLAY_STORE | STRIPE | ...
-    purchased_at_ms: z.number().nullish(),
-    expiration_at_ms: z.number().nullish(),
-    event_timestamp_ms: z.number().nullish(),
+    original_app_user_id: z.string().min(1),
+    aliases: z.array(z.string().min(1)).default([]),
+    product_id: z.string().min(1).nullish(),
+    period_type: z.string().min(1).nullish(), // NORMAL | TRIAL | INTRO
+    store: z.string().min(1).nullish(), // APP_STORE | PLAY_STORE | STRIPE | ...
+    purchased_at_ms: z.union([z.number(), z.string()]).nullish(),
+    expiration_at_ms: z.union([z.number(), z.string()]).nullish(),
+    event_timestamp_ms: z.union([z.number(), z.string()]).nullish(),
+    cancel_reason: z.string().nullish(),
+    expiration_reason: z.string().nullish(),
     // Price in the purchase currency — null/0 (free trial)/negative (refund)
     // are all valid per RevenueCat's docs. Used to populate subscription_events'
     // priceAmountCents/currency (revenue-to-date, first charge) going forward.
@@ -34,7 +50,55 @@ const revenueCatEventSchema = z.object({
   }),
 });
 
-export type RevenueCatWebhookOutcome = "processed" | "ignored" | "duplicate";
+export type RevenueCatWebhookOutcome = "processed" | "ignored" | "duplicate" | "quarantined";
+
+function eventDate(value: number | string | null | undefined, field = "event_timestamp_ms"): Date {
+  if (value === null || value === undefined || value === "") {
+    throw new ValidationError(`RevenueCat ${field} is required`);
+  }
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric) || !Number.isSafeInteger(numeric) || numeric <= 0) {
+    throw new ValidationError(`RevenueCat ${field} is invalid`);
+  }
+  const parsed = new Date(numeric);
+  if (Number.isNaN(parsed.getTime())) throw new ValidationError(`RevenueCat ${field} is invalid`);
+  return parsed;
+}
+
+function lifecycleFieldsValid(event: z.infer<typeof revenueCatEventSchema>["event"]): void {
+  const lifecycle = new Set([
+    "INITIAL_PURCHASE",
+    "RENEWAL",
+    "CANCELLATION",
+    "EXPIRATION",
+    "BILLING_ISSUE",
+    "UNCANCELLATION",
+    "PRODUCT_CHANGE",
+    "REFUND",
+    "REFUND_REVERSED",
+    "SUBSCRIPTION_PAUSED",
+    "SUBSCRIPTION_EXTENDED",
+    "TRANSFER",
+  ]);
+  if (!lifecycle.has(event.type)) return;
+  if (
+    !event.original_app_user_id ||
+    !event.product_id ||
+    !event.period_type ||
+    !event.store ||
+    event.purchased_at_ms == null
+  ) {
+    throw new ValidationError("RevenueCat lifecycle event is missing mandatory fields");
+  }
+  if (!["APP_STORE", "PLAY_STORE", "STRIPE"].includes(event.store)) {
+    throw new ValidationError("RevenueCat store is not supported");
+  }
+  eventDate(event.event_timestamp_ms);
+  eventDate(event.purchased_at_ms, "purchased_at_ms");
+  if (event.expiration_at_ms == null)
+    throw new ValidationError("RevenueCat expiration_at_ms is required for Thrivo subscriptions");
+  eventDate(event.expiration_at_ms, "expiration_at_ms");
+}
 
 /**
  * Constant-time compare of a webhook Authorization header against the configured
@@ -89,7 +153,11 @@ export function mapStore(store: string | null | undefined): SubProvider {
 }
 
 /** Map a RevenueCat event type to our subscription status, or null to ack-and-ignore. */
-export function mapStatus(type: string, periodType: string | null | undefined): SubStatus | null {
+export function mapStatus(
+  type: string,
+  periodType: string | null | undefined,
+  cancelReason?: string | null
+): SubStatus | null {
   switch (type) {
     case "INITIAL_PURCHASE":
     case "RENEWAL":
@@ -97,7 +165,7 @@ export function mapStatus(type: string, periodType: string | null | undefined): 
     case "PRODUCT_CHANGE":
       return periodType === "TRIAL" ? "trialing" : "active";
     case "CANCELLATION":
-      return "canceled"; // auto-renew off; access persists until current_period_end
+      return cancelReason === "BILLING_ERROR" ? "in_grace" : "canceled";
     case "EXPIRATION":
       return "expired";
     case "BILLING_ISSUE":
@@ -128,7 +196,11 @@ export function extractPriceFields(event: {
     typeof event.price_in_purchased_currency === "number"
       ? Math.round(event.price_in_purchased_currency * 100)
       : null;
-  return { priceAmountCents, currency: event.currency ?? null };
+  const normalizedCurrency =
+    typeof event.currency === "string" && /^[A-Za-z]{3}$/.test(event.currency.trim())
+      ? event.currency.trim().toUpperCase()
+      : null;
+  return { priceAmountCents, currency: normalizedCurrency };
 }
 
 export function classifySubscriptionEvent(
@@ -138,11 +210,17 @@ export function classifySubscriptionEvent(
 ): SubscriptionEventType | null {
   if (type === "INITIAL_PURCHASE" && periodType === "TRIAL") return "trial_started";
   if (type === "EXPIRATION") return "expired";
-  if (type === "CANCELLATION") return previousStatus === "trialing" ? "trial_cancelled" : null;
+  if (type === "CANCELLATION")
+    return previousStatus === "trialing" ? "trial_cancelled" : "canceled";
   if (type === "RENEWAL" || type === "PRODUCT_CHANGE" || type === "UNCANCELLATION") {
     if (previousStatus === "trialing" && periodType !== "TRIAL") return "trial_converted";
     if (type === "RENEWAL" && previousStatus !== "trialing") return "renewed";
+    if (type === "PRODUCT_CHANGE") return "product_changed";
   }
+  if (type === "BILLING_ISSUE") return "billing_issue";
+  if (type === "REFUND") return "refunded";
+  if (type === "REFUND_REVERSED") return "refund_reversed";
+  if (type === "SUBSCRIPTION_EXTENDED") return "subscription_extended";
   return null;
 }
 
@@ -173,6 +251,11 @@ export async function handleRevenueCatWebhook(
   }
 
   const { event } = revenueCatEventSchema.parse(body);
+  lifecycleFieldsValid(event);
+  const identityValues = [event.app_user_id, event.original_app_user_id, ...event.aliases].filter(
+    (id): id is string => Boolean(id)
+  );
+  const identityDigests = identityValues.map(identityDigest);
 
   // Ledger: record-or-find. A row already marked "processed" is a true replay.
   let ledger = await webhookEventRepo.recordReceived({
@@ -187,25 +270,106 @@ export async function handleRevenueCatWebhook(
   }
   if (!ledger) return "duplicate";
 
+  await webhookIdentityOwnershipRepo.recordMany(ledger.id, identityDigests);
+
   try {
-    const status = mapStatus(event.type, event.period_type);
+    // A tombstoned identity always wins over a live alias. This prevents a
+    // recreated RevenueCat customer from restoring a deleted account.
+    const tombstoned = await Promise.all(
+      identityDigests.map((digest) => accountErasureRepo.hasActiveTombstone("revenuecat", digest))
+    );
+    if (tombstoned.some(Boolean)) {
+      const expiry =
+        event.expiration_at_ms != null
+          ? new Date(
+              eventDate(event.expiration_at_ms, "expiration_at_ms").getTime() +
+                365 * 24 * 60 * 60 * 1000
+            )
+          : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      for (const digest of identityDigests) {
+        await accountErasureRepo.extendTombstone("revenuecat", digest, expiry);
+      }
+      await webhookEventRepo.redactById(ledger.id);
+      await enqueue(
+        QUEUE_NAMES.maintenance,
+        "delete-revenuecat-customer",
+        { appUserIds: identityValues },
+        { attempts: 8, backoff: { type: "exponential", delay: 60_000 }, removeOnComplete: true }
+      );
+      await webhookEventRepo.markProcessed(ledger.id, "processed");
+      return "ignored";
+    }
+    const status = mapStatus(event.type, event.period_type, event.cancel_reason);
     if (!status) {
       await webhookEventRepo.markProcessed(ledger.id, "processed");
       return "ignored";
     }
 
-    const user = await userRepo.findById(event.app_user_id);
-    if (!user) {
-      logger.warn(
-        { appUserId: event.app_user_id, type: event.type },
-        "revenuecat webhook for unknown app_user_id"
+    const userCandidates = await userRepo.findByIds([
+      event.app_user_id,
+      event.original_app_user_id ?? "",
+      ...event.aliases,
+    ]);
+    if (userCandidates.length !== 1) {
+      logger.error(
+        {
+          appUserId: event.app_user_id,
+          originalAppUserId: event.original_app_user_id,
+          aliases: event.aliases,
+          candidates: userCandidates.length,
+          type: event.type,
+        },
+        userCandidates.length === 0
+          ? "revenuecat webhook for unknown app_user_id"
+          : "revenuecat webhook matched multiple users"
       );
-      await webhookEventRepo.markProcessed(ledger.id, "processed");
-      return "ignored";
+      await webhookEventRepo.markProcessed(ledger.id, "quarantined");
+      return "quarantined";
     }
+    const user = userCandidates[0]!;
+    await webhookIdentityOwnershipRepo.recordMany(ledger.id, identityDigests, user.id);
 
-    const eventAt = event.event_timestamp_ms ? new Date(event.event_timestamp_ms) : new Date();
-    const periodEnd = event.expiration_at_ms ? new Date(event.expiration_at_ms) : null;
+    const eventAt = eventDate(event.event_timestamp_ms);
+    const periodEnd =
+      event.expiration_at_ms != null ? eventDate(event.expiration_at_ms, "expiration_at_ms") : null;
+    if (
+      [
+        "TRANSFER",
+        "PRODUCT_CHANGE",
+        "REFUND",
+        "REFUND_REVERSED",
+        "SUBSCRIPTION_PAUSED",
+        "SUBSCRIPTION_EXTENDED",
+      ].includes(event.type) ||
+      (event.type === "CANCELLATION" && event.cancel_reason === "CUSTOMER_SUPPORT")
+    ) {
+      const historyType = classifySubscriptionEvent(event.type, event.period_type, null);
+      if (historyType) {
+        await db.transaction(async (tx) => {
+          await subscriptionEventRepo.insert(
+            {
+              userId: user.id,
+              eventType: historyType,
+              productId: event.product_id ?? null,
+              occurredAt: eventAt,
+              rawEventId: ledger.id,
+              ...extractPriceFields(event),
+            },
+            tx
+          );
+          await webhookEventRepo.markProcessed(ledger.id, "processed", tx);
+        });
+      } else {
+        await webhookEventRepo.markProcessed(ledger.id, "processed");
+      }
+      await enqueue(
+        QUEUE_NAMES.maintenance,
+        "reconcile-subscriptions",
+        { userId: user.id },
+        { removeOnComplete: true }
+      );
+      return "processed";
+    }
     const applied = await db.transaction(async (tx) => {
       const previousSub = await subscriptionRepo.getByUser(user.id, tx);
       const funnelEventType = classifySubscriptionEvent(
@@ -222,10 +386,11 @@ export async function handleRevenueCatWebhook(
           productId: event.product_id ?? null,
           status,
           trialEnd: status === "trialing" ? periodEnd : (user.trialEndsAt ?? null),
-          currentPeriodStart: event.purchased_at_ms ? new Date(event.purchased_at_ms) : null,
+          currentPeriodStart: event.purchased_at_ms ? eventDate(event.purchased_at_ms) : null,
           currentPeriodEnd: periodEnd,
           cancelAtPeriodEnd: status === "canceled",
           lastEventAt: eventAt,
+          lastWebhookAt: eventAt,
         },
         funnelEventType
           ? {

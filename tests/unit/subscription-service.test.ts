@@ -128,7 +128,9 @@ describe("subscription.service", () => {
   });
 
   it("starts a first trial for 14 days", async () => {
-    repos.subscriptionRepo.getByUser.mockResolvedValue(null);
+    repos.subscriptionRepo.getByUser
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(activeSubscription({ status: "trialing" }));
 
     const result = await startTrial(user, { plan: "monthly" }, now);
 

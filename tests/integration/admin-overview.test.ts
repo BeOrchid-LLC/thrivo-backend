@@ -34,7 +34,7 @@ describe.skipIf(!run)("integration: admin overview", () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       const { metrics } = parsed.data;
-      expect(metrics.mrr).toEqual({ cents: 0, deltaPct: null });
+      expect(metrics.mrr).toEqual({ cents: 0, deltaPct: null, label: "Estimated USD MRR" });
       expect(metrics.premiumUsers).toEqual({ total: 0, monthly: 0, annual: 0 });
       expect(metrics.dauMau.totalUsers).toBe(0);
     }

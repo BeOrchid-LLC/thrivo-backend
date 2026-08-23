@@ -168,16 +168,19 @@ describe.skipIf(!run)("integration: admin users", () => {
     const user = await userRepo.findActiveByEmail(session.email);
     expect(user).not.toBeNull();
 
-    const del = await app.request(`/api/v1/admin/users/${user!.id}`, {
-      method: "DELETE",
-      headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
-    });
+    const del = await app.request(
+      `/api/v1/admin/users/${user!.id}?confirmationEmail=${encodeURIComponent(session.email)}`,
+      {
+        method: "DELETE",
+        headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
+      }
+    );
 
-    expect(del.status).toBe(200);
+    expect(del.status).toBe(202);
     const body = (await del.json()) as { success: boolean; data: null; message: string };
     expect(body.success).toBe(true);
     expect(body.data).toBeNull();
-    expect(body.message).toBe("User deleted permanently");
+    expect(body.message).toBe("Account erasure queued");
     expect(await userRepo.findActiveByEmail(session.email)).toBeNull();
 
     const auditRows = await db
@@ -187,23 +190,26 @@ describe.skipIf(!run)("integration: admin users", () => {
     expect(auditRows).toHaveLength(1);
     expect(auditRows[0]).toMatchObject({
       actorAdminEmail: "admin@test.thrivo.fit",
-      action: "user.hard_delete",
+      action: "account_erasure.queued",
       targetType: "user",
       targetId: user!.id,
     });
-    expect((auditRows[0]!.before as { email: string }).email).toBe(session.email);
+    expect(auditRows[0]!.before).toBeNull();
   });
 
   it("deleting a nonexistent user is a no-op ack and writes no audit row (rollback-equivalent)", async () => {
     const app = buildApp();
     const missingId = "00000000-0000-0000-0000-000000000000";
 
-    const del = await app.request(`/api/v1/admin/users/${missingId}`, {
-      method: "DELETE",
-      headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
-    });
+    const del = await app.request(
+      `/api/v1/admin/users/${missingId}?confirmationEmail=missing@test.thrivo.fit`,
+      {
+        method: "DELETE",
+        headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN },
+      }
+    );
 
-    expect(del.status).toBe(200);
+    expect(del.status).toBe(202);
     const auditRows = await db
       .select()
       .from(adminAuditLog)

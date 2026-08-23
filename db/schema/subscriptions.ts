@@ -22,6 +22,8 @@ export const subscriptions = pgTable(
     currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
     lastEventAt: timestamp("last_event_at", { withTimezone: true }),
+    lastWebhookAt: timestamp("last_webhook_at", { withTimezone: true }),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => ({

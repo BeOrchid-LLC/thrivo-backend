@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RouteContract } from "./common";
 import { userProfileSchema } from "./users";
+import { idSchema, isoDateSchema } from "./common";
 
 // ---------------------------------------------------------------------------
 // Admin identity
@@ -146,6 +147,49 @@ export const adminSubscriptionStatusSchema = z.enum([
 ]);
 export type AdminSubscriptionStatus = z.infer<typeof adminSubscriptionStatusSchema>;
 
+export const adminDeleteUserPayloadSchema = z.object({ confirmationEmail: z.string().email() });
+export type AdminDeleteUserPayload = z.infer<typeof adminDeleteUserPayloadSchema>;
+
+export const adminErasureStatusSchema = z.enum([
+  "pending",
+  "processing",
+  "retryable",
+  "failed",
+  "completed",
+]);
+export const adminAccountErasureSchema = z.object({
+  id: idSchema,
+  status: adminErasureStatusSchema,
+  requestedAt: isoDateSchema,
+  completedAt: isoDateSchema.nullable(),
+  lastErrorCode: z.string().nullable(),
+  attempts: z.number().int(),
+  consecutiveFailures: z.number().int(),
+  nextAttemptAt: isoDateSchema,
+  processingStartedAt: isoDateSchema.nullable(),
+  leaseExpiresAt: isoDateSchema.nullable(),
+  phase: z.enum([
+    "external_deletion",
+    "upload_wait",
+    "r2_deletion",
+    "redaction",
+    "domain_deletion",
+    "finalization",
+  ]),
+  canRetry: z.boolean(),
+});
+export const adminAccountErasureListResponseSchema = z.object({
+  erasures: z.array(adminAccountErasureSchema),
+});
+export const adminRetryErasurePayloadSchema = z.object({ confirmation: z.literal("RETRY") });
+
+export const moneySchema = z.object({
+  amountCents: z.number().int(),
+  /** ISO-4217 currency, or null when the provider did not supply one. */
+  currency: z.string().length(3).nullable(),
+});
+export type Money = z.infer<typeof moneySchema>;
+
 export const adminUserSubscriptionSchema = z.object({
   status: adminSubscriptionStatusSchema,
   priceLabel: z.string().nullable(),
@@ -156,16 +200,27 @@ export const adminUserSubscriptionSchema = z.object({
   trialStartedAt: z.string().nullable(),
   trialConvertedAt: z.string().nullable(),
   firstChargeAt: z.string().nullable(),
+  /** @deprecated Use firstCharge.amountCents and firstCharge.currency. */
   firstChargeAmountCents: z.number().int().nullable(),
   /** Sum of subscription_events.priceAmountCents. Null (not 0) means "no
    *  priced events yet", not "$0 of revenue". */
+  /** @deprecated Only populated for a single known currency. */
   revenueToDateCents: z.number().int().nullable(),
+  /** Deprecated currency-ambiguous totals retained for old clients. */
+  firstCharge: moneySchema.nullable().default(null),
+  revenueTotalsByCurrency: z.array(moneySchema).default([]),
+  lastSyncedAt: z.string().nullable().default(null),
+  lastWebhookAt: z.string().nullable().default(null),
   /** Always null today — no Stripe webhook path exists in this codebase,
    *  only RevenueCat. Present so the frontend has a stable field to render "—". */
   stripeCustomerId: z.string().nullable(),
   rcAppUserId: z.string().nullable(),
 });
 export type AdminUserSubscription = z.infer<typeof adminUserSubscriptionSchema>;
+
+export const adminWebhookReprocessPayloadSchema = z.object({
+  confirmation: z.literal("REPROCESS"),
+});
 
 /** Receiving-end only as of this contract version — populated once a future
  *  mobile-app task reports it; null for every user until then. */
@@ -253,6 +308,12 @@ export const adminTimelineEntryTypeSchema = z.enum([
   "trial_cancelled",
   "renewed",
   "expired",
+  "canceled",
+  "billing_issue",
+  "refunded",
+  "refund_reversed",
+  "product_changed",
+  "subscription_extended",
   "next_charge_scheduled",
 ]);
 export type AdminTimelineEntryType = z.infer<typeof adminTimelineEntryTypeSchema>;

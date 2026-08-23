@@ -81,8 +81,8 @@ describe("subscription funnel classification", () => {
     expect(classifySubscriptionEvent("CANCELLATION", "NORMAL", "trialing")).toBe("trial_cancelled");
   });
 
-  it("does not classify a regular (non-trial) cancellation into the funnel", () => {
-    expect(classifySubscriptionEvent("CANCELLATION", "NORMAL", "active")).toBeNull();
+  it("records a regular cancellation in the billing history", () => {
+    expect(classifySubscriptionEvent("CANCELLATION", "NORMAL", "active")).toBe("canceled");
   });
 
   it("classifies a non-trial renewal as renewed", () => {
@@ -95,7 +95,7 @@ describe("subscription funnel classification", () => {
   });
 
   it("ignores event types outside the funnel", () => {
-    expect(classifySubscriptionEvent("BILLING_ISSUE", "NORMAL", "active")).toBeNull();
+    expect(classifySubscriptionEvent("BILLING_ISSUE", "NORMAL", "active")).toBe("billing_issue");
     expect(classifySubscriptionEvent("TRANSFER", null, null)).toBeNull();
   });
 });
@@ -133,5 +133,16 @@ describe("price field extraction", () => {
   it("rounds fractional-cent prices to the nearest cent", () => {
     expect(extractPriceFields({ price_in_purchased_currency: 9.994 }).priceAmountCents).toBe(999);
     expect(extractPriceFields({ price_in_purchased_currency: 9.996 }).priceAmountCents).toBe(1000);
+  });
+
+  it("normalizes ISO currency and leaves invalid currency unknown", () => {
+    expect(extractPriceFields({ price_in_purchased_currency: 4, currency: " eur " })).toEqual({
+      priceAmountCents: 400,
+      currency: "EUR",
+    });
+    expect(extractPriceFields({ price_in_purchased_currency: 4, currency: "US" })).toEqual({
+      priceAmountCents: 400,
+      currency: null,
+    });
   });
 });

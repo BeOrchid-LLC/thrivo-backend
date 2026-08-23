@@ -11,7 +11,7 @@ import type { AppEnv } from "../types/http";
 /** GET /admin/overview/metrics */
 export async function getAdminOverviewMetrics(c: Context<AppEnv>) {
   const metrics = await getOverviewMetrics();
-  return respondOk(c, { metrics });
+  return respondOk(c, { metrics: { ...metrics, reportingCurrency: "USD" as const } });
 }
 
 /** GET /admin/overview/revenue-trend */

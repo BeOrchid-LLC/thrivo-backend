@@ -107,6 +107,7 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
     totalCheckIns,
     avgDailyKcal,
     revenueToDateCents,
+    revenueTotalsByCurrency,
     subscriptionEvents,
     device,
     upgradePrompt,
@@ -115,6 +116,7 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
     checkInRepo.countByUserId(userId),
     dailySummaryRepo.getAvgDailyKcal(userId),
     subscriptionEventRepo.sumPriceAmountCentsByUser(userId),
+    subscriptionEventRepo.sumPriceAmountCentsByCurrencyByUser(userId),
     subscriptionEventRepo.listByUser(userId),
     userDeviceRepo.getByUser(userId),
     userEventRepo.findLatestByType(userId, "upgrade_prompt_shown"),
@@ -122,7 +124,8 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
 
   const trialStarted = subscriptionEvents.find((e) => e.eventType === "trial_started") ?? null;
   const trialConverted = subscriptionEvents.find((e) => e.eventType === "trial_converted") ?? null;
-  const firstPriced = subscriptionEvents.find((e) => e.priceAmountCents !== null) ?? null;
+  const firstPriced =
+    subscriptionEvents.find((e) => e.priceAmountCents !== null && e.priceAmountCents > 0) ?? null;
 
   return {
     device: device
@@ -139,6 +142,16 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
           firstChargeAt: firstPriced?.occurredAt.toISOString() ?? null,
           firstChargeAmountCents: firstPriced?.priceAmountCents ?? null,
           revenueToDateCents,
+          revenueTotalsByCurrency,
+          firstCharge:
+            firstPriced?.priceAmountCents !== null && firstPriced?.priceAmountCents !== undefined
+              ? {
+                  amountCents: firstPriced.priceAmountCents,
+                  currency: firstPriced.currency?.toUpperCase() ?? null,
+                }
+              : null,
+          lastSyncedAt: subscriptionRow.lastSyncedAt?.toISOString() ?? null,
+          lastWebhookAt: subscriptionRow.lastWebhookAt?.toISOString() ?? null,
           stripeCustomerId: null,
           rcAppUserId: subscriptionRow.rcAppUserId,
         }

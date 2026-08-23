@@ -1,10 +1,14 @@
 import { Hono } from "hono";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { verifyRequest } = vi.hoisted(() => ({ verifyRequest: vi.fn() }));
 vi.mock("../../src/auth", () => ({ verifyRequest }));
 const { findByAuthSubjectId } = vi.hoisted(() => ({ findByAuthSubjectId: vi.fn() }));
-vi.mock("../../src/repositories", () => ({ userRepo: { findByAuthSubjectId } }));
+const { hasActiveTombstone } = vi.hoisted(() => ({ hasActiveTombstone: vi.fn() }));
+vi.mock("../../src/repositories", () => ({
+  userRepo: { findByAuthSubjectId },
+  accountErasureRepo: { hasActiveTombstone },
+}));
 const { resolveUser } = vi.hoisted(() => ({ resolveUser: vi.fn() }));
 vi.mock("../../src/services/identity.service", () => ({ resolveUser }));
 
@@ -20,6 +24,10 @@ function app() {
 
 describe("auth middleware", () => {
   afterEach(() => vi.clearAllMocks());
+
+  beforeEach(() => {
+    hasActiveTombstone.mockResolvedValue(false);
+  });
 
   it("resolves a principal to c.var.user", async () => {
     verifyRequest.mockResolvedValue({ subjectId: "s1", email: "a@b.com", emailVerified: true });

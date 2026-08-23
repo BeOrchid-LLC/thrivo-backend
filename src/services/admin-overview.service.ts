@@ -117,7 +117,12 @@ export async function getOverviewMetrics(now = new Date()): Promise<AdminOvervie
   const startOfMonthMrr = referenceMonth.startMrrCents ?? mrrCents;
 
   return {
-    mrr: { cents: mrrCents, deltaPct: pctDelta(mrrCents, snapshot30dAgo?.mrrCents) },
+    reportingCurrency: "USD",
+    mrr: {
+      cents: mrrCents,
+      deltaPct: pctDelta(mrrCents, snapshot30dAgo?.mrrCents),
+      label: "Estimated USD MRR",
+    },
     arr: {
       cents: arrCents,
       deltaPct: pctDelta(arrCents, snapshot1yAgo ? snapshot1yAgo.mrrCents * 12 : null),

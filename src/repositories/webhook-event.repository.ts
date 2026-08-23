@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import {
@@ -53,12 +53,19 @@ export async function recordReceived(
 
 export async function markProcessed(
   id: string,
-  status: "processed" | "failed",
+  status: "processed" | "failed" | "quarantined",
   tx: Executor = db
 ): Promise<void> {
   await tx
     .update(webhookEvents)
     .set({ status, processedAt: new Date() })
+    .where(eq(webhookEvents.id, id));
+}
+
+export async function redactById(id: string, tx: Executor = db): Promise<void> {
+  await tx
+    .update(webhookEvents)
+    .set({ payload: { redacted: true, reason: "account_erasure" } })
     .where(eq(webhookEvents.id, id));
 }
 
@@ -73,4 +80,42 @@ export async function listReceived(
     .where(and(eq(webhookEvents.provider, provider), eq(webhookEvents.status, "received")))
     .orderBy(asc(webhookEvents.receivedAt))
     .limit(limit);
+}
+
+/** Replace potentially identifying provider payloads with a minimal ledger marker. */
+export async function redactForIdentifiers(
+  identifiers: string[],
+  tx: Executor = db
+): Promise<void> {
+  for (const identifier of [...new Set(identifiers.filter(Boolean))]) {
+    await tx
+      .update(webhookEvents)
+      .set({ payload: { redacted: true, reason: "account_erasure" } })
+      .where(
+        and(
+          eq(webhookEvents.provider, "revenuecat"),
+          or(
+            sql`${webhookEvents.payload}->'event'->>'app_user_id' = ${identifier}`,
+            sql`${webhookEvents.payload}->'event'->>'original_app_user_id' = ${identifier}`,
+            sql`${webhookEvents.payload}->'event'->'aliases' ? ${identifier}`
+          )
+        )
+      );
+  }
+}
+
+export async function redactByIds(ids: string[], tx: Executor = db): Promise<void> {
+  if (ids.length === 0) return;
+  await tx
+    .update(webhookEvents)
+    .set({ payload: { redacted: true, reason: "account_erasure" } })
+    .where(inArray(webhookEvents.id, [...new Set(ids)]));
+}
+
+/** Retain the delivery ledger while removing raw provider payloads after 30 days. */
+export async function redactExpiredPayloads(before: Date, tx: Executor = db): Promise<void> {
+  await tx
+    .update(webhookEvents)
+    .set({ payload: { redacted: true, reason: "retention" } })
+    .where(and(eq(webhookEvents.provider, "revenuecat"), lt(webhookEvents.receivedAt, before)));
 }

@@ -8,6 +8,8 @@ import { deleteObject, extractKeyFromUrl } from "./r2.service";
 import { invalidateProfileTargetCache } from "./dashboard-cache.service";
 import { getEffectiveSettings } from "./settings.service";
 import { calculateTargets, deriveMacroTargets, type ActivityLevel } from "./tdee.service";
+import { AppUpdateRequiredError } from "../lib/errors";
+import { env } from "../env";
 
 export type AccountStatus = "dormant" | "free_trial" | "free_plan" | "paid";
 
@@ -116,6 +118,13 @@ export async function updateUserProfile(
   Object.assign(patch, buildTargetPatch(user, patch));
 
   if (input.activationIntent === "start_free_trial") {
+    if (
+      env.NODE_ENV === "production" ||
+      env.BILLING_PROVIDER === "revenuecat" ||
+      env.REVENUECAT_LEGACY_MUTATIONS !== "enabled"
+    ) {
+      throw new AppUpdateRequiredError();
+    }
     const settings = await getEffectiveSettings(user.id);
     if (!settings.effective.trialsEnabled) {
       throw new ForbiddenError("Free trial is unavailable");

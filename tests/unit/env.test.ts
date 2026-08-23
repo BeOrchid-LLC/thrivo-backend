@@ -68,4 +68,35 @@ describe("env policy", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("requires RevenueCat catalog configuration in production RevenueCat mode", () => {
+    const key = Buffer.alloc(32, 7).toString("base64");
+    const result = envSchema.safeParse({
+      ...base,
+      NODE_ENV: "production",
+      BILLING_PROVIDER: "revenuecat",
+      REVENUECAT_SECRET_API_KEY: "rc_secret",
+      REVENUECAT_WEBHOOK_AUTH: "rc_webhook",
+      REVENUECAT_ENTITLEMENT_ID: "Thrivo Premium",
+      REVENUECAT_PRODUCT_CATALOG: JSON.stringify({
+        app_store: {
+          monthly: "thrivo_premium_monthly",
+          annual: "thrivo_premium_annual",
+        },
+        play_store: {
+          monthly: "thrivo_premium_monthly",
+          annual: "thrivo_premium_annual",
+        },
+      }),
+      RESEND_API_KEY: "re_live_key",
+      RESEND_WEBHOOK_SECRET: "whsec_resend",
+      EMAIL_LINK_SECRET: "l".repeat(32),
+      EMAIL_OUTBOX_ACTIVE_KEY_ID: "primary",
+      EMAIL_OUTBOX_ENCRYPTION_KEYS: JSON.stringify({ primary: key }),
+      AUTH_BASE_URL: "https://api.thrivo.fit",
+      PUBLIC_APP_URL: "https://thrivo.fit",
+      ADMIN_APP_URL: "https://admin.thrivo.fit",
+    });
+    expect(result.success).toBe(true);
+  });
 });

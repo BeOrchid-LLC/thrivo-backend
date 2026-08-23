@@ -4,8 +4,9 @@ import { updateUserSettingsPayloadSchema } from "../../contracts/src/settings";
 import { respondOk } from "../lib/response";
 import { toUserProfile } from "../mappers/user-profile.mapper";
 import { getValidatedInput } from "../middleware/validate";
-import { userRepo } from "../repositories";
 import { updateUserProfile } from "../services/user.service";
+import { requestAccountErasure } from "../services/account-erasure.service";
+import { UnauthorizedError } from "../lib/errors";
 import { getUserSettings, updateUserSettings } from "../services/settings.service";
 import type { AppEnv } from "../types/http";
 
@@ -40,7 +41,10 @@ export async function updateMySettings(c: Context<AppEnv>) {
 
 /** DELETE /users/me — GDPR soft delete of the caller's own account. */
 export async function deleteMe(c: Context<AppEnv>) {
-  const user = c.get("user")!;
-  await userRepo.softDeleteUser(user.id);
-  return respondOk(c, null, "Account deleted");
+  const principal = c.get("principal");
+  const user = c.get("user");
+  if (!principal) throw new UnauthorizedError("Authentication required");
+  if (!user) return respondOk(c, null, "Account deletion is already queued", 202);
+  await requestAccountErasure(user.id, principal.subjectId, user.email);
+  return respondOk(c, null, "Account deletion is queued", 202);
 }

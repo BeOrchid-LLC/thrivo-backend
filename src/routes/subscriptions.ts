@@ -9,15 +9,39 @@ import {
   postCancelSubscription,
   postPurchaseSubscription,
   postStartTrial,
+  postSyncSubscription,
 } from "../controllers/subscriptions.controller";
 import { requireAuth } from "../middleware/require-auth";
 import { validate } from "../middleware/validate";
 import type { AppEnv } from "../types/http";
+import { rateLimit } from "../middleware/rate-limit";
+import { ValidationError } from "../lib/errors";
+import { createMiddleware } from "hono/factory";
 
 export const subscriptionsRouter = new Hono<AppEnv>();
 
+const requireEmptySyncBody = createMiddleware<AppEnv>(async (c, next) => {
+  const bytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
+  if (bytes.length > 0) {
+    throw new ValidationError("Subscription sync does not accept a request body");
+  }
+  await next();
+});
+
 subscriptionsRouter.use(requireAuth);
 subscriptionsRouter.get("/me", getMySubscription);
+subscriptionsRouter.post(
+  "/sync",
+  rateLimit({
+    windowSec: 60,
+    max: 10,
+    keyPrefix: "subscription-sync-user",
+    key: (c) => c.get("user")?.id ?? "anonymous",
+  }),
+  rateLimit({ windowSec: 60, max: 60, keyPrefix: "subscription-sync-ip" }),
+  requireEmptySyncBody,
+  postSyncSubscription
+);
 subscriptionsRouter.post("/trial", validate("json", startTrialPayloadSchema), postStartTrial);
 subscriptionsRouter.post(
   "/purchase",

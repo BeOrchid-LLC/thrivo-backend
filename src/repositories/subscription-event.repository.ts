@@ -16,7 +16,14 @@ export async function insert(
   input: NewSubscriptionEventRow,
   tx: Executor = db
 ): Promise<SubscriptionEvent> {
-  const [row] = await tx.insert(subscriptionEvents).values(input).returning();
+  const [row] = await tx
+    .insert(subscriptionEvents)
+    .values(input)
+    // The raw-event unique index is partial (legacy rows have NULL raw IDs),
+    // so use PostgreSQL's general conflict arbiter rather than naming the
+    // column and failing to infer the partial index.
+    .onConflictDoNothing()
+    .returning();
   return row;
 }
 
@@ -50,6 +57,12 @@ export async function countByTypeInRange(
     trial_cancelled: 0,
     renewed: 0,
     expired: 0,
+    canceled: 0,
+    billing_issue: 0,
+    refunded: 0,
+    refund_reversed: 0,
+    product_changed: 0,
+    subscription_extended: 0,
   };
   for (const row of rows) result[row.eventType] = row.count;
   return result;
@@ -72,10 +85,38 @@ export async function sumPriceAmountCentsByUser(
   tx: Executor = db
 ): Promise<number | null> {
   const [row] = await tx
-    .select({ total: sql<number | null>`sum(${subscriptionEvents.priceAmountCents})::int` })
+    .select({
+      total: sql<number | null>`sum(${subscriptionEvents.priceAmountCents})::int`,
+      priced: sql<number>`count(${subscriptionEvents.priceAmountCents})::int`,
+      unknownCurrency: sql<number>`count(*) filter (where ${subscriptionEvents.priceAmountCents} is not null and ${subscriptionEvents.currency} is null)::int`,
+      currencies: sql<number>`count(distinct ${subscriptionEvents.currency})::int`,
+    })
     .from(subscriptionEvents)
     .where(eq(subscriptionEvents.userId, userId));
-  return row?.total ?? null;
+  if (!row || row.priced === 0 || row.unknownCurrency > 0 || row.currencies !== 1) return null;
+  return row.total ?? null;
+}
+
+export async function sumPriceAmountCentsByCurrencyByUser(
+  userId: string,
+  tx: Executor = db
+): Promise<{ amountCents: number; currency: string | null }[]> {
+  const rows = await tx
+    .select({
+      amountCents: sql<number>`sum(${subscriptionEvents.priceAmountCents})::int`,
+      currency: subscriptionEvents.currency,
+    })
+    .from(subscriptionEvents)
+    .where(eq(subscriptionEvents.userId, userId))
+    .groupBy(subscriptionEvents.currency);
+  return rows
+    .filter(
+      (row): row is { amountCents: number; currency: string | null } => row.amountCents !== null
+    )
+    .map((row) => ({
+      amountCents: row.amountCents,
+      currency: row.currency ? row.currency.toUpperCase() : null,
+    }));
 }
 
 /** scripts/backfill-subscription-event-prices.ts — write the reconstructed price. */

@@ -1,6 +1,7 @@
 // Namespaced repository barrel. Services import e.g. `userRepo.findById(...)`.
 // Namespacing avoids collisions between same-named intent functions across repos.
 export * as userRepo from "./user.repository";
+export * as accountErasureRepo from "./account-erasure.repository";
 export * as foodItemRepo from "./food-item.repository";
 export * as foodLogRepo from "./food-log.repository";
 export * as foodFavoriteRepo from "./food-favorite.repository";
@@ -22,6 +23,7 @@ export * as emailOutboxRepo from "./email-outbox.repository";
 export * as emailSuppressionRepo from "./email-suppression.repository";
 export * as pushTokenRepo from "./push-token.repository";
 export * as webhookEventRepo from "./webhook-event.repository";
+export * as webhookIdentityOwnershipRepo from "./webhook-identity-ownership.repository";
 export * as adminAuditLogRepo from "./admin-audit-log.repository";
 export * as adminUserRepo from "./admin-user.repository";
 export * as adminAccountRepo from "./admin-account.repository";

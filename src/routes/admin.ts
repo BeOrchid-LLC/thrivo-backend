@@ -11,6 +11,8 @@ import {
   adminRequestPasswordResetPayloadSchema,
   adminResetPasswordPayloadSchema,
   adminChangePasswordPayloadSchema,
+  adminRetryErasurePayloadSchema,
+  adminWebhookReprocessPayloadSchema,
 } from "../../contracts/src/admin";
 import {
   adminInvitePayloadSchema,
@@ -50,6 +52,8 @@ import {
   getAdminUserTimeline,
   getAdminUserActivity,
   hardDeleteAdminUser,
+  listAdminAccountErasures,
+  retryAdminAccountErasure,
 } from "../controllers/admin-users.controller";
 import { getAdminDashboardMetrics } from "../controllers/admin-metrics.controller";
 import {
@@ -80,6 +84,7 @@ import {
   getAdminUserBillingEvents,
   listAdminWebhooks,
   getAdminWebhook,
+  reprocessAdminWebhook,
   reconcileAdminUserSubscription,
 } from "../controllers/admin-billing.controller";
 import {
@@ -181,6 +186,19 @@ adminRouter.get("/users/:id/timeline", requireAdmin, getAdminUserTimeline);
 adminRouter.get("/users/:id/activity", requireAdmin, getAdminUserActivity);
 // Destructive: hard delete is admin-only (support/read-only get 403).
 adminRouter.delete("/users/:id", requireAdmin, requireAdminRole("admin"), hardDeleteAdminUser);
+adminRouter.get(
+  "/account-erasures",
+  requireAdmin,
+  requireAdminRole("admin"),
+  listAdminAccountErasures
+);
+adminRouter.post(
+  "/account-erasures/:id/retry",
+  requireAdmin,
+  requireAdminRole("admin"),
+  validate("json", adminRetryErasurePayloadSchema),
+  retryAdminAccountErasure
+);
 
 // Subscription actions on a specific user (operator overrides, audited).
 // Money-adjacent → admin-only.
@@ -270,6 +288,13 @@ adminRouter.post(
 adminRouter.get("/billing/events", requireAdmin, listAdminBillingEvents);
 adminRouter.get("/webhooks", requireAdmin, listAdminWebhooks);
 adminRouter.get("/webhooks/:id", requireAdmin, requireAdminRole("admin"), getAdminWebhook);
+adminRouter.post(
+  "/webhooks/:id/reprocess",
+  requireAdmin,
+  requireAdminRole("admin"),
+  validate("json", adminWebhookReprocessPayloadSchema),
+  reprocessAdminWebhook
+);
 
 // Push campaigns/broadcast. Reads + audience estimate for any admin; create is
 // support+; send (irreversible, outward-facing) is admin-only. "audience-estimate"

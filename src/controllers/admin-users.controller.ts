@@ -2,9 +2,17 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { respondOk } from "../lib/response";
 import { NotFoundError, ValidationError } from "../lib/errors";
+import { accountErasureRepo, adminUserRepo, userRepo } from "../repositories";
+import {
+  adminActivityTypeSchema,
+  adminDeleteUserPayloadSchema,
+  adminRetryErasurePayloadSchema,
+} from "../../contracts/src/admin";
+import { requestAccountErasure } from "../services/account-erasure.service";
+import { retryAccountErasure } from "../services/account-erasure.service";
+import * as adminAuditLogRepo from "../repositories/admin-audit-log.repository";
 import { getClientIp } from "../lib/request-ip";
-import { adminUserRepo } from "../repositories";
-import { adminActivityTypeSchema } from "../../contracts/src/admin";
+import { getValidatedInput } from "../middleware/validate";
 import { getUserTimeline } from "../services/admin-timeline.service";
 import { getUserActivity } from "../services/admin-activity.service";
 import type { AppEnv } from "../types/http";
@@ -57,17 +65,66 @@ export async function getAdminUserActivity(c: Context<AppEnv>) {
 }
 
 /**
- * DELETE /admin/users/:id — permanent hard delete for test teardown.
- * Cascades FK-linked rows (food_logs, sessions, etc.) via the DB constraint.
- * Returns 200 with a null ack envelope whether or not the user existed (idempotent).
+ * DELETE /admin/users/:id — enqueue the same durable erasure workflow used by users.
  */
 export async function hardDeleteAdminUser(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
-  const admin = c.get("adminUser")!;
-  await adminUserRepo.hardDeleteUser(id, {
-    actorAdminEmail: admin.email,
+  const payload = adminDeleteUserPayloadSchema.parse({
+    confirmationEmail: c.req.query("confirmationEmail"),
+  });
+  const user = await userRepo.findById(id);
+  if (!user) return respondOk(c, null, "Erasure already queued", 202);
+  if (payload.confirmationEmail.toLowerCase() !== user.email.toLowerCase()) {
+    throw new ValidationError("Confirmation email does not match the current user");
+  }
+  await requestAccountErasure(user.id, user.authSubjectId ?? user.id, user.email);
+  await adminAuditLogRepo.append({
+    actorAdminEmail: c.get("adminUser")!.email,
+    action: "account_erasure.queued",
+    targetType: "user",
+    targetId: id,
     requestId: c.get("requestId") ?? null,
     ip: getClientIp(c),
   });
-  return respondOk(c, null, "User deleted permanently");
+  return respondOk(c, null, "Account erasure queued", 202);
+}
+
+export async function listAdminAccountErasures(c: Context<AppEnv>) {
+  const rows = await accountErasureRepo.list(Number(c.req.query("limit") ?? 100));
+  return respondOk(c, {
+    erasures: rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      requestedAt: row.requestedAt.toISOString(),
+      completedAt: row.completedAt?.toISOString() ?? null,
+      lastErrorCode: row.lastErrorCode,
+      attempts: row.attempts,
+      consecutiveFailures: row.consecutiveFailures,
+      nextAttemptAt: row.nextAttemptAt.toISOString(),
+      processingStartedAt: row.processingStartedAt?.toISOString() ?? null,
+      leaseExpiresAt: row.leaseExpiresAt?.toISOString() ?? null,
+      phase: row.phase,
+      canRetry: row.status === "failed" || row.status === "retryable",
+    })),
+  });
+}
+
+export async function retryAdminAccountErasure(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  adminRetryErasurePayloadSchema.parse(getValidatedInput(c, "json"));
+  const request = await accountErasureRepo.findById(id);
+  if (!request) throw new NotFoundError("Erasure request not found");
+  if (request.status !== "failed") {
+    throw new ValidationError("Only failed erasures can be retried");
+  }
+  await retryAccountErasure(id);
+  await adminAuditLogRepo.append({
+    actorAdminEmail: c.get("adminUser")!.email,
+    action: "account_erasure.retry",
+    targetType: "account_erasure",
+    targetId: id,
+    requestId: c.get("requestId") ?? null,
+    ip: getClientIp(c),
+  });
+  return respondOk(c, null, "Erasure retry queued");
 }

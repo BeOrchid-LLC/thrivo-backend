@@ -42,10 +42,20 @@ export async function verifyRequest(headers: Headers): Promise<AuthPrincipal | n
       email: payload.email as string,
       emailVerified: (payload.email_verified as boolean) ?? true,
       name: payload.name as string | undefined,
+      factorVerificationAge: parseFva(payload.fva),
+      reverificationId:
+        typeof payload.reverification_id === "string" ? payload.reverification_id : undefined,
     };
   } catch {
     return null;
   }
+}
+
+function parseFva(value: unknown): readonly [number, number] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const first = value[0];
+  const second = value[1];
+  return typeof first === "number" && typeof second === "number" ? [first, second] : null;
 }
 
 /**

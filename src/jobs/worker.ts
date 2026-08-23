@@ -8,6 +8,17 @@ import { seedStarterTips } from "./seed-tips";
 import { logger } from "../lib/logger";
 import { closeDb } from "../../db";
 import { closeRedis } from "../lib/redis";
+import * as Sentry from "@sentry/node";
+import { env } from "../env";
+
+if (env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: env.SENTRY_DSN,
+    environment: env.NODE_ENV,
+    release: env.GIT_SHA,
+    tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 1.0,
+  });
+}
 
 // Separate process (Coolify service `thrivo-worker`, count=1) so API replicas never
 // double-fire scheduled sends. Live queues:
@@ -97,6 +108,21 @@ async function registerSchedulers(): Promise<void> {
     "reconcile-resend-events",
     { every: 60_000 },
     { name: "reconcile-resend-events", data: {} }
+  );
+  await maintenance.upsertJobScheduler(
+    "process-account-erasure",
+    { every: 30_000 },
+    { name: "process-account-erasure", data: {} }
+  );
+  await maintenance.upsertJobScheduler(
+    "redact-webhook-payloads",
+    { pattern: "15 2 * * *", tz: "UTC" },
+    { name: "redact-webhook-payloads", data: {} }
+  );
+  await maintenance.upsertJobScheduler(
+    "purge-erasure-proofs",
+    { pattern: "45 2 * * *", tz: "UTC" },
+    { name: "purge-erasure-proofs", data: {} }
   );
   logger.info(
     { queue: QUEUE_NAMES.maintenance, schedulerId: "reconcile-resend-events", everyMs: 60_000 },
@@ -211,6 +237,7 @@ async function shutdown(signal: string): Promise<void> {
   logger.info("worker redis connection closed");
   await closeDb();
   logger.info("worker database connection closed");
+  await Sentry.flush(2000);
   logger.info({ signal }, "thrivo-worker shutdown complete");
   process.exit(0);
 }
@@ -220,5 +247,7 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 
 main().catch((err) => {
   logger.fatal({ err }, "thrivo-worker failed to start");
+  Sentry.captureException(err);
+  void Sentry.flush(2000);
   process.exit(1);
 });

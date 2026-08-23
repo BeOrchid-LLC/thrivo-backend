@@ -8,6 +8,12 @@ const SUBSCRIPTION_EVENT_TITLES: Record<string, string> = {
   trial_cancelled: "Trial cancelled",
   renewed: "Renewed",
   expired: "Expired",
+  canceled: "Canceled",
+  billing_issue: "Billing issue",
+  refunded: "Refunded",
+  refund_reversed: "Refund reversed",
+  product_changed: "Product changed",
+  subscription_extended: "Subscription extended",
 };
 
 function formatUsdCents(cents: number): string {

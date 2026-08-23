@@ -3,6 +3,8 @@ import { verifyRequest } from "../auth";
 import { userRepo } from "../repositories";
 import { resolveUser } from "../services/identity.service";
 import { recordActivity } from "../services/activity.service";
+import { accountErasureRepo } from "../repositories";
+import { identityDigest } from "../services/account-erasure.service";
 import type { AppEnv } from "../types/http";
 
 /**
@@ -18,6 +20,11 @@ import type { AppEnv } from "../types/http";
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const principal = await verifyRequest(c.req.raw.headers);
   if (principal) {
+    c.set("principal", principal);
+    if (await accountErasureRepo.hasActiveTombstone("clerk", identityDigest(principal.subjectId))) {
+      await next();
+      return;
+    }
     let user = await userRepo.findByAuthSubjectId(principal.subjectId);
     if (!user) {
       const resolved = await resolveUser(principal);

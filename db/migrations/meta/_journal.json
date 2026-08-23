@@ -260,6 +260,41 @@
       "when": 1785827784992,
       "tag": "0036_flashy_giant_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1787414016741,
+      "tag": "0037_fearless_owl",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1787438205804,
+      "tag": "0038_concerned_hellcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1787439000000,
+      "tag": "0039_billing_erasure_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1787439600000,
+      "tag": "0040_billing_event_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1787440200000,
+      "tag": "0041_subscription_event_idempotency",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,8 @@
-import { and, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { subscriptions, type NewSubscriptionRow, type SubscriptionRow } from "../../db/schema";
+import { metric } from "../lib/metrics";
 
 export type Subscription = SubscriptionRow;
 
@@ -31,11 +32,9 @@ export async function getByUserIds(userIds: string[], tx: Executor = db): Promis
  * skips the update and `RETURNING` yields nothing: the caller sees `null` and
  * must treat that as "stale event, no-op" rather than an error.
  *
- * Ties (equal `last_event_at`, e.g. two events sharing a timestamp) resolve to
- * "first to commit wins" — the second's `<` comparison fails once the first has
- * written. Acceptable here: RevenueCat/Stripe timestamps are millisecond-precision,
- * so true ties are rare, and first-committed-wins is still a consistent, race-free
- * outcome (never a torn write).
+ * Snapshots win timestamp ties: a webhook requires both source timestamps to be
+ * strictly older, while a snapshot permits an equal webhook timestamp. This
+ * prevents a delayed delivery from reverting an authoritative server fetch.
  */
 export async function upsertFromWebhook(
   input: NewSubscriptionRow,
@@ -43,17 +42,32 @@ export async function upsertFromWebhook(
 ): Promise<Subscription | null> {
   const { id: _id, createdAt: _c, ...set } = input;
   const eventAt = input.lastEventAt;
+  const hasWebhookTimestamp = Object.hasOwn(input, "lastWebhookAt");
+  const lastWebhookAt = input.lastWebhookAt ?? eventAt;
+  const hasSnapshotTimestamp = Object.hasOwn(input, "lastSyncedAt");
   const [row] = await tx
     .insert(subscriptions)
     .values(input)
     .onConflictDoUpdate({
       target: subscriptions.userId,
-      set,
-      setWhere: eventAt
-        ? or(isNull(subscriptions.lastEventAt), lt(subscriptions.lastEventAt, eventAt))
-        : undefined,
+      set: hasWebhookTimestamp ? { ...set, lastWebhookAt } : set,
+      setWhere:
+        hasWebhookTimestamp && eventAt
+          ? and(
+              or(isNull(subscriptions.lastWebhookAt), lt(subscriptions.lastWebhookAt, eventAt)),
+              or(isNull(subscriptions.lastSyncedAt), lt(subscriptions.lastSyncedAt, eventAt))
+            )
+          : hasSnapshotTimestamp && eventAt
+            ? and(
+                or(isNull(subscriptions.lastSyncedAt), lt(subscriptions.lastSyncedAt, eventAt)),
+                or(isNull(subscriptions.lastWebhookAt), lte(subscriptions.lastWebhookAt, eventAt))
+              )
+            : undefined,
     })
     .returning();
+  if (!row && (hasWebhookTimestamp || hasSnapshotTimestamp)) {
+    metric("billing.projection.stale_write_rejected");
+  }
   return row ?? null;
 }
 
@@ -129,4 +143,23 @@ export async function listTrialsEndingWithin(
         lte(subscriptions.trialEnd, to)
       )
     );
+}
+
+/** Bounded backstop page of live subscriptions for RevenueCat refresh. */
+export async function listLiveForReconcile(
+  limit = 100,
+  afterId: string | null = null,
+  tx: Executor = db
+): Promise<Subscription[]> {
+  return tx
+    .select()
+    .from(subscriptions)
+    .where(
+      and(
+        inArray(subscriptions.status, ["trialing", "active", "in_grace", "past_due", "canceled"]),
+        afterId ? gt(subscriptions.id, afterId) : undefined
+      )
+    )
+    .orderBy(asc(subscriptions.id))
+    .limit(limit);
 }
