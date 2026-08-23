@@ -76,10 +76,13 @@ describe.skipIf(!run)("integration: admin RBAC capability gates", () => {
     const bearer = bearerFor("admin");
     const user = await makeUser();
 
-    const del = await app.request(`/api/v1/admin/users/${user.id}`, {
-      method: "DELETE",
-      headers: { authorization: bearer, Origin: ALLOWED_ORIGIN },
-    });
-    expect(del.status).toBe(200);
+    const del = await app.request(
+      `/api/v1/admin/users/${user.id}?confirmationEmail=${encodeURIComponent(user.email)}`,
+      {
+        method: "DELETE",
+        headers: { authorization: bearer, Origin: ALLOWED_ORIGIN },
+      }
+    );
+    expect(del.status).toBe(202);
   });
 });
