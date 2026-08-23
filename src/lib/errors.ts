@@ -91,6 +91,16 @@ export class UpstreamError extends AppError {
   }
 }
 
+/** Stable 503 shape used by the mobile post-purchase sync retry loop. */
+export class BillingSyncUnavailableError extends AppError {
+  constructor(message = "Subscription activation is temporarily unavailable", details?: unknown) {
+    super("UPSTREAM_ERROR", message, 503, {
+      reason: "BILLING_SYNC_UNAVAILABLE",
+      ...(details && typeof details === "object" ? details : {}),
+    });
+  }
+}
+
 export class AppUpdateRequiredError extends AppError {
   constructor(message = "Please update Thrivo to continue") {
     super("APP_UPDATE_REQUIRED", message, 426);

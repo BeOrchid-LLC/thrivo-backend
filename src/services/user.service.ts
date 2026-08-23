@@ -118,7 +118,11 @@ export async function updateUserProfile(
   Object.assign(patch, buildTargetPatch(user, patch));
 
   if (input.activationIntent === "start_free_trial") {
-    if (env.NODE_ENV === "production" || env.BILLING_PROVIDER === "revenuecat") {
+    if (
+      env.NODE_ENV === "production" ||
+      env.BILLING_PROVIDER === "revenuecat" ||
+      env.REVENUECAT_LEGACY_MUTATIONS !== "enabled"
+    ) {
       throw new AppUpdateRequiredError();
     }
     const settings = await getEffectiveSettings(user.id);

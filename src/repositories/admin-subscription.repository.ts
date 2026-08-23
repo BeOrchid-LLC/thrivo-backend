@@ -26,6 +26,8 @@ function toAdminStatus(status: SubStatus): AdminSubscriptionStatus {
       return "canceled";
     case "expired":
       return "expired";
+    case "none":
+      return "expired";
   }
 }
 

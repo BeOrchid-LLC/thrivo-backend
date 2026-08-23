@@ -8,6 +8,9 @@ import { handleRelayEmailOutbox } from "./relay-email-outbox";
 import { handleSnapshotMrr } from "./snapshot-mrr";
 import { handleReconcileResendEvents } from "./reconcile-resend-events";
 import { handleProcessAccountErasure } from "./process-account-erasure";
+import { handleDeleteRevenueCatCustomer } from "./delete-revenuecat-customer";
+import { handleRedactWebhookPayloads } from "./redact-webhook-payloads";
+import { handlePurgeErasureProofs } from "./purge-erasure-proofs";
 
 /**
  * Router for the `maintenance` queue. Scheduled system jobs share one queue and
@@ -23,6 +26,9 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
   "snapshot-mrr": handleSnapshotMrr,
   "reconcile-resend-events": handleReconcileResendEvents,
   "process-account-erasure": handleProcessAccountErasure,
+  "delete-revenuecat-customer": handleDeleteRevenueCatCustomer,
+  "redact-webhook-payloads": handleRedactWebhookPayloads,
+  "purge-erasure-proofs": handlePurgeErasureProofs,
 };
 
 export async function handleMaintenance(job: Job): Promise<void> {

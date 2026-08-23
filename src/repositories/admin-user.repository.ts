@@ -124,7 +124,8 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
 
   const trialStarted = subscriptionEvents.find((e) => e.eventType === "trial_started") ?? null;
   const trialConverted = subscriptionEvents.find((e) => e.eventType === "trial_converted") ?? null;
-  const firstPriced = subscriptionEvents.find((e) => e.priceAmountCents !== null) ?? null;
+  const firstPriced =
+    subscriptionEvents.find((e) => e.priceAmountCents !== null && e.priceAmountCents > 0) ?? null;
 
   return {
     device: device
@@ -143,12 +144,10 @@ async function findDetailExtras(userId: string): Promise<AdminUserDetailExtras> 
           revenueToDateCents,
           revenueTotalsByCurrency,
           firstCharge:
-            firstPriced?.priceAmountCents !== null &&
-            firstPriced?.priceAmountCents !== undefined &&
-            firstPriced.currency
+            firstPriced?.priceAmountCents !== null && firstPriced?.priceAmountCents !== undefined
               ? {
                   amountCents: firstPriced.priceAmountCents,
-                  currency: firstPriced.currency.toUpperCase(),
+                  currency: firstPriced.currency?.toUpperCase() ?? null,
                 }
               : null,
           lastSyncedAt: subscriptionRow.lastSyncedAt?.toISOString() ?? null,

@@ -13,6 +13,12 @@ export const adminSubscriptionEventTypeSchema = z.enum([
   "trial_cancelled",
   "renewed",
   "expired",
+  "canceled",
+  "billing_issue",
+  "refunded",
+  "refund_reversed",
+  "product_changed",
+  "subscription_extended",
 ]);
 export type AdminSubscriptionEventType = z.infer<typeof adminSubscriptionEventTypeSchema>;
 
@@ -42,7 +48,7 @@ export const adminUserBillingEventsResponseSchema = z.object({
 export type AdminUserBillingEventsResponse = z.infer<typeof adminUserBillingEventsResponseSchema>;
 
 export const adminWebhookProviderSchema = z.enum(["revenuecat", "stripe", "resend"]);
-export const adminWebhookStatusSchema = z.enum(["received", "processed", "failed"]);
+export const adminWebhookStatusSchema = z.enum(["received", "processed", "failed", "quarantined"]);
 
 export const adminWebhookEventRowSchema = z.object({
   id: idSchema,
@@ -60,6 +66,7 @@ export type AdminWebhookEventListResponse = z.infer<typeof adminWebhookEventList
 /** Detail includes the raw payload — admin-role only (may carry PII). */
 export const adminWebhookEventDetailSchema = adminWebhookEventRowSchema.extend({
   payload: z.unknown(),
+  payloadRedacted: z.boolean().default(false),
 });
 export const adminWebhookEventDetailResponseSchema = z.object({
   webhook: adminWebhookEventDetailSchema,

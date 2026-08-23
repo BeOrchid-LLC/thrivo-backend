@@ -11,6 +11,8 @@ import {
   adminRequestPasswordResetPayloadSchema,
   adminResetPasswordPayloadSchema,
   adminChangePasswordPayloadSchema,
+  adminRetryErasurePayloadSchema,
+  adminWebhookReprocessPayloadSchema,
 } from "../../contracts/src/admin";
 import {
   adminInvitePayloadSchema,
@@ -82,6 +84,7 @@ import {
   getAdminUserBillingEvents,
   listAdminWebhooks,
   getAdminWebhook,
+  reprocessAdminWebhook,
   reconcileAdminUserSubscription,
 } from "../controllers/admin-billing.controller";
 import {
@@ -193,6 +196,7 @@ adminRouter.post(
   "/account-erasures/:id/retry",
   requireAdmin,
   requireAdminRole("admin"),
+  validate("json", adminRetryErasurePayloadSchema),
   retryAdminAccountErasure
 );
 
@@ -284,6 +288,13 @@ adminRouter.post(
 adminRouter.get("/billing/events", requireAdmin, listAdminBillingEvents);
 adminRouter.get("/webhooks", requireAdmin, listAdminWebhooks);
 adminRouter.get("/webhooks/:id", requireAdmin, requireAdminRole("admin"), getAdminWebhook);
+adminRouter.post(
+  "/webhooks/:id/reprocess",
+  requireAdmin,
+  requireAdminRole("admin"),
+  validate("json", adminWebhookReprocessPayloadSchema),
+  reprocessAdminWebhook
+);
 
 // Push campaigns/broadcast. Reads + audience estimate for any admin; create is
 // support+; send (irreversible, outward-facing) is admin-only. "audience-estimate"

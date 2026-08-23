@@ -19,6 +19,7 @@ export type Entitlement = z.infer<typeof entitlementSchema>;
 export const subscriptionPlanInfoSchema = z.object({
   plan: subscriptionPlanSchema,
   productId: z.string(),
+  /** @deprecated Store-localized pricing comes from RevenueCat packages. */
   priceLabel: z.string(),
   billingPeriodLabel: z.string(),
 });
@@ -29,11 +30,13 @@ export const subscriptionStateSchema = z.object({
   status: publicSubscriptionStatusSchema,
   plan: subscriptionPlanSchema.nullable(),
   productId: z.string().nullable(),
+  /** @deprecated Store-localized pricing comes from RevenueCat packages. */
   priceLabel: z.string().nullable(),
   renewsAt: z.string().nullable(),
   accessEndsAt: z.string().nullable(),
   cancelAtPeriodEnd: z.boolean(),
   trialUsed: z.boolean(),
+  /** @deprecated Trial eligibility and duration are store-managed. */
   trialDays: z.number().int().positive(),
   plans: z.array(subscriptionPlanInfoSchema),
   /** Whether the backend is ready to accept store purchases. */
@@ -47,6 +50,11 @@ export const subscriptionResponseSchema = apiSuccessSchema(
   z.object({ subscription: subscriptionStateSchema })
 );
 export type SubscriptionResponse = z.infer<typeof subscriptionResponseSchema>;
+
+/** Stable error details returned while server-side RevenueCat sync is unavailable. */
+export const billingSyncUnavailableDetailsSchema = z.object({
+  reason: z.literal("BILLING_SYNC_UNAVAILABLE"),
+});
 
 export const startTrialPayloadSchema = z.object({
   plan: subscriptionPlanSchema.default("monthly"),

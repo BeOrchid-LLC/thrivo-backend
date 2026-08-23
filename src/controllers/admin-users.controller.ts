@@ -3,9 +3,16 @@ import { z } from "zod";
 import { respondOk } from "../lib/response";
 import { NotFoundError, ValidationError } from "../lib/errors";
 import { accountErasureRepo, adminUserRepo, userRepo } from "../repositories";
-import { adminActivityTypeSchema, adminDeleteUserPayloadSchema } from "../../contracts/src/admin";
+import {
+  adminActivityTypeSchema,
+  adminDeleteUserPayloadSchema,
+  adminRetryErasurePayloadSchema,
+} from "../../contracts/src/admin";
 import { requestAccountErasure } from "../services/account-erasure.service";
 import { retryAccountErasure } from "../services/account-erasure.service";
+import * as adminAuditLogRepo from "../repositories/admin-audit-log.repository";
+import { getClientIp } from "../lib/request-ip";
+import { getValidatedInput } from "../middleware/validate";
 import { getUserTimeline } from "../services/admin-timeline.service";
 import { getUserActivity } from "../services/admin-activity.service";
 import type { AppEnv } from "../types/http";
@@ -66,16 +73,20 @@ export async function hardDeleteAdminUser(c: Context<AppEnv>) {
     confirmationEmail: c.req.query("confirmationEmail"),
   });
   const user = await userRepo.findById(id);
-  if (!user) return respondOk(c, null, "Erasure already queued");
+  if (!user) return respondOk(c, null, "Erasure already queued", 202);
   if (payload.confirmationEmail.toLowerCase() !== user.email.toLowerCase()) {
     throw new ValidationError("Confirmation email does not match the current user");
   }
-  const request = await requestAccountErasure(user.id, user.authSubjectId ?? user.id, user.email);
-  return respondOk(
-    c,
-    null,
-    request.status === "completed" ? "Erasure completed" : "Erasure queued"
-  );
+  await requestAccountErasure(user.id, user.authSubjectId ?? user.id, user.email);
+  await adminAuditLogRepo.append({
+    actorAdminEmail: c.get("adminUser")!.email,
+    action: "account_erasure.queued",
+    targetType: "user",
+    targetId: id,
+    requestId: c.get("requestId") ?? null,
+    ip: getClientIp(c),
+  });
+  return respondOk(c, null, "Account erasure queued", 202);
 }
 
 export async function listAdminAccountErasures(c: Context<AppEnv>) {
@@ -88,12 +99,32 @@ export async function listAdminAccountErasures(c: Context<AppEnv>) {
       completedAt: row.completedAt?.toISOString() ?? null,
       lastErrorCode: row.lastErrorCode,
       attempts: row.attempts,
+      consecutiveFailures: row.consecutiveFailures,
+      nextAttemptAt: row.nextAttemptAt.toISOString(),
+      processingStartedAt: row.processingStartedAt?.toISOString() ?? null,
+      leaseExpiresAt: row.leaseExpiresAt?.toISOString() ?? null,
+      phase: row.phase,
+      canRetry: row.status === "failed" || row.status === "retryable",
     })),
   });
 }
 
 export async function retryAdminAccountErasure(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
+  adminRetryErasurePayloadSchema.parse(getValidatedInput(c, "json"));
+  const request = await accountErasureRepo.findById(id);
+  if (!request) throw new NotFoundError("Erasure request not found");
+  if (request.status !== "failed") {
+    throw new ValidationError("Only failed erasures can be retried");
+  }
   await retryAccountErasure(id);
+  await adminAuditLogRepo.append({
+    actorAdminEmail: c.get("adminUser")!.email,
+    action: "account_erasure.retry",
+    targetType: "account_erasure",
+    targetId: id,
+    requestId: c.get("requestId") ?? null,
+    ip: getClientIp(c),
+  });
   return respondOk(c, null, "Erasure retry queued");
 }

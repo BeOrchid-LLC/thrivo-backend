@@ -191,5 +191,13 @@ export async function findWebhookDetail(
 ): Promise<AdminWebhookEventDetailResponse["webhook"] | null> {
   const [row] = await db.select().from(webhookEvents).where(eq(webhookEvents.id, id)).limit(1);
   if (!row) return null;
-  return { ...toWebhookRow(row), payload: row.payload };
+  return {
+    ...toWebhookRow(row),
+    payload: row.payload,
+    payloadRedacted: Boolean(
+      row.payload &&
+      typeof row.payload === "object" &&
+      (row.payload as { redacted?: boolean }).redacted === true
+    ),
+  };
 }

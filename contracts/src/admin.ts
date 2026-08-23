@@ -164,6 +164,19 @@ export const adminAccountErasureSchema = z.object({
   completedAt: isoDateSchema.nullable(),
   lastErrorCode: z.string().nullable(),
   attempts: z.number().int(),
+  consecutiveFailures: z.number().int(),
+  nextAttemptAt: isoDateSchema,
+  processingStartedAt: isoDateSchema.nullable(),
+  leaseExpiresAt: isoDateSchema.nullable(),
+  phase: z.enum([
+    "external_deletion",
+    "upload_wait",
+    "r2_deletion",
+    "redaction",
+    "domain_deletion",
+    "finalization",
+  ]),
+  canRetry: z.boolean(),
 });
 export const adminAccountErasureListResponseSchema = z.object({
   erasures: z.array(adminAccountErasureSchema),
@@ -172,7 +185,8 @@ export const adminRetryErasurePayloadSchema = z.object({ confirmation: z.literal
 
 export const moneySchema = z.object({
   amountCents: z.number().int(),
-  currency: z.string().length(3),
+  /** ISO-4217 currency, or null when the provider did not supply one. */
+  currency: z.string().length(3).nullable(),
 });
 export type Money = z.infer<typeof moneySchema>;
 
@@ -186,9 +200,11 @@ export const adminUserSubscriptionSchema = z.object({
   trialStartedAt: z.string().nullable(),
   trialConvertedAt: z.string().nullable(),
   firstChargeAt: z.string().nullable(),
+  /** @deprecated Use firstCharge.amountCents and firstCharge.currency. */
   firstChargeAmountCents: z.number().int().nullable(),
   /** Sum of subscription_events.priceAmountCents. Null (not 0) means "no
    *  priced events yet", not "$0 of revenue". */
+  /** @deprecated Only populated for a single known currency. */
   revenueToDateCents: z.number().int().nullable(),
   /** Deprecated currency-ambiguous totals retained for old clients. */
   firstCharge: moneySchema.nullable().default(null),
@@ -201,6 +217,10 @@ export const adminUserSubscriptionSchema = z.object({
   rcAppUserId: z.string().nullable(),
 });
 export type AdminUserSubscription = z.infer<typeof adminUserSubscriptionSchema>;
+
+export const adminWebhookReprocessPayloadSchema = z.object({
+  confirmation: z.literal("REPROCESS"),
+});
 
 /** Receiving-end only as of this contract version — populated once a future
  *  mobile-app task reports it; null for every user until then. */
@@ -288,6 +308,12 @@ export const adminTimelineEntryTypeSchema = z.enum([
   "trial_cancelled",
   "renewed",
   "expired",
+  "canceled",
+  "billing_issue",
+  "refunded",
+  "refund_reversed",
+  "product_changed",
+  "subscription_extended",
   "next_charge_scheduled",
 ]);
 export type AdminTimelineEntryType = z.infer<typeof adminTimelineEntryTypeSchema>;

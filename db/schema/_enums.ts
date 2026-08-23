@@ -25,6 +25,7 @@ export const platformEnum = pgEnum("platform", ["ios", "android"]);
 
 export const subProviderEnum = pgEnum("sub_provider", ["app_store", "play_store", "stripe"]);
 export const subStatusEnum = pgEnum("sub_status", [
+  "none",
   "trialing",
   "active",
   "in_grace",
@@ -44,6 +45,12 @@ export const subscriptionEventTypeEnum = pgEnum("subscription_event_type", [
   "trial_cancelled",
   "renewed",
   "expired",
+  "canceled",
+  "billing_issue",
+  "refunded",
+  "refund_reversed",
+  "product_changed",
+  "subscription_extended",
 ]);
 
 /**
@@ -93,7 +100,12 @@ export const emailSuppressionReasonEnum = pgEnum("email_suppression_reason", [
   "permanent_bounce",
 ]);
 export const webhookProviderEnum = pgEnum("webhook_provider", ["revenuecat", "stripe", "resend"]);
-export const webhookStatusEnum = pgEnum("webhook_status", ["received", "processed", "failed"]);
+export const webhookStatusEnum = pgEnum("webhook_status", [
+  "received",
+  "processed",
+  "failed",
+  "quarantined",
+]);
 
 // Admin push-campaign lifecycle and per-recipient delivery state.
 export const pushCampaignStatusEnum = pgEnum("push_campaign_status", [

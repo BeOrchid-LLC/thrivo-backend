@@ -59,7 +59,11 @@ export type AdminSubscriptionAnalyticsResponse = z.infer<
 
 export const adminOverviewMetricsSchema = z.object({
   reportingCurrency: z.literal("USD").default("USD"),
-  mrr: z.object({ cents: z.number(), deltaPct: z.number().nullable() }),
+  mrr: z.object({
+    cents: z.number(),
+    deltaPct: z.number().nullable(),
+    label: z.literal("Estimated USD MRR").default("Estimated USD MRR"),
+  }),
   arr: z.object({ cents: z.number(), deltaPct: z.number().nullable() }),
   premiumUsers: z.object({ total: z.number(), monthly: z.number(), annual: z.number() }),
   churnRate: z.object({ pct: z.number(), churnedMrrCents: z.number() }),

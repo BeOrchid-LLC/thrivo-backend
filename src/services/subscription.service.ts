@@ -43,6 +43,21 @@ function addBillingPeriod(date: Date, plan: SubscriptionPlan): Date {
 }
 
 function planFromProductId(productId: string | null): SubscriptionPlan | null {
+  if (env.BILLING_PROVIDER === "revenuecat") {
+    try {
+      const catalog = JSON.parse(env.REVENUECAT_PRODUCT_CATALOG) as {
+        app_store?: { monthly?: string; annual?: string };
+        play_store?: { monthly?: string; annual?: string };
+      };
+      if (catalog.app_store?.annual === productId || catalog.play_store?.annual === productId)
+        return "annual";
+      if (catalog.app_store?.monthly === productId || catalog.play_store?.monthly === productId)
+        return "monthly";
+    } catch {
+      return null;
+    }
+    return null;
+  }
   if (productId === PLANS.annual.productId) return "annual";
   if (productId === PLANS.monthly.productId) return "monthly";
   return null;
@@ -50,6 +65,7 @@ function planFromProductId(productId: string | null): SubscriptionPlan | null {
 
 function publicStatus(row: Subscription | null): SubscriptionState["status"] {
   if (!row) return "none";
+  if (row.status === "none") return "none";
   if (row.status === "trialing") return "trialing";
   if (row.status === "canceled") return "canceled";
   if (row.status === "expired") return "expired";
@@ -60,9 +76,8 @@ function publicStatus(row: Subscription | null): SubscriptionState["status"] {
 }
 
 function hasAccess(user: UserRow, row: Subscription | null, now: Date): boolean {
-  if (user.tier !== "premium") return false;
-  if (!row) return true;
-  if (row.status === "expired") return false;
+  if (user.tier !== "premium" || !row) return false;
+  if (row.status === "none" || row.status === "expired") return false;
   if (row.status === "canceled" && row.currentPeriodEnd && row.currentPeriodEnd <= now)
     return false;
   return true;
@@ -77,6 +92,7 @@ export async function getSubscriptionState(
     getEffectiveSettings(user.id),
   ]);
   const plan = planFromProductId(row?.productId ?? null);
+  const revenueCatMode = env.BILLING_PROVIDER === "revenuecat";
   const accessEndsAt = row?.currentPeriodEnd?.toISOString() ?? null;
 
   return {
@@ -85,15 +101,22 @@ export async function getSubscriptionState(
       status: publicStatus(row),
       plan,
       productId: row?.productId ?? null,
-      priceLabel: plan ? PLANS[plan].priceLabel : null,
+      priceLabel: revenueCatMode ? null : plan ? PLANS[plan].priceLabel : null,
       renewsAt: row?.cancelAtPeriodEnd ? null : accessEndsAt,
       accessEndsAt,
       cancelAtPeriodEnd: row?.cancelAtPeriodEnd ?? false,
       trialUsed: Boolean(user.trialEndsAt ?? row?.trialEnd),
       trialDays: settings.effective.trialDays,
-      plans: Object.values(PLANS),
+      plans: revenueCatMode ? [] : Object.values(PLANS),
       billingAvailable:
-        settings.effective.purchasesEnabled && env.BILLING_PROVIDER === "revenuecat",
+        settings.effective.purchasesEnabled &&
+        env.BILLING_PROVIDER === "revenuecat" &&
+        Boolean(
+          env.REVENUECAT_SECRET_API_KEY &&
+          env.REVENUECAT_WEBHOOK_AUTH &&
+          env.REVENUECAT_ENTITLEMENT_ID &&
+          env.REVENUECAT_PRODUCT_CATALOG.trim() !== "{}"
+        ),
       lastSyncedAt: row?.lastSyncedAt?.toISOString() ?? null,
     },
   };
@@ -242,8 +265,13 @@ export async function persistSubscriptionAndMirror(
     await userRepo.updateProfile(
       userId,
       {
-        tier: row.status === "expired" ? "free" : "premium",
-        accountStatus: row.status === "trialing" ? "free_trial" : "paid",
+        tier: row.status === "expired" || row.status === "none" ? "free" : "premium",
+        accountStatus:
+          row.status === "trialing"
+            ? "free_trial"
+            : row.status === "expired" || row.status === "none"
+              ? "free_plan"
+              : "paid",
         subscriptionStatus: row.status,
         trialEndsAt: row.trialEnd,
       },

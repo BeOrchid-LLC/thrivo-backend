@@ -1,4 +1,5 @@
-import { index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 import { idPk } from "./_shared";
 import { subscriptionEventTypeEnum } from "./_enums";
@@ -42,6 +43,9 @@ export const subscriptionEvents = pgTable(
       t.occurredAt
     ),
     userOccurredAtIdx: index("subscription_events_user_occurred_at_idx").on(t.userId, t.occurredAt),
+    rawEventUniq: uniqueIndex("subscription_events_raw_event_uniq")
+      .on(t.rawEventId)
+      .where(sql`${t.rawEventId} is not null`),
   })
 );
 

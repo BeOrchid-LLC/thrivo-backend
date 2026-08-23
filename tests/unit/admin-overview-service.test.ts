@@ -57,7 +57,7 @@ describe("admin-overview.service", () => {
       const metrics = await getOverviewMetrics(NOW);
 
       expect(metrics.reportingCurrency).toBe("USD");
-      expect(metrics.mrr).toEqual({ cents: 220000, deltaPct: 10 });
+      expect(metrics.mrr).toEqual({ cents: 220000, deltaPct: 10, label: "Estimated USD MRR" });
       expect(metrics.arr).toEqual({
         cents: 220000 * 12,
         deltaPct: (220000 * 12 - 1200000) / 12000,
@@ -83,7 +83,7 @@ describe("admin-overview.service", () => {
 
       const metrics = await getOverviewMetrics(NOW);
 
-      expect(metrics.mrr).toEqual({ cents: 0, deltaPct: null });
+      expect(metrics.mrr).toEqual({ cents: 0, deltaPct: null, label: "Estimated USD MRR" });
       expect(metrics.arr).toEqual({ cents: 0, deltaPct: null });
       expect(metrics.dauMau.ratioPct).toBe(0);
       expect(metrics.churnRate.pct).toBe(0);

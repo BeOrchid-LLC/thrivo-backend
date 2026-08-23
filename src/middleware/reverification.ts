@@ -1,11 +1,16 @@
 import { createMiddleware } from "hono/factory";
 import { ReverificationRequiredError } from "../lib/errors";
+import { accountErasureRepo } from "../repositories";
 import type { AppEnv } from "../types/http";
 
 /** Sensitive account operations require a fresh first factor (ten minutes). */
 export const requireRecentVerification = createMiddleware<AppEnv>(async (c, next) => {
   const principal = c.get("principal");
   const user = c.get("user");
+  if (principal && (await accountErasureRepo.findAnyByAuthSubjectId(principal.subjectId))) {
+    await next();
+    return;
+  }
   if (!user) {
     await next();
     return;

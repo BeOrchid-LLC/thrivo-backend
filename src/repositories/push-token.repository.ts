@@ -55,6 +55,10 @@ export async function listForUser(userId: string, tx: Executor = db): Promise<Pu
   return tx.select().from(pushTokens).where(eq(pushTokens.userId, userId));
 }
 
+export async function deactivateForUser(userId: string, tx: Executor = db): Promise<void> {
+  await tx.update(pushTokens).set({ isActive: false }).where(eq(pushTokens.userId, userId));
+}
+
 /** Deactivate tokens Expo reported as invalid (pruned lazily, not deleted). */
 export async function pruneInvalid(tokens: string[], tx: Executor = db): Promise<void> {
   if (tokens.length === 0) return;

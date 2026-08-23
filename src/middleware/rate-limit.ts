@@ -12,6 +12,8 @@ export type RateLimitOptions = {
   max: number;
   /** Namespace so buckets (global vs auth vs write) don't collide. */
   keyPrefix: string;
+  /** Optional authenticated identity key. Falls back to the client IP. */
+  key?: (c: Context<AppEnv>) => string;
 };
 
 // We sit behind Cloudflare → Traefik, so the real client IP is in cf-connecting-ip
@@ -32,7 +34,8 @@ function clientIp(c: Context): string {
  */
 export function rateLimit(opts: RateLimitOptions) {
   return createMiddleware<AppEnv>(async (c, next) => {
-    const key = `rl:${opts.keyPrefix}:${clientIp(c)}`;
+    const identity = opts.key?.(c) ?? clientIp(c);
+    const key = `rl:${opts.keyPrefix}:${identity}`;
     // Decide inside the try (Redis-only errors fail open here); throw the
     // AppError outside it, or the fail-open catch below would swallow a
     // legitimate 429 and serve the request anyway.

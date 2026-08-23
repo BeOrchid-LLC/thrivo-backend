@@ -14,12 +14,18 @@ export const accountErasureRequests = pgTable(
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     lastErrorCode: text("last_error_code"),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    phase: text("phase").notNull().default("external_deletion"),
+    processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     proofDigest: text("proof_digest"),
   },
   (t) => ({
     statusAttemptIdx: index("account_erasure_status_attempt_idx").on(t.status, t.nextAttemptAt),
     userIdx: index("account_erasure_user_idx").on(t.userId),
+    userUniq: uniqueIndex("account_erasure_open_user_uniq").on(t.userId),
+    authSubjectUniq: uniqueIndex("account_erasure_open_auth_subject_uniq").on(t.authSubjectId),
   })
 );
 
