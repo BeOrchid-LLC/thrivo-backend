@@ -22,6 +22,7 @@ const globalSettings = {
   key: "default",
   pushNotificationsEnabled: true,
   dailyFoodLogReminderEnabled: true,
+  psychologyTipPushEnabled: true,
   weightCheckReminderEnabled: true,
   hydrationReminderEnabled: true,
   subscriptionsEnabled: true,
@@ -39,6 +40,7 @@ const userSettings = {
   unitSystem: "metric",
   pushNotificationsEnabled: true,
   dailyFoodLogReminderEnabled: true,
+  psychologyTipPushEnabled: true,
   dailyFoodLogReminderTime: "08:00",
   weightCheckReminderEnabled: true,
   weightCheckReminderDay: "friday",
@@ -85,6 +87,24 @@ describe("settings.service", () => {
     });
 
     await expect(canSendPushNotification(userSettings.userId, "hydration")).resolves.toBe(false);
+    await expect(canSendPushNotification(userSettings.userId, "daily_food_log")).resolves.toBe(
+      true
+    );
+    await expect(canSendPushNotification(userSettings.userId, "psychology_tip")).resolves.toBe(
+      true
+    );
+  });
+
+  it("keeps psychology-tip pushes independent from food-log reminders", async () => {
+    repo.getGlobalSettings.mockResolvedValue(globalSettings);
+    repo.getOrCreateUserSettings.mockResolvedValue({
+      ...userSettings,
+      psychologyTipPushEnabled: false,
+    });
+
+    await expect(canSendPushNotification(userSettings.userId, "psychology_tip")).resolves.toBe(
+      false
+    );
     await expect(canSendPushNotification(userSettings.userId, "daily_food_log")).resolves.toBe(
       true
     );

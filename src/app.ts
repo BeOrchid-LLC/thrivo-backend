@@ -20,6 +20,7 @@ import { leadsRouter } from "./routes/leads";
 import { emailPreferencesRouter } from "./routes/email-preferences";
 import { webhooksRouter } from "./routes/webhooks";
 import { adminRouter } from "./routes/admin";
+import { pushRouter } from "./routes/push";
 import { errorHandler } from "./middleware/error";
 import type { AppEnv } from "./types/http";
 
@@ -54,6 +55,7 @@ export function buildApp(): Hono<AppEnv> {
   app.route("/api/v1/metrics", metricsRouter);
   app.route("/api/v1/subscriptions", subscriptionsRouter);
   app.route("/api/v1/checkins", checkinsRouter);
+  app.route("/api/v1/push", pushRouter);
 
   // Public, unauthenticated email-capture surface (marketing site CTA form).
   // Sits under the general authMiddleware above, which is non-fatal and never

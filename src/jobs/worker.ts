@@ -191,6 +191,11 @@ async function registerSchedulers(): Promise<void> {
     { pattern: "0 8 * * *", tz: "UTC" },
     { name: "send-daily-nudges", data: {} }
   );
+  await getQueue(QUEUE_NAMES.nudges).upsertJobScheduler(
+    "send-food-log-reminders",
+    { every: 60_000 },
+    { name: "send-food-log-reminders", data: {} }
+  );
   logger.info(
     {
       queue: QUEUE_NAMES.nudges,

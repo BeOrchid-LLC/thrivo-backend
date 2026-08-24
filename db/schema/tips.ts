@@ -3,8 +3,8 @@ import { idPk, timestamps } from "./_shared";
 import { moodEnum } from "./_enums";
 
 /**
- * Static psychology-tip bank. Powers the daily nudge push and the check-in
- * suggestion (`check_ins.tip_id`). Admin-managed (Phase 13 CRUD); `pinned_date`
+ * Static psychology-tip bank. Powers the independently gated daily psychology-tip
+ * push and the in-app check-in suggestion (`check_ins.tip_id`). Admin-managed (Phase 13 CRUD); `pinned_date`
  * lets staff force a specific tip on a given day, otherwise selection rotates
  * deterministically over the active set.
  */

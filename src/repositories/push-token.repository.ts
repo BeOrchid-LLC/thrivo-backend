@@ -1,17 +1,18 @@
 import { and, asc, eq, getTableColumns, gt, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
-import { pushTokens, userSettings, type NewPushTokenRow, type PushTokenRow } from "../../db/schema";
+import {
+  pushTokens,
+  userSettings,
+  users,
+  type NewPushTokenRow,
+  type PushTokenRow,
+} from "../../db/schema";
 
 export type PushToken = PushTokenRow;
 
 /**
- * Keyset page of tokens eligible for the daily nudge: the owner has not switched
- * off push notifications. A missing settings row counts as enabled (the column
- * defaults to true), so users are never silently dropped from nudges by a left
- * join. Ordered by `id` (the PK, already indexed) so `gt(id, afterId)` is a
- * stable cursor — replaces the old unbounded `listActiveForNudges` (R5-3/I15),
- * which loaded every active token into memory in one round-trip.
+ * Keyset page of tokens eligible for the daily psychology-tip push.
  */
 export async function listActiveForNudgesPage(
   afterId: string | null,
@@ -21,16 +22,58 @@ export async function listActiveForNudgesPage(
   return tx
     .select(getTableColumns(pushTokens))
     .from(pushTokens)
+    .innerJoin(users, eq(users.id, pushTokens.userId))
     .leftJoin(userSettings, eq(userSettings.userId, pushTokens.userId))
     .where(
       and(
         eq(pushTokens.isActive, true),
+        isNull(users.deletedAt),
         or(isNull(userSettings.userId), eq(userSettings.pushNotificationsEnabled, true)),
+        or(isNull(userSettings.userId), eq(userSettings.psychologyTipPushEnabled, true)),
         afterId ? gt(pushTokens.id, afterId) : undefined
       )
     )
     .orderBy(asc(pushTokens.id))
     .limit(limit);
+}
+
+export type FoodLogReminderRecipient = {
+  tokenId: string;
+  userId: string;
+  expoPushToken: string;
+  notifyTimes: string[] | null;
+  timezone: string | null;
+};
+
+/** Active devices whose users can receive local-time food-log reminders. */
+export async function listActiveForFoodLogRemindersPage(
+  afterId: string | null,
+  limit: number,
+  tx: Executor = db
+): Promise<FoodLogReminderRecipient[]> {
+  const rows = await tx
+    .select({
+      tokenId: pushTokens.id,
+      userId: pushTokens.userId,
+      expoPushToken: pushTokens.expoPushToken,
+      notifyTimes: users.notifyTimes,
+      timezone: users.timezone,
+    })
+    .from(pushTokens)
+    .innerJoin(users, eq(users.id, pushTokens.userId))
+    .leftJoin(userSettings, eq(userSettings.userId, pushTokens.userId))
+    .where(
+      and(
+        eq(pushTokens.isActive, true),
+        isNull(users.deletedAt),
+        or(isNull(userSettings.userId), eq(userSettings.pushNotificationsEnabled, true)),
+        or(isNull(userSettings.userId), eq(userSettings.dailyFoodLogReminderEnabled, true)),
+        afterId ? gt(pushTokens.id, afterId) : undefined
+      )
+    )
+    .orderBy(asc(pushTokens.id))
+    .limit(limit);
+  return rows;
 }
 
 /** Upsert on the token (unique) — re-registering a device refreshes its owner + activity. */

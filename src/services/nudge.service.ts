@@ -3,6 +3,7 @@ import { pushTokenRepo, tipRepo } from "../repositories";
 import { chunk, EXPO_MAX_PER_REQUEST } from "../integrations/expo-push";
 import { enqueue, QUEUE_NAMES } from "../lib/queue";
 import type { Tip } from "../repositories/tip.repository";
+import { getGlobalSettings } from "./settings.service";
 
 const TOKEN_PAGE_SIZE = 500; // DB keyset page — chunked further into Expo-sized batches below
 
@@ -57,6 +58,11 @@ export interface NudgeDispatchResult {
  * delivered); now a retry only touches the one chunk that failed.
  */
 export async function sendDailyNudges(localDate = isoDay()): Promise<NudgeDispatchResult> {
+  const global = await getGlobalSettings();
+  if (!global.pushNotificationsEnabled || !global.psychologyTipPushEnabled) {
+    logger.info("psychology-tip pushes disabled; daily nudge skipped");
+    return { tipId: null, chunksEnqueued: 0, tokensQueued: 0 };
+  }
   const tip = await selectDailyTip(localDate);
   if (!tip) {
     logger.warn("no active tips; daily nudge skipped");
