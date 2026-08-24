@@ -4,7 +4,7 @@ import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
 import { db } from "../../db";
 import { env } from "../../src/env";
-import { adminAuditLog, pushCampaigns } from "../../db/schema";
+import { adminAuditLog, pushCampaigns, pushTokens } from "../../db/schema";
 import { makeAdminUser, makeUser } from "../helpers/factories";
 import { pushTokenRepo } from "../../src/repositories";
 import {
@@ -63,6 +63,30 @@ describe.skipIf(!run)("integration: admin push campaigns", () => {
       expect(parsed.data.userCount).toBe(1);
       expect(parsed.data.tokenCount).toBe(1);
     }
+  });
+
+  it("replaces a stale token when the same app installation registers again", async () => {
+    const user = await makeUser();
+    await pushTokenRepo.register({
+      userId: user.id,
+      expoPushToken: "ExponentPushToken[old-token]",
+      platform: "ios",
+      deviceId: "ios:installation-1",
+    });
+    await pushTokenRepo.register({
+      userId: user.id,
+      expoPushToken: "ExponentPushToken[new-token]",
+      platform: "ios",
+      deviceId: "ios:installation-1",
+    });
+
+    const rows = await db.select().from(pushTokens).where(eq(pushTokens.userId, user.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      expoPushToken: "ExponentPushToken[new-token]",
+      deviceId: "ios:installation-1",
+      isActive: true,
+    });
   });
 
   it("support creates a campaign (audited); read-only cannot", async () => {

@@ -302,6 +302,13 @@
       "when": 1787594068452,
       "tag": "0042_sloppy_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1787605804695,
+      "tag": "0043_nervous_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

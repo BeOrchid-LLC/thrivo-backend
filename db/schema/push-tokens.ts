@@ -14,12 +14,16 @@ export const pushTokens = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     expoPushToken: text("expo_push_token").notNull(),
     platform: platformEnum("platform").notNull(),
+    // Nullable for legacy registrations; new mobile builds send this stable
+    // app-install identifier so token refreshes can retire the old row.
+    deviceId: text("device_id"),
     isActive: boolean("is_active").notNull().default(true),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => ({
     tokenUniq: uniqueIndex("push_tokens_token_uniq").on(t.expoPushToken),
+    userDeviceUniq: uniqueIndex("push_tokens_user_device_uniq").on(t.userId, t.deviceId),
   })
 );
 

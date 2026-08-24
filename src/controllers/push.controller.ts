@@ -13,6 +13,7 @@ export async function registerPush(c: Context<AppEnv>) {
     userId: user.id,
     expoPushToken: input.expoPushToken,
     platform: input.platform,
+    deviceId: input.deviceId,
   });
   return respondOk(c, null, "Push token registered");
 }
