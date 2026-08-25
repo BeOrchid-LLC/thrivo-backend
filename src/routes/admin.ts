@@ -374,6 +374,7 @@ adminRouter.patch(
 adminRouter.post(
   "/foods/:id/merge",
   requireAdmin,
+  requireAdminRole("admin"),
   requireAdminPermission("foods.manage"),
   validate("json", adminFoodMergePayloadSchema),
   mergeAdminFood
@@ -447,12 +448,14 @@ adminRouter.get("/moderation/uploads", requireAdmin, listAdminUploads);
 adminRouter.post(
   "/uploads/:id/remove",
   requireAdmin,
+  requireAdminRole("admin"),
   requireAdminPermission("moderation.manage"),
   removeAdminUpload
 );
 adminRouter.post(
   "/uploads/:id/restore",
   requireAdmin,
+  requireAdminRole("admin"),
   requireAdminPermission("moderation.manage"),
   restoreAdminUpload
 );
