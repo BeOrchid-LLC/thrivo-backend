@@ -9,9 +9,9 @@ import { citext, idPk, timestamps } from "./_shared";
  * request path.
  *
  * `password_hash` is nullable: an `invited` row has no password until the invite
- * is accepted, and an OTP-only admin may never set one. `permissions` is the
- * reserved foundation for future finer-grained access control — it is NOT
- * enforced yet; authorization is still the role rank ladder.
+ * is accepted, and an OTP-only admin may never set one. `permissions` is null
+ * when the account uses its role defaults and otherwise contains its explicit
+ * effective permission set.
  */
 export const adminUsers = pgTable("admin_users", {
   id: idPk(),
@@ -22,14 +22,17 @@ export const adminUsers = pgTable("admin_users", {
   // super-admin | admin | support | read-only (see contracts adminRoleSchema).
   role: text("role").notNull(),
   passwordHash: text("password_hash"),
-  // invited | active | disabled (see contracts adminAccountStatusSchema).
+  // invited | active | disabled | revoked (see contracts adminAccountStatusSchema).
   status: text("status").notNull().default("invited"),
   permissions: jsonb("permissions").$type<string[] | null>(),
   // Clerk Admin app user ID (user_xxx from the BeOrchid Admin Clerk application).
   // Populated via the /webhooks/clerk-admin endpoint on first sign-in; null for
   // admin rows that pre-date Clerk Admin or were created before the webhook fired.
   clerkAdminId: text("clerk_admin_id").unique(),
+  clerkInvitationId: text("clerk_invitation_id").unique(),
   invitedByEmail: text("invited_by_email"),
+  inviteExpiresAt: timestamp("invite_expires_at", { withTimezone: true }),
+  inviteRevokedAt: timestamp("invite_revoked_at", { withTimezone: true }),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   ...timestamps,
 });

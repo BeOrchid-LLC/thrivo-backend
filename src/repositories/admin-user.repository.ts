@@ -10,8 +10,11 @@ import {
   desc,
   sql,
 } from "drizzle-orm";
+import { createClerkClient } from "@clerk/backend";
 import { db } from "../../db";
 import { users } from "../../db/schema";
+import { env } from "../env";
+import { logger } from "../lib/logger";
 import * as foodLogRepo from "./food-log.repository";
 import * as streakRepo from "./streak.repository";
 import * as subscriptionRepo from "./subscription.repository";
@@ -31,6 +34,8 @@ import {
   type AdminUserDetailExtras,
 } from "../mappers/admin-user.mapper";
 import { clampLimit, decodeCursor, encodeCursor } from "../lib/pagination";
+
+const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
 
 export type AdminListParams = {
   /** Opaque cursor from a previous page's `nextCursor` — omit for the first page. */
@@ -240,20 +245,19 @@ export async function findById(id: string): Promise<AdminUserDetail | null> {
 }
 
 /**
- * Permanent hard delete — removes the `users` profile and its linked `auth_user`
- * identity in one transaction. Deleting `auth_user` cascades to `session` and
- * `account` via FK, which immediately invalidates any live refresh tokens.
+ * Permanent hard delete — removes the `users` profile and records the audit
+ * entry atomically, then asks Clerk to remove the provider-owned identity.
  * Writes the `admin_audit_log` row in the same transaction (before-snapshot of
  * the full user row) so a rolled-back delete leaves no orphan audit entry and
  * vice-versa. Returns true if the user existed and was deleted.
  */
 export async function hardDeleteUser(id: string, audit: AuditActor): Promise<boolean> {
-  return db.transaction(async (tx) => {
+  let clerkUserId: string | null = null;
+  const deleted = await db.transaction(async (tx) => {
     const [row] = await tx.select().from(users).where(eq(users.id, id)).limit(1);
     if (!row) return false;
 
-    // Clerk owns the auth identity — caller should separately delete the Clerk
-    // user via the Clerk API if needed. Domain row is deleted here only.
+    clerkUserId = row.authSubjectId;
     await tx.delete(users).where(eq(users.id, id));
 
     await adminAuditLogRepo.append(
@@ -270,4 +274,19 @@ export async function hardDeleteUser(id: string, audit: AuditActor): Promise<boo
     );
     return true;
   });
+
+  if (deleted && clerkUserId) {
+    try {
+      await clerk.users.deleteUser(clerkUserId);
+    } catch (error) {
+      // The domain delete is already committed. Keep it durable and surface
+      // the orphan risk for operational repair instead of rolling it back.
+      logger.warn(
+        { error, clerkUserId },
+        "hardDeleteUser: Clerk user deletion failed; provider record may be orphaned"
+      );
+    }
+  }
+
+  return deleted;
 }

@@ -11,6 +11,7 @@ import {
   inviteAdmin,
   updateAdmin,
   resendInvite,
+  revokeInvite,
   disableAdmin,
   toAdminAccountDto,
 } from "../services/admin-management.service";
@@ -52,6 +53,13 @@ export async function resendAdminInvite(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
   const row = await resendInvite(id, auditActor(c));
   return respondOk(c, { admin: toAdminAccountDto(row) }, "Invitation re-sent");
+}
+
+/** POST /admin/admins/:id/revoke-invite — revoke a pending invitation. */
+export async function revokeAdminInvite(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  const row = await revokeInvite(id, auditActor(c));
+  return respondOk(c, { admin: toAdminAccountDto(row) }, "Invitation revoked");
 }
 
 /** DELETE /admin/admins/:id — soft-disable. */

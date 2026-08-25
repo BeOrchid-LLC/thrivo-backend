@@ -23,7 +23,7 @@ export type AdminSnapshot = {
   email: string;
   name: string | null;
   role: AdminRole;
-  status: "invited" | "active" | "disabled";
+  status: "invited" | "active" | "disabled" | "revoked";
 };
 
 /** Safety-net TTL. Explicit invalidation is what makes revocation immediate; this

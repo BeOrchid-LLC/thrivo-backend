@@ -295,6 +295,34 @@
       "when": 1787440200000,
       "tag": "0041_subscription_event_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1787594068452,
+      "tag": "0042_sloppy_zeigeist",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1787605804695,
+      "tag": "0043_nervous_steel_serpent",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1787614680480,
+      "tag": "0044_goofy_texas_twister",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1787614837197,
+      "tag": "0045_ancient_epoch",
+      "breakpoints": true
     }
   ]
 }

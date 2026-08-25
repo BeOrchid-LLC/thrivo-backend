@@ -24,6 +24,7 @@ export * from "./email-outbox";
 export * from "./email-suppressions";
 export * from "./push-tokens";
 export * from "./push-campaigns";
+export * from "./notification-deliveries";
 export * from "./webhook-events";
 export * from "./webhook-identity-ownership";
 export * from "./admin-audit-log";

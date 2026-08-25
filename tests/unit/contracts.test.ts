@@ -16,6 +16,7 @@ import {
   weightContextResponseSchema,
   weightEntryResponseSchema,
   purchaseSubscriptionPayloadSchema,
+  registerPushPayload,
   updateProfilePayloadSchema,
   updateUserSettingsPayloadSchema,
   userProfileSchema,
@@ -23,6 +24,29 @@ import {
 } from "../../contracts/src";
 
 describe("@beorchid-llc/thrivo-contracts", () => {
+  it("validates Expo push registrations and optional installation identity", () => {
+    expect(
+      registerPushPayload.parse({
+        expoPushToken: "ExponentPushToken[device-token]",
+        platform: "ios",
+        deviceId: "ios:vendor-id",
+        notifyTimes: ["08:00", "18:30"],
+      })
+    ).toEqual({
+      expoPushToken: "ExponentPushToken[device-token]",
+      platform: "ios",
+      deviceId: "ios:vendor-id",
+      notifyTimes: ["08:00", "18:30"],
+    });
+
+    expect(() =>
+      registerPushPayload.parse({
+        expoPushToken: "not-an-expo-token",
+        platform: "android",
+      })
+    ).toThrow();
+  });
+
   it("parses the current /users/me success envelope", () => {
     const profile = userProfileSchema.parse({
       id: "018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2",

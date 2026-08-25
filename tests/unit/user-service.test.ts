@@ -8,6 +8,16 @@ const settings = vi.hoisted(() => ({
   getEffectiveSettings: vi.fn(),
 }));
 vi.mock("../../src/services/settings.service", () => settings);
+// These tests cover the legacy trial-transition calculation. Production keeps
+// this compatibility path disabled unless explicitly opted in, so enable only
+// the mocked service environment for the unit cases below.
+vi.mock("../../src/env", async () => {
+  const actual = await vi.importActual<typeof import("../../src/env")>("../../src/env");
+  return {
+    ...actual,
+    env: { ...actual.env, BILLING_PROVIDER: "disabled", REVENUECAT_LEGACY_MUTATIONS: "enabled" },
+  };
+});
 
 import type { User } from "../../src/repositories/user.repository";
 import {

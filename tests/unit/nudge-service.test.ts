@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { tipRepo, pushTokenRepo, enqueue } = vi.hoisted(() => ({
+const { tipRepo, pushTokenRepo, enqueue, settingsRepo } = vi.hoisted(() => ({
   tipRepo: { getPinnedForDate: vi.fn(), listActive: vi.fn() },
   pushTokenRepo: { listActiveForNudgesPage: vi.fn(), pruneInvalid: vi.fn() },
   enqueue: vi.fn(),
+  settingsRepo: { getGlobalSettings: vi.fn(), upsertGlobalDefaults: vi.fn() },
 }));
-vi.mock("../../src/repositories", () => ({ tipRepo, pushTokenRepo }));
+vi.mock("../../src/repositories", () => ({ tipRepo, pushTokenRepo, settingsRepo }));
 vi.mock("../../src/lib/queue", () => ({
   enqueue,
   QUEUE_NAMES: { nudges: "nudges", emails: "emails", maintenance: "maintenance" },
@@ -65,6 +66,10 @@ describe("sendDailyNudges dispatcher (R5-3 / I15)", () => {
     vi.clearAllMocks();
     tipRepo.getPinnedForDate.mockResolvedValue(null);
     tipRepo.listActive.mockResolvedValue([tip("t1")]);
+    settingsRepo.getGlobalSettings.mockResolvedValue({
+      pushNotificationsEnabled: true,
+      psychologyTipPushEnabled: true,
+    });
   });
 
   it("skips dispatch entirely when there is no active tip", async () => {

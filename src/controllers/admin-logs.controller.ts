@@ -53,6 +53,7 @@ const auditLogQuerySchema = paginationSchema.extend({
   actorEmail: z.string().email().optional(),
   action: z.string().optional(),
   targetType: z.string().optional(),
+  targetId: z.string().optional(),
   from: isoDate.optional(),
   to: isoDate.optional(),
 });
@@ -81,9 +82,8 @@ export async function listAdminEmailLogs(c: Context<AppEnv>) {
 
 /** GET /admin/audit-log — offset-paginated view of the append-only admin audit trail. */
 export async function listAdminAuditLog(c: Context<AppEnv>) {
-  const { page, pageSize, actorEmail, action, targetType, from, to } = auditLogQuerySchema.parse(
-    c.req.query()
-  );
+  const { page, pageSize, actorEmail, action, targetType, targetId, from, to } =
+    auditLogQuerySchema.parse(c.req.query());
   const params = parseOffset(page, pageSize);
   const { rows, total } = await adminAuditLogRepo.listPaged({
     offset: params.offset,
@@ -91,6 +91,7 @@ export async function listAdminAuditLog(c: Context<AppEnv>) {
     actorEmail,
     action,
     targetType,
+    targetId,
     from,
     to,
   });

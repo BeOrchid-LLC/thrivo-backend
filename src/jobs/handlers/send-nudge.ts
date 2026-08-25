@@ -3,6 +3,8 @@ import { logger } from "../../lib/logger";
 import { sendDailyNudges } from "../../services/nudge.service";
 import { handleSendNudgeChunk } from "./send-nudge-chunk";
 import { handleSendCampaign } from "./send-campaign";
+import { handleSendFoodLogReminder } from "./send-food-log-reminder";
+import { sendFoodLogReminders } from "../../services/food-log-reminder.service";
 
 /**
  * Router for the `nudges` queue (R5-3/I15): the daily scheduler job dispatches
@@ -15,6 +17,10 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
     await sendDailyNudges();
   },
   "send-nudge-chunk": handleSendNudgeChunk as (job: Job) => Promise<void>,
+  "send-food-log-reminder": handleSendFoodLogReminder as (job: Job) => Promise<void>,
+  "send-food-log-reminders": async () => {
+    await sendFoodLogReminders();
+  },
   // Admin push broadcast fan-out (Phase 4) shares the push (nudges) queue.
   "send-campaign": handleSendCampaign,
 };

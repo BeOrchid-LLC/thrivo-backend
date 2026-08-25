@@ -1,7 +1,11 @@
-import type { UpdateUserSettingsPayload } from "../../contracts/src/settings";
+import type {
+  UpdateGlobalSettingsPayload,
+  UpdateUserSettingsPayload,
+} from "../../contracts/src/settings";
 import { settingsRepo } from "../repositories";
 
-export type NotificationSettingKind = "daily_food_log" | "weight_check" | "hydration";
+export type NotificationSettingKind =
+  "daily_food_log" | "psychology_tip" | "weight_check" | "hydration";
 
 export interface EffectiveSettingsResult {
   global: settingsRepo.GlobalSettings;
@@ -9,6 +13,7 @@ export interface EffectiveSettingsResult {
   effective: {
     pushNotificationsEnabled: boolean;
     dailyFoodLogReminderEnabled: boolean;
+    psychologyTipPushEnabled: boolean;
     emailFoodLogReminderEnabled: boolean;
     weeklyReviewEmailEnabled: boolean;
     weightCheckReminderEnabled: boolean;
@@ -25,6 +30,12 @@ export async function getGlobalSettings(): Promise<settingsRepo.GlobalSettings> 
   return (await settingsRepo.getGlobalSettings()) ?? settingsRepo.upsertGlobalDefaults();
 }
 
+export async function updateGlobalSettings(
+  input: UpdateGlobalSettingsPayload
+): Promise<settingsRepo.GlobalSettings> {
+  return settingsRepo.updateGlobalSettings(input);
+}
+
 export async function getUserSettings(userId: string): Promise<settingsRepo.UserSettings> {
   return settingsRepo.getOrCreateUserSettings(userId);
 }
@@ -33,6 +44,7 @@ export async function updateUserSettings(
   userId: string,
   input: UpdateUserSettingsPayload
 ): Promise<settingsRepo.UserSettings> {
+  // Keep the two weekly email controls aligned as one user-facing preference.
   const weekly = input.weeklyReviewEmailEnabled ?? input.emailFoodLogReminderEnabled;
   return settingsRepo.updateUserSettings(userId, {
     ...input,
@@ -55,6 +67,11 @@ export async function getEffectiveSettings(userId: string): Promise<EffectiveSet
         global.dailyFoodLogReminderEnabled &&
         user.pushNotificationsEnabled &&
         user.dailyFoodLogReminderEnabled,
+      psychologyTipPushEnabled:
+        global.pushNotificationsEnabled &&
+        global.psychologyTipPushEnabled &&
+        user.pushNotificationsEnabled &&
+        user.psychologyTipPushEnabled,
       // Independent of the push master toggle above — email is its own channel.
       emailFoodLogReminderEnabled:
         global.emailFoodLogReminderEnabled && user.emailFoodLogReminderEnabled,
@@ -84,6 +101,7 @@ export async function canSendPushNotification(
 ): Promise<boolean> {
   const settings = await getEffectiveSettings(userId);
   if (kind === "daily_food_log") return settings.effective.dailyFoodLogReminderEnabled;
+  if (kind === "psychology_tip") return settings.effective.psychologyTipPushEnabled;
   if (kind === "weight_check") return settings.effective.weightCheckReminderEnabled;
   return settings.effective.hydrationReminderEnabled;
 }

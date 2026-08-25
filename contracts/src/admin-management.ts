@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idSchema, isoDateSchema } from "./common";
+import { idSchema, isoDateSchema, type RouteContract } from "./common";
 import { adminRoleSchema } from "./admin";
 
 /**
@@ -15,15 +15,31 @@ import { adminRoleSchema } from "./admin";
  *  - `disabled` — soft-disabled; login refused and existing sessions revoked
  *                 (snapshot cache invalidated) on the next request.
  */
-export const adminAccountStatusSchema = z.enum(["invited", "active", "disabled"]);
+export const adminAccountStatusSchema = z.enum(["invited", "active", "disabled", "revoked"]);
 export type AdminAccountStatus = z.infer<typeof adminAccountStatusSchema>;
 
-/**
- * Reserved for future finer-grained permissions. NOT enforced anywhere yet —
- * authorization is still the `adminRoleSchema` rank ladder. Present so the
- * `admin_users.permissions` jsonb column has a typed shape to grow into.
- */
-export const adminPermissionsSchema = z.array(z.string()).nullable();
+export const adminPermissionSchema = z.enum([
+  "users.read",
+  "users.manage",
+  "subscriptions.read",
+  "subscriptions.manage",
+  "billing.read",
+  "billing.manage",
+  "content.manage",
+  "moderation.manage",
+  "foods.manage",
+  "push.manage",
+  "erasures.manage",
+  "leads.manage",
+  "audit.read",
+  "analytics.read",
+  "admins.manage",
+  "settings.manage",
+]);
+export type AdminPermission = z.infer<typeof adminPermissionSchema>;
+
+/** Null means the account uses the permissions implied by its role. */
+export const adminPermissionsSchema = z.array(adminPermissionSchema).nullable();
 export type AdminPermissions = z.infer<typeof adminPermissionsSchema>;
 
 /** One admin account as shown in the management list / detail. */
@@ -36,6 +52,8 @@ export const adminAccountSchema = z.object({
   permissions: adminPermissionsSchema,
   invitedByEmail: z.string().email().nullable(),
   lastLoginAt: isoDateSchema.nullable(),
+  inviteExpiresAt: isoDateSchema.nullable(),
+  inviteRevokedAt: isoDateSchema.nullable(),
   createdAt: isoDateSchema,
 });
 export type AdminAccount = z.infer<typeof adminAccountSchema>;
@@ -56,14 +74,49 @@ export const adminInvitePayloadSchema = z.object({
 });
 export type AdminInvitePayload = z.infer<typeof adminInvitePayloadSchema>;
 
-/** Update an existing admin — any subset of name/role/status. */
+/** Update an existing admin — any subset of identity, role, permissions, or status. */
 export const adminUpdatePayloadSchema = z
   .object({
     name: z.string().min(1).max(120).optional(),
     role: adminRoleSchema.optional(),
     status: adminAccountStatusSchema.optional(),
+    permissions: adminPermissionsSchema.optional(),
   })
-  .refine((v) => v.name !== undefined || v.role !== undefined || v.status !== undefined, {
-    message: "At least one field must be provided",
-  });
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.role !== undefined ||
+      v.status !== undefined ||
+      v.permissions !== undefined,
+    {
+      message: "At least one field must be provided",
+    }
+  );
 export type AdminUpdatePayload = z.infer<typeof adminUpdatePayloadSchema>;
+
+export const adminRevokeInviteResponseSchema = z.object({ admin: adminAccountSchema });
+
+export const adminSettingsRoutes = {
+  get: { method: "GET", path: "/api/v1/admin/settings", auth: "admin" },
+  update: { method: "PATCH", path: "/api/v1/admin/settings", auth: "admin" },
+} satisfies Record<string, RouteContract>;
+
+export const adminSettingsResponseSchema = z.object({
+  settings: z.object({
+    key: z.literal("default"),
+    pushNotificationsEnabled: z.boolean(),
+    dailyFoodLogReminderEnabled: z.boolean(),
+    psychologyTipPushEnabled: z.boolean(),
+    emailFoodLogReminderEnabled: z.boolean(),
+    weeklyReviewEmailEnabled: z.boolean(),
+    weightCheckReminderEnabled: z.boolean(),
+    hydrationReminderEnabled: z.boolean(),
+    subscriptionsEnabled: z.boolean(),
+    trialsEnabled: z.boolean(),
+    purchasesEnabled: z.boolean(),
+    cancellationsEnabled: z.boolean(),
+    trialDays: z.number().int().min(1).max(90),
+    createdAt: isoDateSchema,
+    updatedAt: isoDateSchema,
+  }),
+});

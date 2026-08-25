@@ -11,6 +11,7 @@ export type ListAuditLogParams = {
   actorEmail?: string;
   action?: string;
   targetType?: string;
+  targetId?: string;
   from?: Date;
   to?: Date;
 };
@@ -24,6 +25,7 @@ export async function listPaged(
     params.actorEmail ? eq(adminAuditLog.actorAdminEmail, params.actorEmail) : undefined,
     params.action ? eq(adminAuditLog.action, params.action) : undefined,
     params.targetType ? eq(adminAuditLog.targetType, params.targetType) : undefined,
+    params.targetId ? eq(adminAuditLog.targetId, params.targetId) : undefined,
     params.from ? gte(adminAuditLog.createdAt, params.from) : undefined,
     params.to ? lte(adminAuditLog.createdAt, params.to) : undefined,
   ];

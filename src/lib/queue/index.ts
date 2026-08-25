@@ -5,7 +5,7 @@ import { logger } from "../logger";
 /** The queues Thrivo dispatches to. Concrete job payloads are typed with their feature phase. */
 export const QUEUE_NAMES = {
   emails: "emails", // welcome / trial-ending / cancellation (A2/A5)
-  nudges: "nudges", // daily psychology tip push (A2)
+  nudges: "nudges", // psychology-tip and food-log push delivery (A2)
   analytics: "analytics", // server-side product events (A2)
   maintenance: "maintenance", // repeatable system jobs (reconcile rollups, etc.)
 } as const;

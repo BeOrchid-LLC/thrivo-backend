@@ -24,6 +24,12 @@ const listParamsSchema = z.object({
   status: z.string().optional(),
 });
 
+const erasureListParamsSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  status: z.enum(["pending", "processing", "retryable", "failed", "completed"]).optional(),
+});
+
 /** GET /admin/users — keyset-paginated user list with optional search + status filter (R5-4). */
 export async function listAdminUsers(c: Context<AppEnv>) {
   const query = c.req.query();
@@ -90,7 +96,8 @@ export async function hardDeleteAdminUser(c: Context<AppEnv>) {
 }
 
 export async function listAdminAccountErasures(c: Context<AppEnv>) {
-  const rows = await accountErasureRepo.list(Number(c.req.query("limit") ?? 100));
+  const params = erasureListParamsSchema.parse(c.req.query());
+  const { rows, total } = await accountErasureRepo.listPaged(params);
   return respondOk(c, {
     erasures: rows.map((row) => ({
       id: row.id,
@@ -106,6 +113,12 @@ export async function listAdminAccountErasures(c: Context<AppEnv>) {
       phase: row.phase,
       canRetry: row.status === "failed" || row.status === "retryable",
     })),
+    pagination: {
+      page: params.page,
+      pageSize: params.pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / params.pageSize)),
+    },
   });
 }
 
@@ -114,8 +127,8 @@ export async function retryAdminAccountErasure(c: Context<AppEnv>) {
   adminRetryErasurePayloadSchema.parse(getValidatedInput(c, "json"));
   const request = await accountErasureRepo.findById(id);
   if (!request) throw new NotFoundError("Erasure request not found");
-  if (request.status !== "failed") {
-    throw new ValidationError("Only failed erasures can be retried");
+  if (request.status !== "failed" && request.status !== "retryable") {
+    throw new ValidationError("Only failed or retryable erasures can be retried");
   }
   await retryAccountErasure(id);
   await adminAuditLogRepo.append({

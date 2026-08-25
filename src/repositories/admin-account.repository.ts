@@ -5,7 +5,7 @@ import { adminUsers, type AdminUserRow, type NewAdminUserRow } from "../../db/sc
 import type { AdminRole } from "../admin/otp.service";
 
 export type AdminAccount = AdminUserRow;
-export type AdminAccountStatus = "invited" | "active" | "disabled";
+export type AdminAccountStatus = "invited" | "active" | "disabled" | "revoked";
 
 const norm = (email: string) => email.trim().toLowerCase();
 
@@ -63,6 +63,8 @@ export async function insertInvited(
     status: "invited",
     passwordHash: null,
     invitedByEmail: input.invitedByEmail,
+    inviteExpiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+    inviteRevokedAt: null,
   };
   const [row] = await tx.insert(adminUsers).values(values).returning();
   return row;
@@ -145,7 +147,15 @@ export async function setLastLogin(id: string, tx: Executor = db): Promise<void>
 /** Patch name/role/status. Only provided fields are written. */
 export async function update(
   id: string,
-  patch: { name?: string; role?: AdminRole; status?: AdminAccountStatus },
+  patch: {
+    name?: string;
+    role?: AdminRole;
+    status?: AdminAccountStatus;
+    permissions?: string[] | null;
+    inviteRevokedAt?: Date | null;
+    clerkInvitationId?: string | null;
+    inviteExpiresAt?: Date | null;
+  },
   tx: Executor = db
 ): Promise<AdminAccount> {
   const [row] = await tx.update(adminUsers).set(patch).where(eq(adminUsers.id, id)).returning();

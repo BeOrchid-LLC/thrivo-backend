@@ -7,6 +7,7 @@ export const globalSettings = pgTable("global_settings", {
   key: text("key").primaryKey().default("default"),
   pushNotificationsEnabled: boolean("push_notifications_enabled").notNull().default(true),
   dailyFoodLogReminderEnabled: boolean("daily_food_log_reminder_enabled").notNull().default(true),
+  psychologyTipPushEnabled: boolean("psychology_tip_push_enabled").notNull().default(true),
   // Independent of the push flag above — a user may want one channel without
   // the other. Gates the weekly-review nudge email (send-weekly-review job).
   emailFoodLogReminderEnabled: boolean("email_food_log_reminder_enabled").notNull().default(true),
@@ -31,6 +32,7 @@ export const userSettings = pgTable(
     unitSystem: text("unit_system").notNull().default("metric"),
     pushNotificationsEnabled: boolean("push_notifications_enabled").notNull().default(true),
     dailyFoodLogReminderEnabled: boolean("daily_food_log_reminder_enabled").notNull().default(true),
+    psychologyTipPushEnabled: boolean("psychology_tip_push_enabled").notNull().default(true),
     dailyFoodLogReminderTime: text("daily_food_log_reminder_time").notNull().default("08:00"),
     emailFoodLogReminderEnabled: boolean("email_food_log_reminder_enabled").notNull().default(true),
     weeklyReviewEmailEnabled: boolean("weekly_review_email_enabled").notNull().default(true),

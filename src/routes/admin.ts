@@ -1,5 +1,9 @@
 import { Hono } from "hono";
-import { requireAdmin, requireAdminRole, requireSuperAdmin } from "../middleware/require-admin";
+import {
+  requireAdmin,
+  requireAdminPermission,
+  requireAdminRole,
+} from "../middleware/require-admin";
 import { adminOriginGuard } from "../middleware/admin-origin";
 import { adminAuthRateLimit } from "../middleware/rate-limit";
 import { validate } from "../middleware/validate";
@@ -45,7 +49,9 @@ import {
   updateAdminAccount,
   resendAdminInvite,
   disableAdminAccount,
+  revokeAdminInvite,
 } from "../controllers/admin-management.controller";
+import { getAdminSettings, patchAdminSettings } from "../controllers/admin-settings.controller";
 import {
   listAdminUsers,
   getAdminUser,
@@ -161,41 +167,92 @@ adminRouter.post(
 );
 
 // Admin management (super-admin only — manage other admin accounts)
-adminRouter.get("/admins", requireAdmin, requireSuperAdmin, listAdminAccounts);
+adminRouter.get(
+  "/admins",
+  requireAdmin,
+  requireAdminPermission("admins.manage"),
+  listAdminAccounts
+);
 adminRouter.post(
   "/admins/invite",
   requireAdmin,
-  requireSuperAdmin,
+  requireAdminPermission("admins.manage"),
   validate("json", adminInvitePayloadSchema),
   inviteAdminAccount
 );
 adminRouter.patch(
   "/admins/:id",
   requireAdmin,
-  requireSuperAdmin,
+  requireAdminPermission("admins.manage"),
   validate("json", adminUpdatePayloadSchema),
   updateAdminAccount
 );
-adminRouter.post("/admins/:id/resend-invite", requireAdmin, requireSuperAdmin, resendAdminInvite);
-adminRouter.delete("/admins/:id", requireAdmin, requireSuperAdmin, disableAdminAccount);
+adminRouter.post(
+  "/admins/:id/resend-invite",
+  requireAdmin,
+  requireAdminPermission("admins.manage"),
+  resendAdminInvite
+);
+adminRouter.post(
+  "/admins/:id/revoke-invite",
+  requireAdmin,
+  requireAdminPermission("admins.manage"),
+  revokeAdminInvite
+);
+adminRouter.delete(
+  "/admins/:id",
+  requireAdmin,
+  requireAdminPermission("admins.manage"),
+  disableAdminAccount
+);
+
+// Global settings can be managed by admins and super-admins, but not support
+// or read-only staff. The permission middleware is the authoritative check.
+adminRouter.get(
+  "/settings",
+  requireAdmin,
+  requireAdminPermission("settings.manage"),
+  getAdminSettings
+);
+adminRouter.patch(
+  "/settings",
+  requireAdmin,
+  requireAdminPermission("settings.manage"),
+  patchAdminSettings
+);
 
 // User management (all protected)
-adminRouter.get("/users", requireAdmin, listAdminUsers);
-adminRouter.get("/users/:id", requireAdmin, getAdminUser);
-adminRouter.get("/users/:id/timeline", requireAdmin, getAdminUserTimeline);
-adminRouter.get("/users/:id/activity", requireAdmin, getAdminUserActivity);
+adminRouter.get("/users", requireAdmin, requireAdminPermission("users.read"), listAdminUsers);
+adminRouter.get("/users/:id", requireAdmin, requireAdminPermission("users.read"), getAdminUser);
+adminRouter.get(
+  "/users/:id/timeline",
+  requireAdmin,
+  requireAdminPermission("users.read"),
+  getAdminUserTimeline
+);
+adminRouter.get(
+  "/users/:id/activity",
+  requireAdmin,
+  requireAdminPermission("users.read"),
+  getAdminUserActivity
+);
 // Destructive: hard delete is admin-only (support/read-only get 403).
-adminRouter.delete("/users/:id", requireAdmin, requireAdminRole("admin"), hardDeleteAdminUser);
+adminRouter.delete(
+  "/users/:id",
+  requireAdmin,
+  requireAdminPermission("users.manage"),
+  hardDeleteAdminUser
+);
 adminRouter.get(
   "/account-erasures",
   requireAdmin,
-  requireAdminRole("admin"),
+  requireAdminPermission("erasures.manage"),
   listAdminAccountErasures
 );
 adminRouter.post(
   "/account-erasures/:id/retry",
   requireAdmin,
-  requireAdminRole("admin"),
+  requireAdminPermission("erasures.manage"),
   validate("json", adminRetryErasurePayloadSchema),
   retryAdminAccountErasure
 );
@@ -205,35 +262,60 @@ adminRouter.post(
 adminRouter.post(
   "/users/:id/subscription/cancel",
   requireAdmin,
-  requireAdminRole("admin"),
+  requireAdminPermission("subscriptions.manage"),
   validate("json", adminCancelPayloadSchema),
   cancelAdminUserSubscription
 );
 adminRouter.post(
   "/users/:id/subscription/refund",
   requireAdmin,
-  requireAdminRole("admin"),
+  requireAdminPermission("subscriptions.manage"),
   validate("json", adminRefundPayloadSchema),
   refundAdminUserSubscription
 );
 // Per-user billing event timeline (read) + reconcile trigger (admin-only).
-adminRouter.get("/users/:id/billing-events", requireAdmin, getAdminUserBillingEvents);
+adminRouter.get(
+  "/users/:id/billing-events",
+  requireAdmin,
+  requireAdminPermission("billing.read"),
+  getAdminUserBillingEvents
+);
 adminRouter.post(
   "/users/:id/reconcile-subscription",
   requireAdmin,
-  requireAdminRole("admin"),
+  requireAdminPermission("subscriptions.manage"),
   reconcileAdminUserSubscription
 );
 
 // Subscriptions list
-adminRouter.get("/subscriptions", requireAdmin, listAdminSubscriptions);
+adminRouter.get(
+  "/subscriptions",
+  requireAdmin,
+  requireAdminPermission("subscriptions.read"),
+  listAdminSubscriptions
+);
 
 // Metrics
-adminRouter.get("/metrics/dashboard", requireAdmin, getAdminDashboardMetrics);
+adminRouter.get(
+  "/metrics/dashboard",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  getAdminDashboardMetrics
+);
 
 // Analytics page — subscription funnel + engagement, fetched independently.
-adminRouter.get("/analytics/subscriptions", requireAdmin, getAdminSubscriptionAnalytics);
-adminRouter.get("/analytics/engagement", requireAdmin, getAdminEngagementAnalytics);
+adminRouter.get(
+  "/analytics/subscriptions",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  getAdminSubscriptionAnalytics
+);
+adminRouter.get(
+  "/analytics/engagement",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  getAdminEngagementAnalytics
+);
 
 // Content — psychology tip bank CRUD. Content management is a support task, so
 // mutations require support+ (read-only can view but not edit). All audited.
@@ -241,36 +323,51 @@ adminRouter.get("/tips", requireAdmin, listAdminTips);
 adminRouter.post(
   "/tips",
   requireAdmin,
-  requireAdminRole("support"),
+  requireAdminPermission("content.manage"),
   validate("json", adminUpsertTipPayloadSchema),
   createAdminTip
 );
 adminRouter.patch(
   "/tips/:id",
   requireAdmin,
-  requireAdminRole("support"),
+  requireAdminPermission("content.manage"),
   validate("json", adminUpsertTipPayloadSchema),
   updateAdminTip
 );
-adminRouter.delete("/tips/:id", requireAdmin, requireAdminRole("support"), deleteAdminTip);
+adminRouter.delete(
+  "/tips/:id",
+  requireAdmin,
+  requireAdminPermission("content.manage"),
+  deleteAdminTip
+);
 
 // Food catalog moderation. Reads open to any admin; approve/reject/verify/edit
 // are support+; merge (irreversible dedup) is admin-only. All mutations audited.
 adminRouter.get("/foods", requireAdmin, listAdminFoods);
 adminRouter.get("/foods/:id", requireAdmin, getAdminFood);
-adminRouter.post("/foods/:id/approve", requireAdmin, requireAdminRole("support"), approveAdminFood);
+adminRouter.post(
+  "/foods/:id/approve",
+  requireAdmin,
+  requireAdminPermission("foods.manage"),
+  approveAdminFood
+);
 adminRouter.post(
   "/foods/:id/reject",
   requireAdmin,
-  requireAdminRole("support"),
+  requireAdminPermission("foods.manage"),
   validate("json", adminFoodRejectPayloadSchema),
   rejectAdminFood
 );
-adminRouter.post("/foods/:id/verify", requireAdmin, requireAdminRole("support"), verifyAdminFood);
+adminRouter.post(
+  "/foods/:id/verify",
+  requireAdmin,
+  requireAdminPermission("foods.manage"),
+  verifyAdminFood
+);
 adminRouter.patch(
   "/foods/:id",
   requireAdmin,
-  requireAdminRole("support"),
+  requireAdminPermission("foods.manage"),
   validate("json", adminFoodEditPayloadSchema),
   editAdminFood
 );
@@ -278,6 +375,7 @@ adminRouter.post(
   "/foods/:id/merge",
   requireAdmin,
   requireAdminRole("admin"),
+  requireAdminPermission("foods.manage"),
   validate("json", adminFoodMergePayloadSchema),
   mergeAdminFood
 );
@@ -285,13 +383,23 @@ adminRouter.post(
 // Billing observability — subscription funnel events + webhook ledger. Reads
 // open to any admin; raw webhook payload is admin-only (may carry PII). The
 // "webhooks" literal is registered before ":id"-shaped routes to avoid capture.
-adminRouter.get("/billing/events", requireAdmin, listAdminBillingEvents);
-adminRouter.get("/webhooks", requireAdmin, listAdminWebhooks);
+adminRouter.get(
+  "/billing/events",
+  requireAdmin,
+  requireAdminPermission("billing.read"),
+  listAdminBillingEvents
+);
+adminRouter.get(
+  "/webhooks",
+  requireAdmin,
+  requireAdminPermission("billing.read"),
+  listAdminWebhooks
+);
 adminRouter.get("/webhooks/:id", requireAdmin, requireAdminRole("admin"), getAdminWebhook);
 adminRouter.post(
   "/webhooks/:id/reprocess",
   requireAdmin,
-  requireAdminRole("admin"),
+  requireAdminPermission("billing.manage"),
   validate("json", adminWebhookReprocessPayloadSchema),
   reprocessAdminWebhook
 );
@@ -309,7 +417,7 @@ adminRouter.post(
 adminRouter.post(
   "/push/campaigns",
   requireAdmin,
-  requireAdminRole("support"),
+  requireAdminPermission("push.manage"),
   validate("json", adminCreateCampaignPayloadSchema),
   createAdminPushCampaign
 );
@@ -327,36 +435,83 @@ adminRouter.get("/moderation/checkin-notes", requireAdmin, listAdminCheckinNotes
 adminRouter.post(
   "/checkins/:id/redact",
   requireAdmin,
-  requireAdminRole("support"),
+  requireAdminPermission("moderation.manage"),
   redactAdminCheckinNote
 );
 adminRouter.post(
   "/checkins/:id/restore",
   requireAdmin,
-  requireAdminRole("support"),
+  requireAdminPermission("moderation.manage"),
   restoreAdminCheckinNote
 );
 adminRouter.get("/moderation/uploads", requireAdmin, listAdminUploads);
-adminRouter.post("/uploads/:id/remove", requireAdmin, requireAdminRole("admin"), removeAdminUpload);
+adminRouter.post(
+  "/uploads/:id/remove",
+  requireAdmin,
+  requireAdminRole("admin"),
+  requireAdminPermission("moderation.manage"),
+  removeAdminUpload
+);
 adminRouter.post(
   "/uploads/:id/restore",
   requireAdmin,
-  requireAdminRole("support"),
+  requireAdminRole("admin"),
+  requireAdminPermission("moderation.manage"),
   restoreAdminUpload
 );
 
 // Observability logs (read-only)
-adminRouter.get("/email-logs", requireAdmin, listAdminEmailLogs);
-adminRouter.get("/audit-log", requireAdmin, listAdminAuditLog);
+adminRouter.get(
+  "/email-logs",
+  requireAdmin,
+  requireAdminPermission("audit.read"),
+  listAdminEmailLogs
+);
+adminRouter.get(
+  "/audit-log",
+  requireAdmin,
+  requireAdminPermission("audit.read"),
+  listAdminAuditLog
+);
 
 // Overview page — one route per independently-fetched section.
-adminRouter.get("/overview/metrics", requireAdmin, getAdminOverviewMetrics);
-adminRouter.get("/overview/revenue-trend", requireAdmin, getAdminOverviewRevenueTrend);
-adminRouter.get("/overview/trial-pipeline", requireAdmin, getAdminOverviewTrialPipeline);
-adminRouter.get("/overview/plan-breakdown", requireAdmin, getAdminOverviewPlanBreakdown);
+adminRouter.get(
+  "/overview/metrics",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  getAdminOverviewMetrics
+);
+adminRouter.get(
+  "/overview/revenue-trend",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  getAdminOverviewRevenueTrend
+);
+adminRouter.get(
+  "/overview/trial-pipeline",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  getAdminOverviewTrialPipeline
+);
+adminRouter.get(
+  "/overview/plan-breakdown",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  getAdminOverviewPlanBreakdown
+);
 
 // Leads (email captures) -- export route registered before /:id-shaped routes
 // so "export" is never matched as an :id param.
-adminRouter.get("/leads/export", requireAdmin, exportAdminLeads);
-adminRouter.get("/leads", requireAdmin, listAdminLeads);
-adminRouter.delete("/leads/:id", requireAdmin, requireAdminRole("admin"), hardDeleteAdminLead);
+adminRouter.get(
+  "/leads/export",
+  requireAdmin,
+  requireAdminPermission("leads.manage"),
+  exportAdminLeads
+);
+adminRouter.get("/leads", requireAdmin, requireAdminPermission("leads.manage"), listAdminLeads);
+adminRouter.delete(
+  "/leads/:id",
+  requireAdmin,
+  requireAdminPermission("leads.manage"),
+  hardDeleteAdminLead
+);

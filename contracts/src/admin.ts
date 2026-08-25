@@ -180,6 +180,7 @@ export const adminAccountErasureSchema = z.object({
 });
 export const adminAccountErasureListResponseSchema = z.object({
   erasures: z.array(adminAccountErasureSchema),
+  pagination: adminPaginationSchema,
 });
 export const adminRetryErasurePayloadSchema = z.object({ confirmation: z.literal("RETRY") });
 

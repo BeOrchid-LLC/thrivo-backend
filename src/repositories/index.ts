@@ -22,6 +22,7 @@ export * as emailLogRepo from "./email-log.repository";
 export * as emailOutboxRepo from "./email-outbox.repository";
 export * as emailSuppressionRepo from "./email-suppression.repository";
 export * as pushTokenRepo from "./push-token.repository";
+export * as notificationDeliveryRepo from "./notification-delivery.repository";
 export * as webhookEventRepo from "./webhook-event.repository";
 export * as webhookIdentityOwnershipRepo from "./webhook-identity-ownership.repository";
 export * as adminAuditLogRepo from "./admin-audit-log.repository";
