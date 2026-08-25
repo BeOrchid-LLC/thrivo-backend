@@ -1,4 +1,7 @@
-import type { UpdateUserSettingsPayload } from "../../contracts/src/settings";
+import type {
+  UpdateGlobalSettingsPayload,
+  UpdateUserSettingsPayload,
+} from "../../contracts/src/settings";
 import { settingsRepo } from "../repositories";
 
 export type NotificationSettingKind =
@@ -28,6 +31,12 @@ export interface EffectiveSettingsResult {
 
 export async function getGlobalSettings(): Promise<settingsRepo.GlobalSettings> {
   return (await settingsRepo.getGlobalSettings()) ?? settingsRepo.upsertGlobalDefaults();
+}
+
+export async function updateGlobalSettings(
+  input: UpdateGlobalSettingsPayload
+): Promise<settingsRepo.GlobalSettings> {
+  return settingsRepo.updateGlobalSettings(input);
 }
 
 export async function getUserSettings(userId: string): Promise<settingsRepo.UserSettings> {

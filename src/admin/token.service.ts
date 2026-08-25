@@ -55,6 +55,11 @@ export function consumeInviteToken(email: string, token: string): Promise<boolea
   return consume(inviteKey(email), token);
 }
 
+/** Revoke the currently active invitation token without affecting the row. */
+export async function revokeInviteToken(email: string): Promise<void> {
+  await getRedis().del(inviteKey(email));
+}
+
 /** Issue (or overwrite) a password-reset token. Returns the raw token. */
 export function issueResetToken(email: string): Promise<string> {
   return issue(resetKey(email), ADMIN_RESET_TTL_SEC);

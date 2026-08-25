@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { accountErasureRequests, identityTombstones } from "../../db/schema";
@@ -74,6 +74,24 @@ export async function list(limit = 100, tx: Executor = db) {
     .from(accountErasureRequests)
     .orderBy(asc(accountErasureRequests.requestedAt))
     .limit(limit);
+}
+
+export async function listPaged(
+  input: { page: number; pageSize: number; status?: string },
+  tx: Executor = db
+) {
+  const where = input.status ? eq(accountErasureRequests.status, input.status) : undefined;
+  const [totalRow, rows] = await Promise.all([
+    tx.select({ count: count() }).from(accountErasureRequests).where(where),
+    tx
+      .select()
+      .from(accountErasureRequests)
+      .where(where)
+      .orderBy(asc(accountErasureRequests.requestedAt))
+      .limit(input.pageSize)
+      .offset((input.page - 1) * input.pageSize),
+  ]);
+  return { rows, total: Number(totalRow[0]?.count ?? 0) };
 }
 
 export async function create(

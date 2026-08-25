@@ -4,15 +4,13 @@ import { verifyAdminClerkRequest } from "../auth";
 import { getAdminSnapshot, setAdminSnapshot } from "../admin/snapshot.service";
 import { adminAccountRepo } from "../repositories";
 import type { AdminRole } from "../admin/otp.service";
+import type { AdminPermission } from "../../contracts/src/admin-management";
+import { effectivePermissions } from "../admin/permissions";
 import type { AppEnv } from "../types/http";
 
-/**
- * Capability ladder: a higher rank can do everything a lower rank can. Reads
- * are open to any authenticated admin session (`requireAdmin`); mutations gate
- * on a minimum rank via `requireAdminRole` — `support` for content/moderation,
- * `admin` for destructive or money-adjacent actions, `super-admin` for managing
- * other admins.
- */
+/** Legacy role ladder retained for compatibility with routes that have not yet
+ * moved to a concrete permission. New sensitive routes should use
+ * `requireAdminPermission` so custom grants are enforced server-side. */
 const ROLE_RANK: Record<AdminRole, number> = {
   "read-only": 0,
   support: 1,
@@ -80,5 +78,23 @@ export function requireAdminRole(min: AdminRole) {
   });
 }
 
-/** Convenience gate for admin-management routes — only super-admins may manage admins. */
+/** Require a concrete capability from the caller's role defaults or overrides. */
+export function requireAdminPermission(permission: AdminPermission) {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const admin = c.get("adminUser");
+    if (!admin) throw new UnauthorizedError("Authentication required");
+    const row = await adminAccountRepo.findByEmail(admin.email);
+    if (
+      !row ||
+      !isAdminRole(row.role) ||
+      !effectivePermissions(row.role as AdminRole, row.permissions).includes(permission)
+    ) {
+      throw new ForbiddenError("Insufficient admin permissions for this action");
+    }
+    await next();
+  });
+}
+
+/** Compatibility gate for legacy callers; admin management now uses the
+ * `admins.manage` permission so a scoped custom grant can be honored. */
 export const requireSuperAdmin = requireAdminRole("super-admin");

@@ -309,6 +309,20 @@
       "when": 1787605804695,
       "tag": "0043_nervous_steel_serpent",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1787614680480,
+      "tag": "0044_goofy_texas_twister",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1787614837197,
+      "tag": "0045_ancient_epoch",
+      "breakpoints": true
     }
   ]
 }

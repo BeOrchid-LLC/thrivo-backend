@@ -1,9 +1,13 @@
+import { createClerkClient } from "@clerk/backend";
 import { Webhook } from "svix";
 import { env } from "../env";
-import { adminAccountRepo } from "../repositories";
+import { adminAccountRepo, adminAuditLogRepo } from "../repositories";
+import { db } from "../../db";
 import { logger } from "../lib/logger";
 import { ForbiddenError } from "../lib/errors";
 import type { AdminRole } from "../admin/otp.service";
+import { adminPermissionsSchema } from "../../contracts/src/admin-management";
+import { invalidateAdminSnapshot } from "../admin/snapshot.service";
 
 interface ClerkEmailAddress {
   email_address: string;
@@ -23,6 +27,7 @@ interface ClerkAdminUserUpdatedData {
   email_addresses: ClerkEmailAddress[];
   first_name: string | null;
   last_name: string | null;
+  public_metadata?: { role?: string; permissions?: unknown } | null;
 }
 
 interface ClerkAdminUserDeletedData {
@@ -60,6 +65,8 @@ function fullName(first: string | null, last: string | null): string | null {
   return parts || null;
 }
 
+const clerk = createClerkClient({ secretKey: env.CLERK_ADMIN_SECRET_KEY });
+
 function resolveRole(raw: string | undefined): AdminRole {
   if (raw === "super-admin" || raw === "admin" || raw === "support" || raw === "read-only") {
     return raw;
@@ -82,19 +89,48 @@ export async function handleAdminClerkUserCreated(data: ClerkAdminUserCreatedDat
 
   if (existing) {
     await adminAccountRepo.linkClerkAdminId(existing.id, data.id);
+    if (existing.status === "revoked") {
+      logger.warn(
+        { adminId: existing.id, clerkAdminId: data.id },
+        "admin-clerk-webhook: ignored signup for revoked invitation"
+      );
+      return;
+    }
+    // The database invitation determines the account's access. Re-apply it to
+    // Clerk so a dashboard default or stale invitation metadata cannot widen
+    // the account during first sign-in.
+    await clerk.users.updateUserMetadata(data.id, {
+      publicMetadata: { role: existing.role, permissions: existing.permissions },
+    });
     if (existing.status !== "active") {
       await adminAccountRepo.update(existing.id, { status: "active" });
+      if (existing.status === "invited") {
+        await adminAuditLogRepo.append({
+          actorAdminEmail: "clerk-webhook",
+          action: "admin.accept_invite",
+          targetType: "admin",
+          targetId: existing.id,
+          before: { status: existing.status },
+          after: { status: "active", clerkAdminId: data.id },
+          requestId: null,
+          ip: null,
+        });
+      }
     }
     logger.info(
       { adminId: existing.id, clerkAdminId: data.id },
       "admin-clerk-webhook: linked existing admin row to Clerk Admin ID"
     );
+    await invalidateAdminSnapshot(existing.email);
     return;
   }
 
   // No pre-existing row — provision a new active admin.
   const row = await adminAccountRepo.upsertActiveNoPassword({ email, name, role });
   await adminAccountRepo.linkClerkAdminId(row.id, data.id);
+  await clerk.users.updateUserMetadata(data.id, {
+    publicMetadata: { role: row.role, permissions: row.permissions },
+  });
   logger.info(
     { adminId: row.id, clerkAdminId: data.id, role },
     "admin-clerk-webhook: provisioned new admin from Clerk"
@@ -113,7 +149,60 @@ export async function handleAdminClerkUserUpdated(data: ClerkAdminUserUpdatedDat
 
   const email = primaryEmail(data.email_addresses).toLowerCase();
   const name = fullName(data.first_name, data.last_name);
-  await adminAccountRepo.update(existing.id, { ...(name ? { name } : {}) });
+  const metadataRole = data.public_metadata?.role;
+  const nextRole = metadataRole ? resolveRole(metadataRole) : undefined;
+  const permissionsResult = data.public_metadata?.permissions
+    ? adminPermissionsSchema.safeParse(data.public_metadata.permissions)
+    : null;
+  const nextPermissions = permissionsResult?.success ? permissionsResult.data : undefined;
+  const roleChanged = nextRole !== undefined && nextRole !== existing.role;
+
+  if (roleChanged && existing.role === "super-admin" && existing.status === "active") {
+    const remaining = await adminAccountRepo.countActiveSuperAdmins(existing.id);
+    if (remaining === 0 && nextRole !== "super-admin") {
+      await clerk.users.updateUserMetadata(data.id, {
+        publicMetadata: { role: "super-admin", permissions: existing.permissions },
+      });
+      logger.error(
+        { adminId: existing.id, clerkAdminId: data.id },
+        "admin-clerk-webhook: rejected demotion of the last active super-admin"
+      );
+      return;
+    }
+  }
+
+  const patch = {
+    ...(name ? { name } : {}),
+    ...(nextRole !== undefined ? { role: nextRole } : {}),
+    ...(nextPermissions !== undefined ? { permissions: nextPermissions } : {}),
+  };
+  if (Object.keys(patch).length > 0) {
+    await db.transaction(async (tx) => {
+      const updated = await adminAccountRepo.update(existing.id, patch, tx);
+      if (roleChanged || nextPermissions !== undefined) {
+        await adminAuditLogRepo.append(
+          {
+            actorAdminEmail: "clerk-webhook",
+            action: "admin.identity_sync",
+            targetType: "admin",
+            targetId: existing.id,
+            before: {
+              role: existing.role,
+              permissions: existing.permissions,
+            },
+            after: {
+              role: updated.role,
+              permissions: updated.permissions,
+            },
+            requestId: null,
+            ip: null,
+          },
+          tx
+        );
+      }
+    });
+    await invalidateAdminSnapshot(existing.email);
+  }
 
   // Email change: update only if it actually changed (citext handles case).
   if (email !== existing.email.toLowerCase()) {
@@ -136,6 +225,7 @@ export async function handleAdminClerkUserDeleted(data: ClerkAdminUserDeletedDat
     return;
   }
   await adminAccountRepo.update(existing.id, { status: "disabled" });
+  await invalidateAdminSnapshot(existing.email);
   logger.info(
     { adminId: existing.id, clerkAdminId: data.id },
     "admin-clerk-webhook: admin account disabled"
