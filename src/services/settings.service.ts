@@ -47,6 +47,7 @@ export async function updateUserSettings(
   userId: string,
   input: UpdateUserSettingsPayload
 ): Promise<settingsRepo.UserSettings> {
+  // Keep the two weekly email controls aligned as one user-facing preference.
   const weekly = input.weeklyReviewEmailEnabled ?? input.emailFoodLogReminderEnabled;
   return settingsRepo.updateUserSettings(userId, {
     ...input,
