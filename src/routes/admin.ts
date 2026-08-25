@@ -1,5 +1,9 @@
 import { Hono } from "hono";
-import { requireAdmin, requireAdminPermission } from "../middleware/require-admin";
+import {
+  requireAdmin,
+  requireAdminPermission,
+  requireAdminRole,
+} from "../middleware/require-admin";
 import { adminOriginGuard } from "../middleware/admin-origin";
 import { adminAuthRateLimit } from "../middleware/rate-limit";
 import { validate } from "../middleware/validate";
@@ -339,8 +343,8 @@ adminRouter.delete(
 
 // Food catalog moderation. Reads open to any admin; approve/reject/verify/edit
 // are support+; merge (irreversible dedup) is admin-only. All mutations audited.
-adminRouter.get("/foods", requireAdmin, requireAdminPermission("foods.manage"), listAdminFoods);
-adminRouter.get("/foods/:id", requireAdmin, requireAdminPermission("foods.manage"), getAdminFood);
+adminRouter.get("/foods", requireAdmin, listAdminFoods);
+adminRouter.get("/foods/:id", requireAdmin, getAdminFood);
 adminRouter.post(
   "/foods/:id/approve",
   requireAdmin,
@@ -390,12 +394,7 @@ adminRouter.get(
   requireAdminPermission("billing.read"),
   listAdminWebhooks
 );
-adminRouter.get(
-  "/webhooks/:id",
-  requireAdmin,
-  requireAdminPermission("billing.read"),
-  getAdminWebhook
-);
+adminRouter.get("/webhooks/:id", requireAdmin, requireAdminRole("admin"), getAdminWebhook);
 adminRouter.post(
   "/webhooks/:id/reprocess",
   requireAdmin,
@@ -407,16 +406,10 @@ adminRouter.post(
 // Push campaigns/broadcast. Reads + audience estimate for any admin; create is
 // support+; send (irreversible, outward-facing) is admin-only. "audience-estimate"
 // and "campaigns" literals precede ":id" routes.
-adminRouter.get(
-  "/push/campaigns",
-  requireAdmin,
-  requireAdminPermission("push.manage"),
-  listAdminPushCampaigns
-);
+adminRouter.get("/push/campaigns", requireAdmin, listAdminPushCampaigns);
 adminRouter.post(
   "/push/audience-estimate",
   requireAdmin,
-  requireAdminPermission("push.manage"),
   validate("json", adminAudienceEstimatePayloadSchema),
   estimateAdminPushAudience
 );
@@ -427,27 +420,17 @@ adminRouter.post(
   validate("json", adminCreateCampaignPayloadSchema),
   createAdminPushCampaign
 );
-adminRouter.get(
-  "/push/campaigns/:id",
-  requireAdmin,
-  requireAdminPermission("push.manage"),
-  getAdminPushCampaign
-);
+adminRouter.get("/push/campaigns/:id", requireAdmin, getAdminPushCampaign);
 adminRouter.post(
   "/push/campaigns/:id/send",
   requireAdmin,
-  requireAdminPermission("push.manage"),
+  requireAdminRole("admin"),
   sendAdminPushCampaign
 );
 
 // UGC moderation — check-in notes + avatar uploads. Reads for any admin;
 // redact/restore are support+; removing an image is admin-only (destructive).
-adminRouter.get(
-  "/moderation/checkin-notes",
-  requireAdmin,
-  requireAdminPermission("moderation.manage"),
-  listAdminCheckinNotes
-);
+adminRouter.get("/moderation/checkin-notes", requireAdmin, listAdminCheckinNotes);
 adminRouter.post(
   "/checkins/:id/redact",
   requireAdmin,
@@ -460,12 +443,7 @@ adminRouter.post(
   requireAdminPermission("moderation.manage"),
   restoreAdminCheckinNote
 );
-adminRouter.get(
-  "/moderation/uploads",
-  requireAdmin,
-  requireAdminPermission("moderation.manage"),
-  listAdminUploads
-);
+adminRouter.get("/moderation/uploads", requireAdmin, listAdminUploads);
 adminRouter.post(
   "/uploads/:id/remove",
   requireAdmin,
