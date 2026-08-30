@@ -39,6 +39,12 @@ import {
   adminCampaignTestPayloadSchema,
 } from "../../contracts/src/admin-push";
 import {
+  adminLeadContactPayloadSchema,
+  adminLeadLinkUserPayloadSchema,
+  adminLeadNotePayloadSchema,
+  adminLeadUpdatePayloadSchema,
+} from "../../contracts/src/leads";
+import {
   postAdminRequestOtp,
   postAdminVerifyOtp,
   postAdminLogin,
@@ -615,18 +621,21 @@ adminRouter.patch(
   "/leads/:id",
   requireAdmin,
   requireAdminPermission("leads.manage"),
+  validate("json", adminLeadUpdatePayloadSchema),
   updateAdminLead
 );
 adminRouter.post(
   "/leads/:id/notes",
   requireAdmin,
   requireAdminPermission("leads.manage"),
+  validate("json", adminLeadNotePayloadSchema),
   addAdminLeadNote
 );
 adminRouter.post(
   "/leads/:id/link-user",
   requireAdmin,
   requireAdminPermission("leads.manage"),
+  validate("json", adminLeadLinkUserPayloadSchema),
   linkAdminLeadUser
 );
 adminRouter.post(
@@ -634,6 +643,7 @@ adminRouter.post(
   requireAdmin,
   requireAdminRole("admin"),
   requireAdminPermission("leads.manage"),
+  validate("json", adminLeadContactPayloadSchema),
   contactAdminLead
 );
 adminRouter.delete(
