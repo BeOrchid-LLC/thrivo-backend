@@ -288,11 +288,7 @@ export async function applyEdit(
 }
 
 export type MergeResult =
-  | "merged"
-  | "not_found"
-  | "invalid_target"
-  | "same_item"
-  | "already_merged";
+  "merged" | "not_found" | "invalid_target" | "same_item" | "already_merged";
 
 /**
  * Merge `id` into `mergeIntoId`: mark the source `merged` with `mergedIntoId`

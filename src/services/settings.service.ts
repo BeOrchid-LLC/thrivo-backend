@@ -5,10 +5,7 @@ import type {
 import { settingsRepo } from "../repositories";
 
 export type NotificationSettingKind =
-  | "daily_food_log"
-  | "psychology_tip"
-  | "weight_check"
-  | "hydration";
+  "daily_food_log" | "psychology_tip" | "weight_check" | "hydration";
 
 export interface EffectiveSettingsResult {
   global: settingsRepo.GlobalSettings;
