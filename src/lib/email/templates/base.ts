@@ -15,7 +15,8 @@ export function escapeHtml(value: string): string {
  * rather than re-derived from Figma's rotated/flipped div transforms, so the
  * mark stays pixel-true to the one already shipping on the web/admin apps.
  */
-const LOGOMARK_SVG = `<img src="cid:thrivo-logo" width="22" height="22" alt="Thrivo logo" style="display:block;border:0;outline:none;"/>`;
+const EMAIL_LOGO_URL = "https://static.thrivo.fit/logo.png";
+const LOGO_IMAGE = `<img src="${EMAIL_LOGO_URL}" width="22" height="22" alt="Thrivo logo" style="display:block;border:0;outline:none;"/>`;
 
 /**
  * Icon glyphs, ported from Figma where noted (OTP frame 277:472, magic-link
@@ -184,7 +185,7 @@ export function emailShell(opts: {
  */
 export function emailHeader(opts?: { eyebrow?: string; eyebrowIcon?: "trending" }): string {
   const brand = `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
-      <td style="vertical-align:middle;">${LOGOMARK_SVG}</td>
+      <td style="vertical-align:middle;">${LOGO_IMAGE}</td>
       <td class="email-heading" style="vertical-align:middle;padding-left:8px;font-size:16px;font-weight:700;letter-spacing:0.2px;">THRIVO</td>
     </tr></table>`;
 
