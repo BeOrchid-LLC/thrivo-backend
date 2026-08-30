@@ -19,6 +19,30 @@ describe("env policy", () => {
     expect(envSchema.safeParse({ ...base, NODE_ENV: "development" }).success).toBe(true);
   });
 
+  it("normalizes configured push test recipient emails", () => {
+    const result = envSchema.safeParse({
+      ...base,
+      NODE_ENV: "development",
+      ADMIN_PUSH_TEST_USER_EMAILS: " QA@EXAMPLE.COM,qa@example.com, second@example.com ",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.ADMIN_PUSH_TEST_USER_EMAILS).toEqual([
+        "qa@example.com",
+        "second@example.com",
+      ]);
+    }
+  });
+
+  it("rejects invalid push test recipient emails", () => {
+    const result = envSchema.safeParse({
+      ...base,
+      NODE_ENV: "development",
+      ADMIN_PUSH_TEST_USER_EMAILS: "valid@example.com,not-an-email",
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("refuses production startup without the complete email security configuration", () => {
     const result = envSchema.safeParse({ ...base, NODE_ENV: "production" });
     expect(result.success).toBe(false);

@@ -77,6 +77,22 @@ export async function findById(id: string, tx: Executor = db): Promise<EmailLog 
   return row ?? null;
 }
 
+export async function countResends(sourceId: string, tx: Executor = db): Promise<number> {
+  const [{ value }] = await tx
+    .select({ value: count() })
+    .from(emailLogs)
+    .where(eq(emailLogs.parentEmailLogId, sourceId));
+  return Number(value);
+}
+
+export async function listResends(sourceId: string, tx: Executor = db): Promise<EmailLog[]> {
+  return tx
+    .select()
+    .from(emailLogs)
+    .where(eq(emailLogs.parentEmailLogId, sourceId))
+    .orderBy(desc(emailLogs.createdAt));
+}
+
 export async function findByProviderMessageId(
   providerMessageId: string,
   tx: Executor = db
@@ -186,6 +202,19 @@ export async function listForUser(userId: string, tx: Executor = db): Promise<Em
     .from(emailLogs)
     .where(eq(emailLogs.userId, userId))
     .orderBy(desc(emailLogs.createdAt));
+}
+
+export async function listForLead(
+  leadId: string,
+  limit = 10,
+  tx: Executor = db
+): Promise<EmailLog[]> {
+  return tx
+    .select()
+    .from(emailLogs)
+    .where(eq(emailLogs.leadId, leadId))
+    .orderBy(desc(emailLogs.createdAt), desc(emailLogs.id))
+    .limit(limit);
 }
 
 /**

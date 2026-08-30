@@ -12,6 +12,7 @@ export async function sendWelcomeEmail(
     kind: "welcome",
     to: email,
     userId,
+    resendable: true,
     dedupeKey: `welcome:${userId}`,
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     transaction,

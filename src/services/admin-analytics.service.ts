@@ -8,6 +8,7 @@ import type {
 import { mrrSnapshotRepo, subscriptionEventRepo } from "../repositories";
 
 type DateRange = { from?: Date; to?: Date };
+type AnalyticsRange = DateRange & { compareFrom?: Date; compareTo?: Date };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -19,17 +20,18 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * lands (nothing writes that table yet) — an empty array, never a fake number.
  */
 export async function getSubscriptionAnalytics(
-  range?: DateRange,
+  range?: AnalyticsRange,
   now = new Date()
 ): Promise<AdminSubscriptionAnalytics> {
   const thirtyDaysAgo = new Date(now.getTime() - 30 * MS_PER_DAY);
-  const fromDate = range?.from ?? thirtyDaysAgo;
-  const toDate = range?.to;
-
+  const to = range?.to ?? now;
+  const from = range?.from ?? thirtyDaysAgo;
   const [latestSnapshot, monthlyTrend, eventCounts, tierCounts] = await Promise.all([
-    mrrSnapshotRepo.getLatest(),
-    mrrSnapshotRepo.getMonthlyTrend(6, now),
-    subscriptionEventRepo.countByTypeInRange(fromDate, toDate),
+    mrrSnapshotRepo.getLatestOnOrBefore(to),
+    range?.from || range?.to
+      ? mrrSnapshotRepo.getMonthlyTrendBetween(from, to)
+      : mrrSnapshotRepo.getMonthlyTrend(6, now),
+    subscriptionEventRepo.countByTypeInRange(from, to),
     db
       .select({ tier: users.tier, value: count() })
       .from(users)
@@ -51,6 +53,26 @@ export async function getSubscriptionAnalytics(
     freeCount: Number(freeCount),
     premiumCount: Number(premiumCount),
     upgradeTriggers: [],
+    comparison:
+      range?.compareFrom || range?.compareTo
+        ? await getSubscriptionComparison(
+            range.compareFrom ?? new Date(from.getTime() - (to.getTime() - from.getTime())),
+            range.compareTo ?? from
+          )
+        : null,
+  };
+}
+
+async function getSubscriptionComparison(from: Date, to: Date) {
+  const [counts, snapshot] = await Promise.all([
+    subscriptionEventRepo.countByTypeInRange(from, to),
+    mrrSnapshotRepo.getLatestOnOrBefore(to),
+  ]);
+  return {
+    trialStarts: counts.trial_started,
+    trialConversions: counts.trial_converted,
+    cancellations: counts.trial_cancelled,
+    mrrCents: snapshot?.mrrCents ?? 0,
   };
 }
 
@@ -61,25 +83,50 @@ export async function getSubscriptionAnalytics(
  * empty until the events pipeline that would feed them is instrumented — the
  * page renders those as empty states rather than fabricated figures.
  */
-export async function getEngagementAnalytics(range?: DateRange): Promise<AdminEngagementAnalytics> {
+export async function getEngagementAnalytics(
+  range?: AnalyticsRange
+): Promise<AdminEngagementAnalytics> {
   const foodLogsWhere =
     range?.from || range?.to
       ? and(
-          range.from ? gte(foodLogs.createdAt, range.from) : undefined,
-          range.to ? lte(foodLogs.createdAt, range.to) : undefined
+          range.from ? gte(foodLogs.loggedAt, range.from) : undefined,
+          range.to ? lte(foodLogs.loggedAt, range.to) : undefined
         )
       : undefined;
 
   const [signupRow, completedRow, skippedRow, topFoodRows, streakRow] = await Promise.all([
-    db.select({ value: count() }).from(users).where(isNull(users.deletedAt)),
     db
       .select({ value: count() })
       .from(users)
-      .where(and(isNull(users.deletedAt), isNotNull(users.onboardingCompletedAt))),
+      .where(
+        and(
+          isNull(users.deletedAt),
+          range?.from ? gte(users.createdAt, range.from) : undefined,
+          range?.to ? lte(users.createdAt, range.to) : undefined
+        )
+      ),
     db
       .select({ value: count() })
       .from(users)
-      .where(and(isNull(users.deletedAt), eq(users.onboardingSkipped, true))),
+      .where(
+        and(
+          isNull(users.deletedAt),
+          isNotNull(users.onboardingCompletedAt),
+          range?.from ? gte(users.onboardingCompletedAt, range.from) : undefined,
+          range?.to ? lte(users.onboardingCompletedAt, range.to) : undefined
+        )
+      ),
+    db
+      .select({ value: count() })
+      .from(users)
+      .where(
+        and(
+          isNull(users.deletedAt),
+          eq(users.onboardingSkipped, true),
+          range?.from ? gte(users.createdAt, range.from) : undefined,
+          range?.to ? lte(users.createdAt, range.to) : undefined
+        )
+      ),
     db
       .select({ name: foodLogs.name, value: sql<number>`count(*)::int` })
       .from(foodLogs)
@@ -87,7 +134,15 @@ export async function getEngagementAnalytics(range?: DateRange): Promise<AdminEn
       .groupBy(foodLogs.name)
       .orderBy(sql`count(*) desc`)
       .limit(10),
-    db.select({ avg: sql<number | null>`avg(${streaks.currentStreak})` }).from(streaks),
+    db
+      .select({ avg: sql<number | null>`avg(${streaks.currentStreak})` })
+      .from(streaks)
+      .where(
+        and(
+          range?.from ? gte(streaks.updatedAt, range.from) : undefined,
+          range?.to ? lte(streaks.updatedAt, range.to) : undefined
+        )
+      ),
   ]);
 
   const signups = Number(signupRow[0]?.value ?? 0);
@@ -104,5 +159,53 @@ export async function getEngagementAnalytics(range?: DateRange): Promise<AdminEn
     averageStreakDays: Math.round(Number(streakRow[0]?.avg ?? 0)),
     pushOpenRate: 0,
     retention: [],
+    comparison:
+      range?.compareFrom || range?.compareTo
+        ? await getEngagementComparison(
+            range.compareFrom ?? new Date((range.from ?? new Date()).getTime() - 30 * MS_PER_DAY),
+            range.compareTo ?? range.from ?? new Date()
+          )
+        : null,
+  };
+}
+
+async function getEngagementComparison(from: Date, to: Date) {
+  const [signups, completed, skipped, streak] = await Promise.all([
+    db
+      .select({ value: count() })
+      .from(users)
+      .where(and(isNull(users.deletedAt), gte(users.createdAt, from), lte(users.createdAt, to))),
+    db
+      .select({ value: count() })
+      .from(users)
+      .where(
+        and(
+          isNull(users.deletedAt),
+          isNotNull(users.onboardingCompletedAt),
+          gte(users.onboardingCompletedAt, from),
+          lte(users.onboardingCompletedAt, to)
+        )
+      ),
+    db
+      .select({ value: count() })
+      .from(users)
+      .where(
+        and(
+          isNull(users.deletedAt),
+          eq(users.onboardingSkipped, true),
+          gte(users.createdAt, from),
+          lte(users.createdAt, to)
+        )
+      ),
+    db
+      .select({ avg: sql<number | null>`avg(${streaks.currentStreak})` })
+      .from(streaks)
+      .where(and(gte(streaks.updatedAt, from), lte(streaks.updatedAt, to))),
+  ]);
+  return {
+    signups: Number(signups[0]?.value ?? 0),
+    completed: Number(completed[0]?.value ?? 0),
+    skipped: Number(skipped[0]?.value ?? 0),
+    averageStreakDays: Math.round(Number(streak[0]?.avg ?? 0)),
   };
 }

@@ -3,11 +3,14 @@ import {
   count,
   desc,
   eq,
+  gte,
   ilike,
   inArray,
   isNotNull,
   isNull,
+  lte,
   ne,
+  or,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -48,6 +51,8 @@ export type ListCheckinNotesParams = {
   userId?: string;
   q?: string;
   hiddenOnly?: boolean;
+  from?: Date;
+  to?: Date;
 };
 
 /** Keyset list of check-in notes (newest first), with optional filters. */
@@ -62,8 +67,12 @@ export async function listCheckinNotesPaged(params: ListCheckinNotesParams): Pro
     sql`${checkIns.note} is not null`,
     ne(checkIns.note, ""),
     params.userId ? eq(checkIns.userId, params.userId) : undefined,
-    params.q ? ilike(checkIns.note, `%${params.q}%`) : undefined,
+    params.q
+      ? or(ilike(checkIns.note, `%${params.q}%`), ilike(users.email, `%${params.q}%`))
+      : undefined,
     params.hiddenOnly ? isNotNull(checkIns.hiddenAt) : undefined,
+    params.from ? gte(checkIns.createdAt, params.from) : undefined,
+    params.to ? lte(checkIns.createdAt, params.to) : undefined,
   ];
   const base = and(...filters);
   const cursorWhere: SQL | undefined = params.cursor
@@ -90,7 +99,11 @@ export async function listCheckinNotesPaged(params: ListCheckinNotesParams): Pro
       .where(and(base, cursorWhere))
       .orderBy(desc(checkIns.createdAt), desc(checkIns.id))
       .limit(limit),
-    db.select({ value: count() }).from(checkIns).where(base),
+    db
+      .select({ value: count() })
+      .from(checkIns)
+      .leftJoin(users, eq(users.id, checkIns.userId))
+      .where(base),
   ]);
 
   const last = rows[rows.length - 1];
@@ -124,7 +137,7 @@ export async function setNoteHidden(
         action: hidden ? "checkin_note.redact" : "checkin_note.restore",
         targetType: "check_in",
         targetId: id,
-        before: { hiddenAt: before.hiddenAt, note: before.note },
+        before: { hiddenAt: before.hiddenAt },
         after: { hidden, reason: reason ?? null },
         requestId: audit.requestId,
         ip: audit.ip,
@@ -145,6 +158,7 @@ function toUploadRow(r: {
   publicUrl: string;
   status: UploadStatus;
   createdAt: Date;
+  deletedAt: Date | null;
 }): AdminUploadRow {
   return {
     id: r.id,
@@ -154,6 +168,7 @@ function toUploadRow(r: {
     publicUrl: r.publicUrl,
     status: r.status,
     createdAt: r.createdAt.toISOString(),
+    deletedAt: r.deletedAt?.toISOString() ?? null,
   };
 }
 
@@ -164,6 +179,9 @@ export type ListUploadsParams = {
   limit?: number;
   userId?: string;
   q?: string;
+  hiddenOnly?: boolean;
+  from?: Date;
+  to?: Date;
 };
 
 /** Keyset list of live avatar uploads (newest first), with optional filters. */
@@ -174,9 +192,11 @@ export async function listUploadsPaged(
   const filters: (SQL | undefined)[] = [
     eq(uploads.intent, "avatar"),
     inArray(uploads.status, ["verified", "uploaded"] satisfies UploadStatus[]),
-    isNull(uploads.deletedAt),
+    params.hiddenOnly ? isNotNull(uploads.deletedAt) : isNull(uploads.deletedAt),
     params.userId ? eq(uploads.userId, params.userId) : undefined,
     params.q ? ilike(users.email, `%${params.q}%`) : undefined,
+    params.from ? gte(uploads.createdAt, params.from) : undefined,
+    params.to ? lte(uploads.createdAt, params.to) : undefined,
   ];
   const base = and(...filters);
   const cursorWhere: SQL | undefined = params.cursor
@@ -195,6 +215,7 @@ export async function listUploadsPaged(
         intent: uploads.intent,
         publicUrl: uploads.publicUrl,
         status: uploads.status,
+        deletedAt: uploads.deletedAt,
         createdAt: uploads.createdAt,
         createdAtCursor: sql<string>`${uploads.createdAt}::text`,
       })
@@ -203,7 +224,11 @@ export async function listUploadsPaged(
       .where(and(base, cursorWhere))
       .orderBy(desc(uploads.createdAt), desc(uploads.id))
       .limit(limit),
-    db.select({ value: count() }).from(uploads).where(base),
+    db
+      .select({ value: count() })
+      .from(uploads)
+      .leftJoin(users, eq(users.id, uploads.userId))
+      .where(base),
   ]);
 
   const last = rows[rows.length - 1];

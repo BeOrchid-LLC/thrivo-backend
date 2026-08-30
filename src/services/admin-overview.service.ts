@@ -27,6 +27,7 @@ function pctDelta(current: number, previous: number | null | undefined): number 
 }
 
 type ActiveByProduct = Array<{ productId: string | null; count: number }>;
+type OverviewRange = { from?: Date; to?: Date };
 
 function countsByPlan(activeByProduct: ActiveByProduct): { monthly: number; annual: number } {
   const monthly =
@@ -138,14 +139,26 @@ export async function getOverviewMetrics(now = new Date()): Promise<AdminOvervie
 
 /** GET /admin/overview/revenue-trend */
 export async function getOverviewRevenueTrend(
+  rangeOrNow?: OverviewRange | Date,
   now = new Date()
 ): Promise<AdminOverviewRevenueTrend> {
-  const monthlyPoints = await mrrSnapshotRepo.getMonthlyTrend(6, now);
+  const range = rangeOrNow instanceof Date ? undefined : rangeOrNow;
+  const effectiveNow = rangeOrNow instanceof Date ? rangeOrNow : now;
+  const to = range?.to ?? effectiveNow;
+  const from = range?.from;
+  const windowFrom = from ?? new Date(to.getTime() - 180 * MS_PER_DAY);
+  const monthlyPoints =
+    from || range?.to
+      ? await mrrSnapshotRepo.getMonthlyTrendBetween(windowFrom, to)
+      : await mrrSnapshotRepo.getMonthlyTrend(6, effectiveNow);
   const trend = monthlyPoints
     .filter((p) => p.snapshot !== null)
     .map((p) => ({ date: p.monthEnd, value: p.snapshot!.mrrCents }));
 
-  const referenceMonth = await getReferenceMonthRevenue(now);
+  const referenceMonth =
+    from || range?.to
+      ? await getRangeRevenue(windowFrom, to)
+      : await getReferenceMonthRevenue(effectiveNow);
 
   return {
     trend,
@@ -155,12 +168,37 @@ export async function getOverviewRevenueTrend(
   };
 }
 
+async function getRangeRevenue(from: Date, to: Date): Promise<ReferenceMonthRevenue> {
+  const beforeFrom = new Date(from.getTime() - 1);
+  const [snapshotBeforeRange, snapshotRangeEnd, churnedMrrCents] = await Promise.all([
+    mrrSnapshotRepo.getOnOrBefore(beforeFrom),
+    mrrSnapshotRepo.getOnOrBefore(to),
+    mrrSnapshotRepo.sumChurnedMrrBetween(toDateOnly(from), toDateOnly(to)),
+  ]);
+  const startMrrCents = snapshotBeforeRange?.mrrCents ?? null;
+  const endMrrCents = snapshotRangeEnd?.mrrCents ?? null;
+  const netNewMrrCents = (endMrrCents ?? 0) - (startMrrCents ?? 0);
+  return {
+    startMrrCents,
+    endMrrCents,
+    churnedMrrCents,
+    netNewMrrCents,
+    newMrrCents: netNewMrrCents + churnedMrrCents,
+  };
+}
+
 /** GET /admin/overview/trial-pipeline */
 export async function getOverviewTrialPipeline(
+  rangeOrNow?: OverviewRange | Date,
   now = new Date()
 ): Promise<AdminOverviewTrialPipeline> {
-  const sevenDaysAgo = new Date(now.getTime() - 7 * MS_PER_DAY);
-  const counts = await subscriptionEventRepo.countByTypeSince(sevenDaysAgo);
+  const range = rangeOrNow instanceof Date ? undefined : rangeOrNow;
+  const effectiveNow = rangeOrNow instanceof Date ? rangeOrNow : now;
+  const to = range?.to ?? effectiveNow;
+  const from = range?.from ?? new Date(to.getTime() - 7 * MS_PER_DAY);
+  const counts = range
+    ? await subscriptionEventRepo.countByTypeInRange(from, to)
+    : await subscriptionEventRepo.countByTypeSince(from);
   const { trial_started: started, trial_converted: converted, trial_cancelled: cancelled } = counts;
   const active = Math.max(started - converted - cancelled, 0);
   const denominator = started > 0 ? started : 1;

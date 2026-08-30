@@ -28,6 +28,7 @@ export async function handleTrialReminder(_job: Job): Promise<void> {
         kind: "trial_ending",
         to: user.email,
         userId: user.id,
+        resendable: true,
         dedupeKey: `trial-ending:${sub.id}:${sub.trialEnd.toISOString()}`,
         expiresAt: new Date(Date.now() + DAY_MS),
         template: "notification",

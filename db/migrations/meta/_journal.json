@@ -323,6 +323,34 @@
       "when": 1787614837197,
       "tag": "0045_ancient_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1787900486017,
+      "tag": "0046_graceful_killer_shrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1788031366274,
+      "tag": "0047_powerful_stingray",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1788036952676,
+      "tag": "0048_bitter_microbe",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1788043024675,
+      "tag": "0049_flat_warpath",
+      "breakpoints": true
     }
   ]
 }

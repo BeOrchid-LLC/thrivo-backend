@@ -61,6 +61,16 @@ export async function findActiveByEmail(email: string, tx: Executor = db): Promi
   return row ?? null;
 }
 
+/** Resolve configured active users by email for tightly scoped operational workflows. */
+export async function findActiveByEmails(emails: string[], tx: Executor = db): Promise<User[]> {
+  const unique = [...new Set(emails.map((email) => email.trim().toLowerCase()))].filter(Boolean);
+  if (unique.length === 0) return [];
+  return tx
+    .select()
+    .from(users)
+    .where(and(inArray(users.email, unique), isNull(users.deletedAt)));
+}
+
 /** Look up the domain profile by its linked auth identity (identity reconcile). */
 export async function findByAuthSubjectId(
   authSubjectId: string,

@@ -52,6 +52,34 @@ describe.skipIf(!run)("integration: admin overview", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("accepts an explicit date range for overview trend and pipeline routes", async () => {
+    const app = buildApp();
+    const range = "from=2026-01-01T00:00:00.000Z&to=2026-03-31T23:59:59.999Z";
+    const trend = await app.request(`/api/v1/admin/overview/revenue-trend?${range}`, {
+      headers: { authorization: adminBearer() },
+    });
+    const pipeline = await app.request(`/api/v1/admin/overview/trial-pipeline?${range}`, {
+      headers: { authorization: adminBearer() },
+    });
+    expect(trend.status).toBe(200);
+    expect(pipeline.status).toBe(200);
+    expect(
+      adminOverviewRevenueTrendResponseSchema.safeParse((await trend.json()).data).success
+    ).toBe(true);
+    expect(
+      adminOverviewTrialPipelineResponseSchema.safeParse((await pipeline.json()).data).success
+    ).toBe(true);
+  });
+
+  it("rejects an overview date range whose start is after its end", async () => {
+    const app = buildApp();
+    const res = await app.request(
+      "/api/v1/admin/overview/revenue-trend?from=2026-04-01T00:00:00.000Z&to=2026-03-01T00:00:00.000Z",
+      { headers: { authorization: adminBearer() } }
+    );
+    expect(res.status).toBe(422);
+  });
+
   it("GET /overview/trial-pipeline matches the shared contract with all-zero percentages when nothing started", async () => {
     const app = buildApp();
     const res = await app.request("/api/v1/admin/overview/trial-pipeline", {

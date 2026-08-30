@@ -134,6 +134,7 @@ async function sendCancellationEmail(
     kind: "cancellation_confirmation",
     to: email,
     userId,
+    resendable: true,
     dedupeKey: `cancellation:${subscriptionId}:${effectiveEnd?.toISOString() ?? "unknown"}`,
     expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
     transaction,

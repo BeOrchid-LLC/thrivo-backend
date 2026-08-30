@@ -11,6 +11,9 @@ import { handleProcessAccountErasure } from "./process-account-erasure";
 import { handleDeleteRevenueCatCustomer } from "./delete-revenuecat-customer";
 import { handleRedactWebhookPayloads } from "./redact-webhook-payloads";
 import { handlePurgeErasureProofs } from "./purge-erasure-proofs";
+import { handlePurgeEmailReplayPayloads } from "./purge-email-replay-payloads";
+import { dispatchDueCampaigns } from "../../services/admin-push.service";
+import { adminActionIdempotencyRepo } from "../../repositories";
 
 /**
  * Router for the `maintenance` queue. Scheduled system jobs share one queue and
@@ -29,6 +32,13 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
   "delete-revenuecat-customer": handleDeleteRevenueCatCustomer,
   "redact-webhook-payloads": handleRedactWebhookPayloads,
   "purge-erasure-proofs": handlePurgeErasureProofs,
+  "purge-email-replay-payloads": handlePurgeEmailReplayPayloads,
+  "purge-admin-action-idempotency": async () => {
+    await adminActionIdempotencyRepo.purgeExpired();
+  },
+  "dispatch-scheduled-campaigns": async () => {
+    await dispatchDueCampaigns();
+  },
 };
 
 export async function handleMaintenance(job: Job): Promise<void> {

@@ -57,6 +57,7 @@ export async function handleWeeklyReview(
             kind: "weekly_review",
             to: item.candidate.email,
             userId: item.candidate.id,
+            resendable: true,
             template: "weekly-review",
             dedupeKey: `weekly-review:${item.candidate.id}:${item.stats.periodStart}`,
             expiresAt: startOfLocalDateUtc(nextLocalDate, item.candidate.timezone),

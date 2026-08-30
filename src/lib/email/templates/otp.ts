@@ -77,7 +77,7 @@ export const otpTemplate: EmailTemplate<OtpProps> = {
         { icon: "clock", text: expiryText },
         {
           icon: "check",
-          text: "The code verifies your account — you don't need to copy or enter anything special.",
+          text: "Copy this code into Thrivo to continue.",
         },
         { icon: "shield", text: closingNote },
       ])}`;

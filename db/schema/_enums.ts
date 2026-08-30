@@ -81,9 +81,11 @@ export const emailKindEnum = pgEnum("email_kind", [
   "weekly_review",
   "trial_ending",
   "cancellation_confirmation",
+  "waitlist_confirmation",
   "admin_otp",
   "admin_invite",
   "admin_password_reset",
+  "lead_contact",
   "legacy_notification",
 ]);
 export const emailOutboxStateEnum = pgEnum("email_outbox_state", [
@@ -114,9 +116,11 @@ export const pushCampaignStatusEnum = pgEnum("push_campaign_status", [
   "sending",
   "sent",
   "failed",
+  "canceled",
 ]);
 export const pushRecipientStatusEnum = pgEnum("push_recipient_status", [
   "queued",
+  "processing",
   "sent",
   "failed",
 ]);
@@ -130,6 +134,15 @@ export const uploadStatusEnum = pgEnum("upload_status", [
   "verified",
   "failed",
   "expired",
+]);
+
+export const leadStatusEnum = pgEnum("lead_status", [
+  "new",
+  "contacted",
+  "qualified",
+  "converted",
+  "unsubscribed",
+  "spam",
 ]);
 
 // Derived TS unions for services / Zod contracts.
@@ -158,3 +171,4 @@ export type WebhookStatus = (typeof webhookStatusEnum.enumValues)[number];
 export type PushCampaignStatus = (typeof pushCampaignStatusEnum.enumValues)[number];
 export type PushRecipientStatus = (typeof pushRecipientStatusEnum.enumValues)[number];
 export type UploadStatus = (typeof uploadStatusEnum.enumValues)[number];
+export type LeadStatus = (typeof leadStatusEnum.enumValues)[number];

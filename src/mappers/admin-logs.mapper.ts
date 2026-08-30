@@ -1,9 +1,17 @@
-import type { AdminAuditLogEntry, AdminEmailLog } from "../../contracts/src/admin-logs";
+import type {
+  AdminAuditLogDetail,
+  AdminAuditLogEntry,
+  AdminEmailLog,
+  AdminEmailLogDetail,
+} from "../../contracts/src/admin-logs";
 import type { AdminAuditLogRow, EmailLogRow } from "../../db/schema";
+import { sanitizeAuditMetadata } from "../lib/audit-metadata";
 
 export function toAdminEmailLog(row: EmailLogRow): AdminEmailLog {
   return {
     id: row.id,
+    userId: row.userId,
+    leadId: row.leadId,
     to: row.toEmail,
     template: row.template,
     kind: row.kind,
@@ -19,6 +27,24 @@ export function toAdminEmailLog(row: EmailLogRow): AdminEmailLog {
   };
 }
 
+export function toAdminEmailLogDetail(
+  row: EmailLogRow,
+  resendCount = 0,
+  resendHistory: EmailLogRow[] = []
+): AdminEmailLogDetail {
+  return {
+    ...toAdminEmailLog(row),
+    userId: row.userId,
+    leadId: row.leadId,
+    parentEmailLogId: row.parentEmailLogId,
+    resendable: row.resendable,
+    resendCount,
+    resendHistory: resendHistory.map(toAdminEmailLog),
+    lastAttemptAt: row.lastAttemptAt?.toISOString() ?? null,
+    providerEventAt: row.providerEventAt?.toISOString() ?? null,
+  };
+}
+
 export function toAdminAuditLogEntry(row: AdminAuditLogRow): AdminAuditLogEntry {
   return {
     id: row.id,
@@ -30,5 +56,14 @@ export function toAdminAuditLogEntry(row: AdminAuditLogRow): AdminAuditLogEntry 
     targetId: row.targetId,
     requestId: row.requestId,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export function toAdminAuditLogDetail(row: AdminAuditLogRow): AdminAuditLogDetail {
+  return {
+    ...toAdminAuditLogEntry(row),
+    before: sanitizeAuditMetadata(row.before),
+    after: sanitizeAuditMetadata(row.after),
+    ip: row.ip,
   };
 }

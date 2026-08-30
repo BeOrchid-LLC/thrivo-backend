@@ -1,7 +1,7 @@
-import { and, asc, count, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, ilike, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
-import { accountErasureRequests, identityTombstones } from "../../db/schema";
+import { accountErasureRequests, identityTombstones, users } from "../../db/schema";
 
 export async function findOpenByUser(userId: string, tx: Executor = db) {
   const [row] = await tx
@@ -77,21 +77,39 @@ export async function list(limit = 100, tx: Executor = db) {
 }
 
 export async function listPaged(
-  input: { page: number; pageSize: number; status?: string },
+  input: { page: number; pageSize: number; status?: string; search?: string },
   tx: Executor = db
 ) {
-  const where = input.status ? eq(accountErasureRequests.status, input.status) : undefined;
+  const searchWhere = input.search
+    ? or(
+        eq(accountErasureRequests.id, input.search),
+        ilike(users.email, `%${input.search}%`),
+        ilike(users.name, `%${input.search}%`)
+      )
+    : undefined;
+  const where = and(
+    input.status ? eq(accountErasureRequests.status, input.status) : undefined,
+    searchWhere
+  );
   const [totalRow, rows] = await Promise.all([
-    tx.select({ count: count() }).from(accountErasureRequests).where(where),
     tx
-      .select()
+      .select({ count: count() })
       .from(accountErasureRequests)
+      .leftJoin(users, eq(users.id, accountErasureRequests.userId))
+      .where(where),
+    tx
+      .select({ erasure: accountErasureRequests, userEmail: users.email })
+      .from(accountErasureRequests)
+      .leftJoin(users, eq(users.id, accountErasureRequests.userId))
       .where(where)
       .orderBy(asc(accountErasureRequests.requestedAt))
       .limit(input.pageSize)
       .offset((input.page - 1) * input.pageSize),
   ]);
-  return { rows, total: Number(totalRow[0]?.count ?? 0) };
+  return {
+    rows: rows.map(({ erasure, userEmail }) => ({ ...erasure, userEmail })),
+    total: Number(totalRow[0]?.count ?? 0),
+  };
 }
 
 export async function create(

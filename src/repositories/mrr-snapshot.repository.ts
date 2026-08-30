@@ -32,6 +32,13 @@ export async function getLatest(tx: Executor = db): Promise<MrrSnapshot | null> 
   return row ?? null;
 }
 
+export async function getLatestOnOrBefore(
+  date: Date,
+  tx: Executor = db
+): Promise<MrrSnapshot | null> {
+  return getOnOrBefore(date, tx);
+}
+
 /**
  * Closest snapshot at or before `date` — used for "N days/months ago" deltas.
  * Looked up by proximity rather than an exact match since a snapshot may not
@@ -80,6 +87,26 @@ export async function getMonthlyTrend(
     const boundary = lastDayOfMonth > now ? now : lastDayOfMonth;
     const snapshot = await getOnOrBefore(boundary, tx);
     points.push({ monthEnd: toDateOnly(boundary), snapshot });
+  }
+  return points;
+}
+
+/** One point per calendar month in an explicit analytics window. */
+export async function getMonthlyTrendBetween(
+  from: Date,
+  to: Date,
+  tx: Executor = db
+): Promise<Array<{ monthEnd: string; snapshot: MrrSnapshot | null }>> {
+  const points: Array<{ monthEnd: string; snapshot: MrrSnapshot | null }> = [];
+  const cursor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1));
+  let count = 0;
+  while (cursor <= end && count < 24) {
+    const monthEnd = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0));
+    const boundary = monthEnd > to ? to : monthEnd;
+    points.push({ monthEnd: toDateOnly(boundary), snapshot: await getOnOrBefore(boundary, tx) });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    count += 1;
   }
   return points;
 }

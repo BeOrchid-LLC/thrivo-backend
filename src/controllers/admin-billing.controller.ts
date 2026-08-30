@@ -4,7 +4,7 @@ import { ConflictError, NotFoundError } from "../lib/errors";
 import { respondOk } from "../lib/response";
 import { getClientIp } from "../lib/request-ip";
 import { enqueue, QUEUE_NAMES } from "../lib/queue";
-import { adminBillingRepo, userRepo } from "../repositories";
+import { adminActionIdempotencyRepo, adminBillingRepo, userRepo } from "../repositories";
 import * as adminAuditLogRepo from "../repositories/admin-audit-log.repository";
 import type { AppEnv } from "../types/http";
 import { adminWebhookReprocessPayloadSchema } from "../../contracts/src/admin";
@@ -84,18 +84,44 @@ export async function reprocessAdminWebhook(c: Context<AppEnv>) {
     throw new ConflictError("Redacted webhook payload cannot be reprocessed");
   if (webhook.provider !== "revenuecat")
     throw new ConflictError("Only RevenueCat webhooks can be reprocessed");
-  if (webhook.status === "processed")
-    throw new ConflictError("Processed webhook does not need reprocessing");
-  const outcome = await handleRevenueCatWebhook(env.REVENUECAT_WEBHOOK_AUTH, webhook.payload);
-  await adminAuditLogRepo.append({
-    actorAdminEmail: c.get("adminUser")!.email,
-    action: "webhook.reprocessed",
-    targetType: "webhook",
-    targetId: id,
-    requestId: c.get("requestId") ?? null,
-    ip: getClientIp(c),
-  });
-  return respondOk(c, { outcome }, "Webhook reprocessed", 202);
+  if (webhook.status !== "failed" && webhook.status !== "quarantined")
+    throw new ConflictError("Only failed or quarantined webhooks can be reprocessed");
+  const idempotencyKey = c.req.header("Idempotency-Key")?.trim();
+  if (!idempotencyKey) throw new ConflictError("Idempotency-Key is required");
+  const reservation = await adminActionIdempotencyRepo.reserve(
+    "webhook.reprocess",
+    id,
+    idempotencyKey
+  );
+  if (!reservation.created) {
+    if (!reservation.row.response)
+      throw new ConflictError("This reprocess request is still in progress");
+    return respondOk(c, reservation.row.response, reservation.row.responseMessage, 202);
+  }
+  try {
+    const outcome = await handleRevenueCatWebhook(env.REVENUECAT_WEBHOOK_AUTH, webhook.payload);
+    const result = { outcome };
+    await adminAuditLogRepo.append({
+      actorAdminEmail: c.get("adminUser")!.email,
+      action: "webhook.reprocessed",
+      targetType: "webhook",
+      targetId: id,
+      before: { status: webhook.status },
+      after: { outcome },
+      requestId: c.get("requestId") ?? null,
+      ip: getClientIp(c),
+    });
+    await adminActionIdempotencyRepo.complete(
+      reservation.row.id,
+      result,
+      "Webhook reprocessed",
+      202
+    );
+    return respondOk(c, result, "Webhook reprocessed", 202);
+  } catch (error) {
+    await adminActionIdempotencyRepo.release(reservation.row.id);
+    throw error;
+  }
 }
 
 /**

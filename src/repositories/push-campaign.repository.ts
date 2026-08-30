@@ -7,6 +7,8 @@ import {
   gte,
   inArray,
   isNull,
+  lt,
+  or,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -23,7 +25,10 @@ import {
   type SubStatus,
 } from "../../db/schema";
 import type { AdminPushCampaignRow, AdminPushSegment } from "../../contracts/src/admin-push";
+import { newId } from "../lib/ids";
 import { clampLimit, decodeCursor, encodeCursor } from "../lib/pagination";
+
+const RECIPIENT_LEASE_MS = 10 * 60 * 1000;
 
 /** Map the admin subscription-status filter to the raw `users.subscriptionStatus`
  *  values it should match (the mirror stores RevenueCat-shaped states). */
@@ -116,6 +121,79 @@ export async function findRowById(id: string): Promise<AdminPushCampaignRow | nu
   return row ? toRow(row) : null;
 }
 
+/** Atomically claims a draft/scheduled campaign for one manual dispatch. */
+export async function claimForManualSend(id: string): Promise<PushCampaignRow | null> {
+  const [row] = await db
+    .update(pushCampaigns)
+    .set({ status: "sending" })
+    .where(and(eq(pushCampaigns.id, id), inArray(pushCampaigns.status, ["draft", "scheduled"])))
+    .returning();
+  return row ?? null;
+}
+
+/** Put a campaign back into its pre-dispatch state when queueing failed. */
+export async function restoreAfterEnqueueFailure(
+  id: string,
+  status: "draft" | "scheduled"
+): Promise<void> {
+  await db
+    .update(pushCampaigns)
+    .set({ status })
+    .where(and(eq(pushCampaigns.id, id), eq(pushCampaigns.status, "sending")));
+}
+
+export async function updateDraft(
+  id: string,
+  patch: Partial<
+    Pick<NewPushCampaignRow, "title" | "body" | "deepLink" | "segment" | "scheduledAt">
+  >,
+  tx: Executor = db
+): Promise<PushCampaignRow | null> {
+  const [row] = await tx
+    .update(pushCampaigns)
+    .set({ ...patch, status: patch.scheduledAt ? "scheduled" : "draft" })
+    .where(and(eq(pushCampaigns.id, id), eq(pushCampaigns.status, "draft")))
+    .returning();
+  return row ?? null;
+}
+
+export async function cancelScheduled(
+  id: string,
+  tx: Executor = db
+): Promise<PushCampaignRow | null> {
+  const [row] = await tx
+    .update(pushCampaigns)
+    .set({ status: "canceled" })
+    .where(and(eq(pushCampaigns.id, id), eq(pushCampaigns.status, "scheduled")))
+    .returning();
+  return row ?? null;
+}
+
+export async function claimDueScheduled(now = new Date(), limit = 50): Promise<PushCampaignRow[]> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(pushCampaigns)
+      .where(
+        and(eq(pushCampaigns.status, "scheduled"), sql`${pushCampaigns.scheduledAt} <= ${now}`)
+      )
+      .orderBy(pushCampaigns.scheduledAt, pushCampaigns.id)
+      .limit(limit)
+      .for("update", { skipLocked: true });
+    if (rows.length === 0) return [];
+    await tx
+      .update(pushCampaigns)
+      .set({ status: "sending" })
+      .where(
+        inArray(
+          pushCampaigns.id,
+          rows.map((row) => row.id)
+        )
+      );
+    return rows.map((row) => ({ ...row, status: "sending" as const }));
+  });
+}
+
 type CampaignCursor = { createdAt: string; id: string };
 
 export async function listPaged(params: { cursor?: string; limit?: number }): Promise<{
@@ -178,24 +256,102 @@ export async function insertRecipients(
   if (recipients.length === 0) return;
   await tx
     .insert(pushCampaignRecipients)
-    .values(recipients.map((r) => ({ campaignId, userId: r.userId, pushToken: r.token })));
+    .values(recipients.map((r) => ({ campaignId, userId: r.userId, pushToken: r.token })))
+    .onConflictDoNothing();
+}
+
+/**
+ * Atomically leases one Expo-sized batch. A duplicate or redelivered campaign
+ * job cannot claim rows already being sent by another worker. A stale lease is
+ * eligible after the bounded window so a crashed worker does not strand a
+ * campaign forever; the processing token prevents the old worker from later
+ * marking a reclaimed row.
+ */
+export async function claimQueuedRecipients(
+  campaignId: string,
+  limit: number
+): Promise<Array<{ id: string; userId: string; token: string; processingToken: string }>> {
+  return db.transaction(async (tx) => {
+    const now = new Date();
+    const leaseCutoff = new Date(now.getTime() - RECIPIENT_LEASE_MS);
+    const rows = await tx
+      .select({
+        id: pushCampaignRecipients.id,
+        userId: pushCampaignRecipients.userId,
+        token: pushCampaignRecipients.pushToken,
+      })
+      .from(pushCampaignRecipients)
+      .where(
+        and(
+          eq(pushCampaignRecipients.campaignId, campaignId),
+          or(
+            eq(pushCampaignRecipients.status, "queued"),
+            and(
+              eq(pushCampaignRecipients.status, "processing"),
+              or(
+                isNull(pushCampaignRecipients.processingAt),
+                lt(pushCampaignRecipients.processingAt, leaseCutoff)
+              )
+            )
+          )
+        )
+      )
+      .orderBy(pushCampaignRecipients.createdAt, pushCampaignRecipients.id)
+      .limit(limit)
+      .for("update", { skipLocked: true });
+    if (rows.length === 0) return [];
+
+    const processingToken = newId();
+    await tx
+      .update(pushCampaignRecipients)
+      .set({ status: "processing", processingAt: now, processingToken, error: null })
+      .where(
+        inArray(
+          pushCampaignRecipients.id,
+          rows.map((row) => row.id)
+        )
+      );
+    return rows.map((row) => ({ ...row, processingToken }));
+  });
+}
+
+export async function recipientCounts(campaignId: string, tx: Executor = db) {
+  const rows = await tx
+    .select({ status: pushCampaignRecipients.status, count: count() })
+    .from(pushCampaignRecipients)
+    .where(eq(pushCampaignRecipients.campaignId, campaignId))
+    .groupBy(pushCampaignRecipients.status);
+  return {
+    recipientCount: rows.reduce((total, row) => total + Number(row.count), 0),
+    sentCount: Number(rows.find((row) => row.status === "sent")?.count ?? 0),
+    failedCount: Number(rows.find((row) => row.status === "failed")?.count ?? 0),
+    queuedCount: Number(rows.find((row) => row.status === "queued")?.count ?? 0),
+    processingCount: Number(rows.find((row) => row.status === "processing")?.count ?? 0),
+  };
 }
 
 export async function markRecipients(
   campaignId: string,
-  tokens: string[],
+  recipientIds: string[],
   status: PushRecipientStatus,
   error: string | null = null,
+  processingToken?: string,
   tx: Executor = db
 ): Promise<void> {
-  if (tokens.length === 0) return;
+  if (recipientIds.length === 0) return;
   await tx
     .update(pushCampaignRecipients)
-    .set({ status, error })
+    .set({
+      status,
+      error,
+      processingAt: status === "processing" ? new Date() : null,
+      processingToken: status === "processing" ? (processingToken ?? null) : null,
+    })
     .where(
       and(
         eq(pushCampaignRecipients.campaignId, campaignId),
-        inArray(pushCampaignRecipients.pushToken, tokens)
+        inArray(pushCampaignRecipients.id, recipientIds),
+        ...(processingToken ? [eq(pushCampaignRecipients.processingToken, processingToken)] : [])
       )
     );
 }

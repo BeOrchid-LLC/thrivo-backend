@@ -13,6 +13,16 @@ const noteListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
   userId: z.string().optional(),
   q: z.string().optional(),
+  from: z
+    .string()
+    .datetime({ offset: true })
+    .transform((v) => new Date(v))
+    .optional(),
+  to: z
+    .string()
+    .datetime({ offset: true })
+    .transform((v) => new Date(v))
+    .optional(),
   hiddenOnly: z
     .enum(["1", "true", "yes"])
     .transform(() => true)
@@ -24,6 +34,20 @@ const uploadListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
   userId: z.string().optional(),
   q: z.string().optional(),
+  from: z
+    .string()
+    .datetime({ offset: true })
+    .transform((v) => new Date(v))
+    .optional(),
+  to: z
+    .string()
+    .datetime({ offset: true })
+    .transform((v) => new Date(v))
+    .optional(),
+  hiddenOnly: z
+    .enum(["1", "true", "yes"])
+    .transform(() => true)
+    .optional(),
 });
 
 function auditActor(c: Context<AppEnv>): AuditActor {
@@ -46,13 +70,17 @@ async function optionalReason(c: Context<AppEnv>): Promise<string | undefined> {
 
 /** GET /admin/moderation/checkin-notes — keyset list of notes, with optional filters. */
 export async function listAdminCheckinNotes(c: Context<AppEnv>) {
-  const { cursor, limit, userId, q, hiddenOnly } = noteListQuerySchema.parse(c.req.query());
+  const { cursor, limit, userId, q, from, to, hiddenOnly } = noteListQuerySchema.parse(
+    c.req.query()
+  );
   const r = await adminModerationRepo.listCheckinNotesPaged({
     cursor,
     limit,
     userId,
     q,
     hiddenOnly,
+    from,
+    to,
   });
   return respondOk(c, {
     items: r.items,
@@ -88,8 +116,18 @@ export async function restoreAdminCheckinNote(c: Context<AppEnv>) {
 
 /** GET /admin/moderation/uploads — keyset list of live avatar uploads, with optional filters. */
 export async function listAdminUploads(c: Context<AppEnv>) {
-  const { cursor, limit, userId, q } = uploadListQuerySchema.parse(c.req.query());
-  const r = await adminModerationRepo.listUploadsPaged({ cursor, limit, userId, q });
+  const { cursor, limit, userId, q, from, to, hiddenOnly } = uploadListQuerySchema.parse(
+    c.req.query()
+  );
+  const r = await adminModerationRepo.listUploadsPaged({
+    cursor,
+    limit,
+    userId,
+    q,
+    hiddenOnly,
+    from,
+    to,
+  });
   return respondOk(c, {
     items: r.items,
     pagination: { limit: r.limit, total: r.total, nextCursor: r.nextCursor },

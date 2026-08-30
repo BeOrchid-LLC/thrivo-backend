@@ -22,7 +22,10 @@ import {
   adminInvitePayloadSchema,
   adminUpdatePayloadSchema,
 } from "../../contracts/src/admin-management";
-import { adminUpsertTipPayloadSchema } from "../../contracts/src/admin-content";
+import {
+  adminDuplicateTipPayloadSchema,
+  adminUpsertTipPayloadSchema,
+} from "../../contracts/src/admin-content";
 import {
   adminFoodEditPayloadSchema,
   adminFoodMergePayloadSchema,
@@ -31,7 +34,16 @@ import {
 import {
   adminAudienceEstimatePayloadSchema,
   adminCreateCampaignPayloadSchema,
+  adminUpdateCampaignPayloadSchema,
+  adminCampaignCancelPayloadSchema,
+  adminCampaignTestPayloadSchema,
 } from "../../contracts/src/admin-push";
+import {
+  adminLeadContactPayloadSchema,
+  adminLeadLinkUserPayloadSchema,
+  adminLeadNotePayloadSchema,
+  adminLeadUpdatePayloadSchema,
+} from "../../contracts/src/leads";
 import {
   postAdminRequestOtp,
   postAdminVerifyOtp,
@@ -54,6 +66,7 @@ import {
 import { getAdminSettings, patchAdminSettings } from "../controllers/admin-settings.controller";
 import {
   listAdminUsers,
+  exportAdminUsers,
   getAdminUser,
   getAdminUserTimeline,
   getAdminUserActivity,
@@ -70,6 +83,11 @@ import {
 } from "../controllers/admin-overview.controller";
 import {
   listAdminLeads,
+  getAdminLead,
+  updateAdminLead,
+  addAdminLeadNote,
+  linkAdminLeadUser,
+  contactAdminLead,
   hardDeleteAdminLead,
   exportAdminLeads,
 } from "../controllers/admin-leads.controller";
@@ -77,14 +95,24 @@ import { listAdminSubscriptions } from "../controllers/admin-subscriptions.contr
 import {
   getAdminSubscriptionAnalytics,
   getAdminEngagementAnalytics,
+  exportAdminSubscriptionAnalytics,
+  exportAdminEngagementAnalytics,
 } from "../controllers/admin-analytics.controller";
 import {
   listAdminTips,
   createAdminTip,
   updateAdminTip,
   deleteAdminTip,
+  duplicateAdminTip,
 } from "../controllers/admin-content.controller";
-import { listAdminEmailLogs, listAdminAuditLog } from "../controllers/admin-logs.controller";
+import {
+  listAdminEmailLogs,
+  getAdminEmailLog,
+  resendAdminEmail,
+  listAdminAuditLog,
+  getAdminAuditLog,
+  exportAdminAuditLog,
+} from "../controllers/admin-logs.controller";
 import {
   listAdminBillingEvents,
   getAdminUserBillingEvents,
@@ -99,6 +127,9 @@ import {
   estimateAdminPushAudience,
   createAdminPushCampaign,
   sendAdminPushCampaign,
+  updateAdminPushCampaign,
+  cancelAdminPushCampaign,
+  testAdminPushCampaign,
 } from "../controllers/admin-push.controller";
 import {
   listAdminCheckinNotes,
@@ -115,6 +146,7 @@ import {
   rejectAdminFood,
   verifyAdminFood,
   editAdminFood,
+  previewAdminFoodMerge,
   mergeAdminFood,
 } from "../controllers/admin-foods.controller";
 import {
@@ -223,6 +255,12 @@ adminRouter.patch(
 
 // User management (all protected)
 adminRouter.get("/users", requireAdmin, requireAdminPermission("users.read"), listAdminUsers);
+adminRouter.get(
+  "/users/export",
+  requireAdmin,
+  requireAdminPermission("users.read"),
+  exportAdminUsers
+);
 adminRouter.get("/users/:id", requireAdmin, requireAdminPermission("users.read"), getAdminUser);
 adminRouter.get(
   "/users/:id/timeline",
@@ -316,6 +354,18 @@ adminRouter.get(
   requireAdminPermission("analytics.read"),
   getAdminEngagementAnalytics
 );
+adminRouter.get(
+  "/analytics/subscriptions/export",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  exportAdminSubscriptionAnalytics
+);
+adminRouter.get(
+  "/analytics/engagement/export",
+  requireAdmin,
+  requireAdminPermission("analytics.read"),
+  exportAdminEngagementAnalytics
+);
 
 // Content — psychology tip bank CRUD. Content management is a support task, so
 // mutations require support+ (read-only can view but not edit). All audited.
@@ -339,6 +389,13 @@ adminRouter.delete(
   requireAdmin,
   requireAdminPermission("content.manage"),
   deleteAdminTip
+);
+adminRouter.post(
+  "/tips/:id/duplicate",
+  requireAdmin,
+  requireAdminPermission("content.manage"),
+  validate("json", adminDuplicateTipPayloadSchema),
+  duplicateAdminTip
 );
 
 // Food catalog moderation. Reads open to any admin; approve/reject/verify/edit
@@ -371,6 +428,7 @@ adminRouter.patch(
   validate("json", adminFoodEditPayloadSchema),
   editAdminFood
 );
+adminRouter.get("/foods/:id/merge-preview", requireAdmin, previewAdminFoodMerge);
 adminRouter.post(
   "/foods/:id/merge",
   requireAdmin,
@@ -399,6 +457,7 @@ adminRouter.get("/webhooks/:id", requireAdmin, requireAdminRole("admin"), getAdm
 adminRouter.post(
   "/webhooks/:id/reprocess",
   requireAdmin,
+  requireAdminRole("admin"),
   requireAdminPermission("billing.manage"),
   validate("json", adminWebhookReprocessPayloadSchema),
   reprocessAdminWebhook
@@ -426,7 +485,30 @@ adminRouter.post(
   "/push/campaigns/:id/send",
   requireAdmin,
   requireAdminRole("admin"),
+  requireAdminPermission("push.manage"),
   sendAdminPushCampaign
+);
+adminRouter.patch(
+  "/push/campaigns/:id",
+  requireAdmin,
+  requireAdminPermission("push.manage"),
+  validate("json", adminUpdateCampaignPayloadSchema),
+  updateAdminPushCampaign
+);
+adminRouter.post(
+  "/push/campaigns/:id/cancel",
+  requireAdmin,
+  requireAdminPermission("push.manage"),
+  validate("json", adminCampaignCancelPayloadSchema),
+  cancelAdminPushCampaign
+);
+adminRouter.post(
+  "/push/campaigns/:id/test",
+  requireAdmin,
+  requireAdminRole("admin"),
+  requireAdminPermission("push.manage"),
+  validate("json", adminCampaignTestPayloadSchema),
+  testAdminPushCampaign
 );
 
 // UGC moderation — check-in notes + avatar uploads. Reads for any admin;
@@ -468,10 +550,35 @@ adminRouter.get(
   listAdminEmailLogs
 );
 adminRouter.get(
+  "/email-logs/:id",
+  requireAdmin,
+  requireAdminPermission("audit.read"),
+  getAdminEmailLog
+);
+adminRouter.post(
+  "/email-logs/:id/resend",
+  requireAdmin,
+  requireAdminRole("admin"),
+  requireAdminPermission("audit.read"),
+  resendAdminEmail
+);
+adminRouter.get(
   "/audit-log",
   requireAdmin,
   requireAdminPermission("audit.read"),
   listAdminAuditLog
+);
+adminRouter.get(
+  "/audit-log/export",
+  requireAdmin,
+  requireAdminPermission("audit.read"),
+  exportAdminAuditLog
+);
+adminRouter.get(
+  "/audit-log/:id",
+  requireAdmin,
+  requireAdminPermission("audit.read"),
+  getAdminAuditLog
 );
 
 // Overview page — one route per independently-fetched section.
@@ -509,6 +616,36 @@ adminRouter.get(
   exportAdminLeads
 );
 adminRouter.get("/leads", requireAdmin, requireAdminPermission("leads.manage"), listAdminLeads);
+adminRouter.get("/leads/:id", requireAdmin, requireAdminPermission("leads.manage"), getAdminLead);
+adminRouter.patch(
+  "/leads/:id",
+  requireAdmin,
+  requireAdminPermission("leads.manage"),
+  validate("json", adminLeadUpdatePayloadSchema),
+  updateAdminLead
+);
+adminRouter.post(
+  "/leads/:id/notes",
+  requireAdmin,
+  requireAdminPermission("leads.manage"),
+  validate("json", adminLeadNotePayloadSchema),
+  addAdminLeadNote
+);
+adminRouter.post(
+  "/leads/:id/link-user",
+  requireAdmin,
+  requireAdminPermission("leads.manage"),
+  validate("json", adminLeadLinkUserPayloadSchema),
+  linkAdminLeadUser
+);
+adminRouter.post(
+  "/leads/:id/contact",
+  requireAdmin,
+  requireAdminRole("admin"),
+  requireAdminPermission("leads.manage"),
+  validate("json", adminLeadContactPayloadSchema),
+  contactAdminLead
+);
 adminRouter.delete(
   "/leads/:id",
   requireAdmin,

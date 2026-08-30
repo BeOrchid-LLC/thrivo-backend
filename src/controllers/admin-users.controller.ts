@@ -17,6 +17,12 @@ import { getUserTimeline } from "../services/admin-timeline.service";
 import { getUserActivity } from "../services/admin-activity.service";
 import type { AppEnv } from "../types/http";
 
+function csvField(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
 const listParamsSchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
@@ -28,6 +34,7 @@ const erasureListParamsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   status: z.enum(["pending", "processing", "retryable", "failed", "completed"]).optional(),
+  search: z.string().optional(),
 });
 
 /** GET /admin/users — keyset-paginated user list with optional search + status filter (R5-4). */
@@ -36,6 +43,47 @@ export async function listAdminUsers(c: Context<AppEnv>) {
   const params = listParamsSchema.parse(query);
   const result = await adminUserRepo.listUsers(params);
   return respondOk(c, result);
+}
+
+/** GET /admin/users/export — bounded, authenticated CSV export. */
+export async function exportAdminUsers(c: Context<AppEnv>) {
+  const { search, status } = listParamsSchema.parse(c.req.query());
+  const rows = await adminUserRepo.listAllForExport({ search, status });
+  const truncated = rows.length > 10_000;
+  const header = [
+    "id",
+    "email",
+    "name",
+    "tier",
+    "account_status",
+    "created_at",
+    "last_active_at",
+    "deleted_at",
+  ];
+  const csv = [
+    header.join(","),
+    ...rows
+      .slice(0, 10_000)
+      .map((row) =>
+        [
+          row.id,
+          row.email,
+          row.name,
+          row.tier,
+          row.accountStatus,
+          row.createdAt,
+          row.lastActiveAt,
+          row.deletedAt,
+        ]
+          .map(csvField)
+          .join(",")
+      ),
+  ].join("\n");
+  c.header("X-Export-Row-Limit", "10000");
+  c.header("X-Export-Truncated", String(truncated));
+  c.header("Content-Type", "text/csv; charset=utf-8");
+  c.header("Content-Disposition", 'attachment; filename="users.csv"');
+  return c.body(csv);
 }
 
 /** GET /admin/users/:id — full user detail for the admin panel. */
@@ -101,6 +149,8 @@ export async function listAdminAccountErasures(c: Context<AppEnv>) {
   return respondOk(c, {
     erasures: rows.map((row) => ({
       id: row.id,
+      userId: row.userId,
+      userEmail: row.userEmail ?? null,
       status: row.status,
       requestedAt: row.requestedAt.toISOString(),
       completedAt: row.completedAt?.toISOString() ?? null,
