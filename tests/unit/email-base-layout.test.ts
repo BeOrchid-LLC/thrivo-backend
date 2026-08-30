@@ -36,6 +36,8 @@ describe("email base layout", () => {
   it("centers the header when there is no eyebrow badge", () => {
     const html = emailHeader();
     expect(html).toContain("THRIVO");
+    expect(html).toContain('src="https://static.thrivo.fit/logo.png"');
+    expect(html).not.toContain('src="cid:thrivo-logo"');
     expect(html).toContain('align="center"');
     expect(html).not.toContain('align="right"');
   });

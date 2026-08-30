@@ -103,7 +103,8 @@ describe("email template registry", () => {
     expect(out.html).toContain("Let&#39;s hit your goals.");
     expect(out.html).toContain("https://thrivo.fit/app");
     expect(out.text).toContain("Open app: https://thrivo.fit/app");
-    expect(out.html).toContain('src="cid:thrivo-logo"');
+    expect(out.html).toContain('src="https://static.thrivo.fit/logo.png"');
+    expect(out.html).not.toContain('src="cid:thrivo-logo"');
     expect(out.html).not.toContain("<svg");
     expect(out.attachments).toEqual([
       expect.objectContaining({
