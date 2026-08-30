@@ -232,6 +232,34 @@ export const envSchema = z
     // raises rate limits and enables enhanced push security. The daily nudge
     // degrades to tokenless sends when absent.
     EXPO_ACCESS_TOKEN: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+    ADMIN_PUSH_TEST_USER_EMAILS: z
+      .string()
+      .default("")
+      .transform((s) => [
+        ...new Set(
+          s
+            .split(",")
+            .map((x) => x.trim().toLowerCase())
+            .filter(Boolean)
+        ),
+      ])
+      .pipe(z.array(z.string().email())),
+    ADMIN_PUSH_TEST_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    ADMIN_PUSH_LIFECYCLE_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    ADMIN_EMAIL_RESEND_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    ADMIN_LEAD_CONTACT_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
 
     // Cloudflare R2 object storage (S3-compatible). Optional — the four core vars
     // are all-or-nothing (see superRefine). Absent → uploads fail at point-of-use
@@ -256,6 +284,13 @@ export const envSchema = z
    */
   .superRefine((parsed, ctx) => {
     if (parsed.NODE_ENV === "production") {
+      if (parsed.ADMIN_PUSH_TEST_ENABLED && parsed.ADMIN_PUSH_TEST_USER_EMAILS.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["ADMIN_PUSH_TEST_USER_EMAILS"],
+          message: "At least one internal test user email is required for production push testing",
+        });
+      }
       const requiredEmailValues: ReadonlyArray<readonly [string, unknown]> = [
         ["RESEND_API_KEY", parsed.RESEND_API_KEY],
         ["RESEND_WEBHOOK_SECRET", parsed.RESEND_WEBHOOK_SECRET],

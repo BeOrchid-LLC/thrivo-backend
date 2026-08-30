@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { tips, type Mood, type NewTipRow, type TipRow } from "../../db/schema";
@@ -55,17 +55,31 @@ export async function insertMany(rows: NewTipRow[], tx: Executor = db): Promise<
 
 /** Admin tip bank — offset-paginated, newest-first. */
 export async function listPaged(
-  params: { offset: number; limit: number },
+  params: {
+    offset: number;
+    limit: number;
+    mood?: Mood;
+    active?: boolean;
+    pinnedFrom?: string;
+    pinnedTo?: string;
+  },
   tx: Executor = db
 ): Promise<{ rows: Tip[]; total: number }> {
+  const where = and(
+    params.mood ? eq(tips.mood, params.mood) : undefined,
+    params.active === undefined ? undefined : eq(tips.isActive, params.active),
+    params.pinnedFrom ? gte(tips.pinnedDate, params.pinnedFrom) : undefined,
+    params.pinnedTo ? lte(tips.pinnedDate, params.pinnedTo) : undefined
+  );
   const [rows, [{ value: total }]] = await Promise.all([
     tx
       .select()
       .from(tips)
+      .where(where)
       .orderBy(desc(tips.updatedAt), desc(tips.id))
       .limit(params.limit)
       .offset(params.offset),
-    tx.select({ value: count() }).from(tips),
+    tx.select({ value: count() }).from(tips).where(where),
   ]);
   return { rows, total: Number(total) };
 }
@@ -111,6 +125,31 @@ export async function update(
         targetType: "tip",
         targetId: id,
         before,
+        after: row,
+        requestId: audit.requestId,
+        ip: audit.ip,
+      },
+      tx
+    );
+    return row;
+  });
+}
+
+export async function duplicate(id: string, audit: AuditActor): Promise<Tip | null> {
+  return db.transaction(async (tx) => {
+    const [source] = await tx.select().from(tips).where(eq(tips.id, id)).limit(1);
+    if (!source) return null;
+    const [row] = await tx
+      .insert(tips)
+      .values({ body: source.body, mood: source.mood, isActive: false, pinnedDate: null })
+      .returning();
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: audit.actorAdminEmail,
+        action: "tip.duplicate",
+        targetType: "tip",
+        targetId: row.id,
+        before: { sourceId: source.id },
         after: row,
         requestId: audit.requestId,
         ip: audit.ip,

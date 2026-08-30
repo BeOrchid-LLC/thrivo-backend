@@ -14,6 +14,8 @@ import { isoDateSchema, timePointSchema } from "./common";
 export const adminAnalyticsRangeSchema = z.object({
   from: isoDateSchema.optional(),
   to: isoDateSchema.optional(),
+  compareFrom: isoDateSchema.optional(),
+  compareTo: isoDateSchema.optional(),
 });
 export type AdminAnalyticsRange = z.infer<typeof adminAnalyticsRangeSchema>;
 
@@ -42,6 +44,15 @@ export const adminSubscriptionAnalyticsSchema = z.object({
   freeCount: z.number(),
   premiumCount: z.number(),
   upgradeTriggers: z.array(z.object({ trigger: z.string(), count: z.number() })),
+  comparison: z
+    .object({
+      trialStarts: z.number(),
+      trialConversions: z.number(),
+      cancellations: z.number(),
+      mrrCents: z.number(),
+    })
+    .nullable()
+    .optional(),
 });
 export type AdminSubscriptionAnalytics = z.infer<typeof adminSubscriptionAnalyticsSchema>;
 /** Endpoint response: `{ analytics: AdminSubscriptionAnalytics }` */
@@ -135,6 +146,15 @@ export const adminEngagementAnalyticsSchema = z.object({
   averageStreakDays: z.number(),
   pushOpenRate: z.number(),
   retention: z.array(z.object({ cohort: z.string(), week: z.number(), retained: z.number() })),
+  comparison: z
+    .object({
+      signups: z.number(),
+      completed: z.number(),
+      skipped: z.number(),
+      averageStreakDays: z.number(),
+    })
+    .nullable()
+    .optional(),
 });
 export type AdminEngagementAnalytics = z.infer<typeof adminEngagementAnalyticsSchema>;
 /** Endpoint response: `{ analytics: AdminEngagementAnalytics }` */

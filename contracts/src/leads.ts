@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { RouteContract } from "./common";
 import { idSchema, isoDateSchema } from "./common";
 import { adminKeysetPaginated } from "./admin";
+import { adminEmailLogSchema } from "./admin-logs";
 
 /**
  * Lead capture (pre-signup email captures -- "leads"). Extend this enum as new
@@ -51,8 +52,72 @@ export const adminLeadSchema = z.object({
   utmSource: z.string().nullable(),
   utmMedium: z.string().nullable(),
   utmCampaign: z.string().nullable(),
+  status: z
+    .enum(["new", "contacted", "qualified", "converted", "unsubscribed", "spam"])
+    .default("new"),
+  ownerAdminEmail: z.string().email().nullable().default(null),
+  tags: z.array(z.string()).default([]),
+  updatedAt: isoDateSchema.optional(),
 });
 export type AdminLead = z.infer<typeof adminLeadSchema>;
+
+export const adminLeadStatusSchema = z.enum([
+  "new",
+  "contacted",
+  "qualified",
+  "converted",
+  "unsubscribed",
+  "spam",
+]);
+export type AdminLeadStatus = z.infer<typeof adminLeadStatusSchema>;
+
+export const adminLeadNoteSchema = z.object({
+  id: idSchema,
+  leadId: idSchema,
+  authorAdminEmail: z.string().email(),
+  body: z.string(),
+  createdAt: isoDateSchema,
+});
+export type AdminLeadNote = z.infer<typeof adminLeadNoteSchema>;
+
+export const adminLeadDetailSchema = adminLeadSchema.extend({
+  notes: z.array(adminLeadNoteSchema),
+  linkedUser: z
+    .object({
+      id: idSchema,
+      email: z.string().email(),
+      name: z.string().nullable(),
+      tier: z.enum(["free", "premium"]),
+    })
+    .nullable(),
+  recentEmails: z.array(adminEmailLogSchema),
+});
+export type AdminLeadDetail = z.infer<typeof adminLeadDetailSchema>;
+
+export const adminLeadDetailResponseSchema = z.object({ lead: adminLeadDetailSchema });
+export const adminLeadNoteResponseSchema = z.object({
+  lead: adminLeadDetailSchema,
+  note: adminLeadNoteSchema,
+});
+export const adminLeadContactResponseSchema = z.object({
+  lead: adminLeadDetailSchema,
+  emailLogId: idSchema,
+});
+
+export const adminLeadUpdatePayloadSchema = z.object({
+  status: adminLeadStatusSchema.optional(),
+  ownerAdminEmail: z.string().email().nullable().optional(),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+});
+
+export const adminLeadNotePayloadSchema = z.object({ body: z.string().min(1).max(2_000) });
+
+export const adminLeadContactPayloadSchema = z.object({
+  template: z.literal("launch_update"),
+  confirmation: z.literal("SEND"),
+});
+
+export const adminLeadLinkUserPayloadSchema = z.object({ userId: idSchema });
 
 export const adminLeadListResponseSchema = adminKeysetPaginated(adminLeadSchema);
 export type AdminLeadListResponse = z.infer<typeof adminLeadListResponseSchema>;
@@ -73,6 +138,11 @@ export const leadRoutes = {
     path: "/api/v1/admin/leads/:id",
     auth: "admin",
   },
+  adminDetail: { method: "GET", path: "/api/v1/admin/leads/:id", auth: "admin" },
+  adminUpdate: { method: "PATCH", path: "/api/v1/admin/leads/:id", auth: "admin" },
+  adminNote: { method: "POST", path: "/api/v1/admin/leads/:id/notes", auth: "admin" },
+  adminContact: { method: "POST", path: "/api/v1/admin/leads/:id/contact", auth: "admin" },
+  adminLinkUser: { method: "POST", path: "/api/v1/admin/leads/:id/link-user", auth: "admin" },
   // CSV body, not JSON -- no response schema; route metadata only.
   adminExport: {
     method: "GET",

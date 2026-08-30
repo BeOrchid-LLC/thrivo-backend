@@ -1,7 +1,7 @@
-import { and, count, desc, eq, getTableColumns, ilike, sql } from "drizzle-orm";
+import { and, count, desc, eq, getTableColumns, gte, ilike, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
-import { emailCaptures, type EmailCaptureRow } from "../../db/schema";
+import { emailCaptures, users, type EmailCaptureRow } from "../../db/schema";
 import type { AdminLead } from "../../contracts/src/leads";
 import * as adminAuditLogRepo from "./admin-audit-log.repository";
 import type { AuditActor } from "./admin-audit-log.repository";
@@ -10,7 +10,7 @@ import { clampLimit, decodeCursor, encodeCursor } from "../lib/pagination";
 export type EmailCapture = EmailCaptureRow;
 
 /** Maps a DB row to the admin-facing DTO -- deliberately drops rawUserAgent (operational/debug data, not part of the contract surface). */
-function toAdminLead(row: EmailCaptureRow): AdminLead {
+export function toAdminLead(row: EmailCaptureRow): AdminLead {
   return {
     id: row.id,
     email: row.email,
@@ -29,7 +29,86 @@ function toAdminLead(row: EmailCaptureRow): AdminLead {
     utmSource: row.utmSource,
     utmMedium: row.utmMedium,
     utmCampaign: row.utmCampaign,
+    status: row.status,
+    ownerAdminEmail: row.ownerAdminEmail,
+    tags: row.tags,
+    updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+export async function findById(id: string, tx: Executor = db): Promise<EmailCaptureRow | null> {
+  const [row] = await tx.select().from(emailCaptures).where(eq(emailCaptures.id, id)).limit(1);
+  return row ?? null;
+}
+
+export async function updateAdminFields(
+  id: string,
+  patch: Partial<Pick<EmailCaptureRow, "status" | "ownerAdminEmail" | "tags">>,
+  audit: AuditActor
+): Promise<EmailCaptureRow | null> {
+  return db.transaction(async (tx) => {
+    const [before] = await tx.select().from(emailCaptures).where(eq(emailCaptures.id, id)).limit(1);
+    if (!before) return null;
+    const [after] = await tx
+      .update(emailCaptures)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(emailCaptures.id, id))
+      .returning();
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: audit.actorAdminEmail,
+        action: "lead.update",
+        targetType: "lead",
+        targetId: id,
+        before: {
+          status: before.status,
+          ownerAdminEmail: before.ownerAdminEmail,
+          tags: before.tags,
+        },
+        after: { status: after.status, ownerAdminEmail: after.ownerAdminEmail, tags: after.tags },
+        requestId: audit.requestId,
+        ip: audit.ip,
+      },
+      tx
+    );
+    return after;
+  });
+}
+
+export async function linkToUser(
+  id: string,
+  userId: string,
+  audit: AuditActor
+): Promise<EmailCaptureRow | "not_found" | "email_mismatch"> {
+  return db.transaction(async (tx) => {
+    const [lead] = await tx.select().from(emailCaptures).where(eq(emailCaptures.id, id)).limit(1);
+    if (!lead) return "not_found";
+    const [user] = await tx
+      .select()
+      .from(users)
+      .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+      .limit(1);
+    if (!user || user.email.toLowerCase() !== lead.email.toLowerCase()) return "email_mismatch";
+    const [after] = await tx
+      .update(emailCaptures)
+      .set({ reconciledUserId: userId, status: "converted", updatedAt: new Date() })
+      .where(eq(emailCaptures.id, id))
+      .returning();
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: audit.actorAdminEmail,
+        action: "lead.link_user",
+        targetType: "lead",
+        targetId: id,
+        before: { reconciledUserId: lead.reconciledUserId, status: lead.status },
+        after: { reconciledUserId: userId, status: "converted" },
+        requestId: audit.requestId,
+        ip: audit.ip,
+      },
+      tx
+    );
+    return after;
+  });
 }
 
 export type CaptureInput = {
@@ -77,6 +156,7 @@ export async function capture(input: CaptureInput, tx: Executor = db): Promise<E
         utmCampaign: input.utmCampaign,
         submissionCount: sql`${emailCaptures.submissionCount} + 1`,
         lastSubmittedAt: sql`now()`,
+        updatedAt: sql`now()`,
       },
     })
     .returning();
@@ -100,6 +180,12 @@ export type ListParams = {
   cursor?: string;
   limit?: number;
   search?: string;
+  status?: EmailCaptureRow["status"];
+  ownerAdminEmail?: string;
+  source?: string;
+  reconciled?: boolean;
+  from?: Date;
+  to?: Date;
 };
 export type ListResult = {
   items: AdminLead[];
@@ -127,6 +213,19 @@ export async function list(params: ListParams): Promise<ListResult> {
   const { search } = params;
   const limit = clampLimit(params.limit, 20, 100);
   const searchWhere = search ? ilike(emailCaptures.email, `%${search}%`) : undefined;
+  const filters = [
+    searchWhere,
+    params.status ? eq(emailCaptures.status, params.status) : undefined,
+    params.ownerAdminEmail ? eq(emailCaptures.ownerAdminEmail, params.ownerAdminEmail) : undefined,
+    params.source ? eq(emailCaptures.source, params.source) : undefined,
+    params.reconciled === undefined
+      ? undefined
+      : params.reconciled
+        ? sql`${emailCaptures.reconciledUserId} is not null`
+        : sql`${emailCaptures.reconciledUserId} is null`,
+    params.from ? gte(emailCaptures.capturedAt, params.from) : undefined,
+    params.to ? lte(emailCaptures.capturedAt, params.to) : undefined,
+  ];
   const cursorWhere = params.cursor
     ? buildCursorWhere(decodeCursor<LeadCursor>(params.cursor))
     : undefined;
@@ -138,10 +237,13 @@ export async function list(params: ListParams): Promise<ListResult> {
         capturedAtCursor: sql<string>`${emailCaptures.capturedAt}::text`,
       })
       .from(emailCaptures)
-      .where(and(searchWhere, cursorWhere))
+      .where(and(...filters, cursorWhere))
       .orderBy(desc(emailCaptures.capturedAt), desc(emailCaptures.id))
       .limit(limit),
-    db.select({ value: count() }).from(emailCaptures).where(searchWhere),
+    db
+      .select({ value: count() })
+      .from(emailCaptures)
+      .where(and(...filters)),
   ]);
 
   const last = rows[rows.length - 1];
@@ -159,9 +261,31 @@ export async function list(params: ListParams): Promise<ListResult> {
   };
 }
 
-/** Every row, newest-first -- backs the admin CSV export (small table, no pagination needed). */
-export async function listAll(): Promise<EmailCapture[]> {
-  return db.select().from(emailCaptures).orderBy(desc(emailCaptures.capturedAt));
+/** Bounded export read. The caller can expose truncation instead of silently
+ * allocating an unbounded lead table in the API process. */
+export async function listAll(
+  params: Omit<ListParams, "cursor" | "limit"> = {},
+  limit = 10_001
+): Promise<EmailCapture[]> {
+  const filters = [
+    params.search ? ilike(emailCaptures.email, `%${params.search}%`) : undefined,
+    params.status ? eq(emailCaptures.status, params.status) : undefined,
+    params.ownerAdminEmail ? eq(emailCaptures.ownerAdminEmail, params.ownerAdminEmail) : undefined,
+    params.source ? eq(emailCaptures.source, params.source) : undefined,
+    params.reconciled === undefined
+      ? undefined
+      : params.reconciled
+        ? sql`${emailCaptures.reconciledUserId} is not null`
+        : sql`${emailCaptures.reconciledUserId} is null`,
+    params.from ? gte(emailCaptures.capturedAt, params.from) : undefined,
+    params.to ? lte(emailCaptures.capturedAt, params.to) : undefined,
+  ];
+  return db
+    .select()
+    .from(emailCaptures)
+    .where(and(...filters))
+    .orderBy(desc(emailCaptures.capturedAt))
+    .limit(limit);
 }
 
 /**
@@ -183,7 +307,7 @@ export async function hardDelete(id: string, audit: AuditActor): Promise<boolean
         action: "lead.hard_delete",
         targetType: "lead",
         targetId: id,
-        before: row,
+        before: { leadId: row.id, status: row.status, reconciledUserId: row.reconciledUserId },
         requestId: audit.requestId,
         ip: audit.ip,
       },

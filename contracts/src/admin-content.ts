@@ -29,3 +29,22 @@ export const adminUpsertTipPayloadSchema = z.object({
   pinnedDate: z.string().nullable().optional(),
 });
 export type AdminUpsertTipPayload = z.infer<typeof adminUpsertTipPayloadSchema>;
+
+export const adminDuplicateTipPayloadSchema = z.object({ confirmation: z.literal("DUPLICATE") });
+
+export const adminTipFilterSchema = z.object({
+  mood: z.enum(ADMIN_TIP_MOODS).optional(),
+  active: z
+    .preprocess((value) => {
+      if (typeof value === "boolean") return value;
+      if (typeof value === "string") {
+        const normalized = value.toLowerCase();
+        if (["true", "1", "yes"].includes(normalized)) return true;
+        if (["false", "0", "no"].includes(normalized)) return false;
+      }
+      return value;
+    }, z.boolean())
+    .optional(),
+  pinnedFrom: z.string().optional(),
+  pinnedTo: z.string().optional(),
+});

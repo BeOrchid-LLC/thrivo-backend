@@ -4,6 +4,7 @@ import { respondOk } from "../lib/response";
 import { getValidatedInput } from "../middleware/validate";
 import { parseUserAgent } from "../lib/user-agent";
 import { emailCaptureRepo } from "../repositories";
+import { queueWaitlistConfirmationEmail } from "../services/email.service";
 import type { AppEnv } from "../types/http";
 
 const RAW_USER_AGENT_MAX = 512;
@@ -40,6 +41,8 @@ export async function postCaptureLead(c: Context<AppEnv>) {
     utmMedium: body.utmMedium ?? null,
     utmCampaign: body.utmCampaign ?? null,
   });
+
+  await queueWaitlistConfirmationEmail(body.email);
 
   return respondOk(c, { captured: true }, "Thanks — we'll notify you at launch.");
 }

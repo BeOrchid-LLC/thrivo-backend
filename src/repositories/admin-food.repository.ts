@@ -156,6 +156,40 @@ export async function findDetail(id: string): Promise<AdminFoodItemDetail | null
   };
 }
 
+export async function mergePreview(
+  id: string,
+  mergeIntoId: string
+): Promise<
+  | {
+      source: AdminFoodItemRow;
+      target: AdminFoodItemRow;
+      favoriteCount: number;
+      logCount: number;
+      alreadyMerged: boolean;
+    }
+  | "same_item"
+  | "not_found"
+  | "invalid_target"
+  | "already_merged"
+> {
+  if (id === mergeIntoId) return "same_item";
+  const [source, target] = await Promise.all([findDetail(id), findDetail(mergeIntoId)]);
+  if (!source) return "not_found";
+  if (source.status === "merged" || source.mergedIntoId) return "already_merged";
+  if (!target || target.status === "merged" || target.mergedIntoId) return "invalid_target";
+  const [{ value: favoriteCount }] = await db
+    .select({ value: count() })
+    .from(foodFavorites)
+    .where(eq(foodFavorites.foodItemId, id));
+  return {
+    source,
+    target,
+    favoriteCount: Number(favoriteCount),
+    logCount: source.logCount,
+    alreadyMerged: false,
+  };
+}
+
 type ModerationAction = "approve" | "reject" | "verify" | "unverify";
 
 /**
@@ -253,7 +287,12 @@ export async function applyEdit(
   });
 }
 
-export type MergeResult = "merged" | "not_found" | "invalid_target" | "same_item";
+export type MergeResult =
+  | "merged"
+  | "not_found"
+  | "invalid_target"
+  | "same_item"
+  | "already_merged";
 
 /**
  * Merge `id` into `mergeIntoId`: mark the source `merged` with `mergedIntoId`
@@ -271,12 +310,14 @@ export async function merge(
   return db.transaction(async (tx) => {
     const [source] = await tx.select().from(foodItems).where(eq(foodItems.id, id)).limit(1);
     if (!source || source.tier === "personal") return "not_found";
+    if (source.status === "merged" || source.mergedIntoId) return "already_merged";
     const [target] = await tx
       .select()
       .from(foodItems)
       .where(eq(foodItems.id, mergeIntoId))
       .limit(1);
-    if (!target || target.tier === "personal") return "invalid_target";
+    if (!target || target.tier === "personal" || target.status === "merged" || target.mergedIntoId)
+      return "invalid_target";
 
     await tx
       .update(foodItems)

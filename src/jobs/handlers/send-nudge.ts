@@ -5,6 +5,7 @@ import { handleSendNudgeChunk } from "./send-nudge-chunk";
 import { handleSendCampaign } from "./send-campaign";
 import { handleSendFoodLogReminder } from "./send-food-log-reminder";
 import { sendFoodLogReminders } from "../../services/food-log-reminder.service";
+import { handleSendCampaignTest } from "./send-campaign-test";
 
 /**
  * Router for the `nudges` queue (R5-3/I15): the daily scheduler job dispatches
@@ -23,6 +24,7 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
   },
   // Admin push broadcast fan-out (Phase 4) shares the push (nudges) queue.
   "send-campaign": handleSendCampaign,
+  "send-campaign-test": handleSendCampaignTest,
 };
 
 export async function handleSendNudge(job: Job): Promise<void> {

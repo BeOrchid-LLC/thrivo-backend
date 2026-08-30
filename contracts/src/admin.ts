@@ -222,6 +222,9 @@ export type AdminUserSubscription = z.infer<typeof adminUserSubscriptionSchema>;
 export const adminWebhookReprocessPayloadSchema = z.object({
   confirmation: z.literal("REPROCESS"),
 });
+export const adminWebhookReprocessResponseSchema = z.object({
+  outcome: z.unknown(),
+});
 
 /** Receiving-end only as of this contract version — populated once a future
  *  mobile-app task reports it; null for every user until then. */

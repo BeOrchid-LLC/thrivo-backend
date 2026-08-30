@@ -3,7 +3,7 @@ import { emailButton, emailFooter, emailHeader, emailHeroText, emailShell } from
 
 /**
  * Generic transactional notification: a title, a body, and an optional CTA.
- * Used by welcome, cancellation, and trial-reminder emails — the simplest
+ * Used by welcome, waitlist-confirmation, cancellation, and trial-reminder emails — the simplest
  * possible assembly of the shared blocks (no icon badge, no row list), which
  * is the point: proving the block set generalizes past the 3 bespoke designs
  * it was extracted from.

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."email_kind" ADD VALUE 'waitlist_confirmation' BEFORE 'admin_otp';

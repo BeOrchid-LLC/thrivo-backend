@@ -1,6 +1,9 @@
 import type { Context } from "hono";
 import { z } from "zod";
-import { adminUpsertTipPayloadSchema } from "../../contracts/src/admin-content";
+import {
+  adminDuplicateTipPayloadSchema,
+  adminUpsertTipPayloadSchema,
+} from "../../contracts/src/admin-content";
 import { NotFoundError } from "../lib/errors";
 import { respondOk } from "../lib/response";
 import { getClientIp } from "../lib/request-ip";
@@ -10,10 +13,15 @@ import { getValidatedInput } from "../middleware/validate";
 import { tipRepo } from "../repositories";
 import type { AuditActor } from "../repositories/admin-audit-log.repository";
 import type { AppEnv } from "../types/http";
+import { queryBooleanSchema } from "../lib/query-params";
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  mood: z.enum(["great", "good", "ok", "low", "bad"]).optional(),
+  active: queryBooleanSchema.optional(),
+  pinnedFrom: z.string().optional(),
+  pinnedTo: z.string().optional(),
 });
 
 function auditActor(c: Context<AppEnv>): AuditActor {
@@ -27,11 +35,17 @@ function auditActor(c: Context<AppEnv>): AuditActor {
 
 /** GET /admin/tips — offset-paginated psychology-tip bank. */
 export async function listAdminTips(c: Context<AppEnv>) {
-  const { page, pageSize } = listQuerySchema.parse(c.req.query());
+  const { page, pageSize, mood, active, pinnedFrom, pinnedTo } = listQuerySchema.parse(
+    c.req.query()
+  );
   const params = parseOffset(page, pageSize);
   const { rows, total } = await tipRepo.listPaged({
     offset: params.offset,
     limit: params.pageSize,
+    mood,
+    active,
+    pinnedFrom,
+    pinnedTo,
   });
   return respondOk(c, {
     items: rows.map(toAdminTip),
@@ -79,4 +93,12 @@ export async function deleteAdminTip(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
   await tipRepo.remove(id, auditActor(c));
   return respondOk(c, null, "Tip deleted");
+}
+
+export async function duplicateAdminTip(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  adminDuplicateTipPayloadSchema.parse(getValidatedInput(c, "json"));
+  const tip = await tipRepo.duplicate(id, auditActor(c));
+  if (!tip) throw new NotFoundError("Tip not found");
+  return respondOk(c, { tip: toAdminTip(tip) }, "Tip duplicated", 201);
 }

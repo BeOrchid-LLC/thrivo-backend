@@ -124,6 +124,21 @@ async function registerSchedulers(): Promise<void> {
     { pattern: "45 2 * * *", tz: "UTC" },
     { name: "purge-erasure-proofs", data: {} }
   );
+  await maintenance.upsertJobScheduler(
+    "purge-email-replay-payloads",
+    { pattern: "30 2 * * *", tz: "UTC" },
+    { name: "purge-email-replay-payloads", data: {} }
+  );
+  await maintenance.upsertJobScheduler(
+    "purge-admin-action-idempotency",
+    { pattern: "45 2 * * *", tz: "UTC" },
+    { name: "purge-admin-action-idempotency", data: {} }
+  );
+  await maintenance.upsertJobScheduler(
+    "dispatch-scheduled-campaigns",
+    { every: 30_000 },
+    { name: "dispatch-scheduled-campaigns", data: {} }
+  );
   logger.info(
     { queue: QUEUE_NAMES.maintenance, schedulerId: "reconcile-resend-events", everyMs: 60_000 },
     "worker scheduler registered"

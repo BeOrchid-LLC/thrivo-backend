@@ -97,12 +97,24 @@ export async function editAdminFood(c: Context<AppEnv>) {
   return respondOk(c, { food: await requireDetail(id) }, "Food updated");
 }
 
+export async function previewAdminFoodMerge(c: Context<AppEnv>) {
+  const id = c.req.param("id") ?? "";
+  const mergeIntoId = z.string().uuid().parse(c.req.query("mergeIntoId"));
+  const result = await adminFoodRepo.mergePreview(id, mergeIntoId);
+  if (result === "same_item") throw new ValidationError("Cannot merge an item into itself");
+  if (result === "already_merged") throw new ConflictError("Food item is already merged");
+  if (result === "not_found") throw new NotFoundError("Food item not found");
+  if (result === "invalid_target") throw new ConflictError("Merge target is not mergeable");
+  return respondOk(c, { preview: result });
+}
+
 /** POST /admin/foods/:id/merge — merge into a canonical item (admin only). */
 export async function mergeAdminFood(c: Context<AppEnv>) {
   const id = c.req.param("id") ?? "";
   const { mergeIntoId, reason } = adminFoodMergePayloadSchema.parse(getValidatedInput(c, "json"));
   const result = await adminFoodRepo.merge(id, mergeIntoId, auditActor(c), reason);
   if (result === "same_item") throw new ValidationError("Cannot merge an item into itself");
+  if (result === "already_merged") throw new ConflictError("Food item is already merged");
   if (result === "not_found") throw new NotFoundError("Food item not found");
   if (result === "invalid_target")
     throw new ConflictError("Merge target not found or not mergeable");

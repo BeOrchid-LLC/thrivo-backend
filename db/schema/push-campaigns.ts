@@ -1,4 +1,13 @@
-import { index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { idPk, timestamps } from "./_shared";
 import { pushCampaignStatusEnum, pushRecipientStatusEnum } from "./_enums";
@@ -46,11 +55,18 @@ export const pushCampaignRecipients = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     pushToken: text("push_token").notNull(),
     status: pushRecipientStatusEnum("status").notNull().default("queued"),
+    processingAt: timestamp("processing_at", { withTimezone: true }),
+    processingToken: text("processing_token"),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     byCampaign: index("push_campaign_recipients_campaign_idx").on(t.campaignId),
+    byClaim: index("push_campaign_recipients_claim_idx").on(t.campaignId, t.status, t.processingAt),
+    campaignTokenUnique: uniqueIndex("push_campaign_recipients_campaign_token_uniq").on(
+      t.campaignId,
+      t.pushToken
+    ),
   })
 );
 

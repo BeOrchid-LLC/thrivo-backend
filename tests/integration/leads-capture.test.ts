@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { closeDb, resetDb } from "../helpers/db";
 import { buildApp } from "../../src/app";
 import { db } from "../../db";
-import { emailCaptures } from "../../db/schema";
+import { emailCaptures, emailLogs } from "../../db/schema";
 
 // Leads-capture flow against a real Postgres + Redis. Gated; enable with RUN_DB_TESTS=1.
 const run = process.env.RUN_DB_TESTS === "1";
@@ -48,6 +48,13 @@ describe.skipIf(!run)("integration: leads capture", () => {
     expect(row?.submissionCount).toBe(1);
     expect(row?.country).toBe("NG");
     expect(row?.deviceType).toBe("mobile");
+
+    const [confirmation] = await db
+      .select()
+      .from(emailLogs)
+      .where(eq(emailLogs.toEmail, "new@test.thrivo.fit"));
+    expect(confirmation?.kind).toBe("waitlist_confirmation");
+    expect(confirmation?.template).toBe("notification");
   });
 
   it("resubmission returns an identical response and upserts in place", async () => {

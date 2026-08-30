@@ -99,3 +99,16 @@ export const adminFoodMergePayloadSchema = z.object({
   reason: z.string().min(1).optional(),
 });
 export type AdminFoodMergePayload = z.infer<typeof adminFoodMergePayloadSchema>;
+
+export const adminFoodMergePreviewSchema = z.object({
+  source: adminFoodItemRowSchema,
+  target: adminFoodItemRowSchema,
+  favoriteCount: z.number().int().nonnegative(),
+  logCount: z.number().int().nonnegative(),
+  alreadyMerged: z.boolean(),
+});
+export type AdminFoodMergePreview = z.infer<typeof adminFoodMergePreviewSchema>;
+
+export const adminFoodMergePreviewResponseSchema = z.object({
+  preview: adminFoodMergePreviewSchema,
+});

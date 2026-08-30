@@ -246,4 +246,21 @@ describe.skipIf(!run)("integration: admin users", () => {
     expect(body.data.metrics.mau).toBeGreaterThanOrEqual(1);
     expect(Array.isArray(body.data.metrics.subscriberGrowth)).toBe(true);
   });
+
+  it("exports the filtered user table as an authenticated CSV", async () => {
+    const app = buildApp();
+    const session = await createSession();
+
+    const res = await app.request(
+      `/api/v1/admin/users/export?search=${encodeURIComponent(session.email)}`,
+      { headers: { authorization: adminBearer(), Origin: ALLOWED_ORIGIN } }
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.headers.get("content-disposition")).toContain("users.csv");
+    const csv = await res.text();
+    expect(csv).toContain("id,email,name,tier,account_status");
+    expect(csv).toContain(session.email);
+  });
 });

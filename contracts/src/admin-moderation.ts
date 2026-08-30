@@ -28,6 +28,7 @@ export const adminUploadRowSchema = z.object({
   intent: z.string(),
   publicUrl: z.string(),
   status: z.enum(["pending", "uploaded", "verified", "failed", "expired"]),
+  deletedAt: isoDateSchema.nullable(),
   createdAt: isoDateSchema,
 });
 export type AdminUploadRow = z.infer<typeof adminUploadRowSchema>;
@@ -47,6 +48,18 @@ export type AdminModeratePayload = z.infer<typeof adminModeratePayloadSchema>;
 export const adminModerationFilterSchema = z.object({
   userId: idSchema.optional(),
   q: z.string().optional(),
-  hiddenOnly: z.coerce.boolean().optional(),
+  hiddenOnly: z
+    .preprocess((value) => {
+      if (typeof value === "boolean") return value;
+      if (typeof value === "string") {
+        const normalized = value.toLowerCase();
+        if (["1", "true", "yes"].includes(normalized)) return true;
+        if (["0", "false", "no"].includes(normalized)) return false;
+      }
+      return value;
+    }, z.boolean())
+    .optional(),
+  from: isoDateSchema.optional(),
+  to: isoDateSchema.optional(),
 });
 export type AdminModerationFilter = z.infer<typeof adminModerationFilterSchema>;

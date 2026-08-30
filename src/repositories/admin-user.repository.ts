@@ -233,6 +233,33 @@ export async function listUsers(params: AdminListParams): Promise<AdminListResul
   };
 }
 
+/** Bounded, privacy-safe user export. Aggregates are intentionally omitted;
+ * exports should remain stable and must not fan out detail queries per row. */
+export async function listAllForExport(
+  params: Pick<AdminListParams, "search" | "status"> = {},
+  limit = 10_001
+) {
+  const searchWhere = params.search
+    ? or(ilike(users.email, `%${params.search}%`), ilike(users.name, `%${params.search}%`))
+    : undefined;
+  const where = and(searchWhere, buildStatusWhere(params.status));
+  return db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      tier: users.tier,
+      accountStatus: users.accountStatus,
+      createdAt: users.createdAt,
+      lastActiveAt: users.lastActiveAt,
+      deletedAt: users.deletedAt,
+    })
+    .from(users)
+    .where(where)
+    .orderBy(desc(users.createdAt), desc(users.id))
+    .limit(limit);
+}
+
 export async function findById(id: string): Promise<AdminUserDetail | null> {
   const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   if (!row) return null;
@@ -266,7 +293,7 @@ export async function hardDeleteUser(id: string, audit: AuditActor): Promise<boo
         action: "user.hard_delete",
         targetType: "user",
         targetId: id,
-        before: row,
+        before: { userId: row.id, accountStatus: row.accountStatus, tier: row.tier },
         requestId: audit.requestId,
         ip: audit.ip,
       },

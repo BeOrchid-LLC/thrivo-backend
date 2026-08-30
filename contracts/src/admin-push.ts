@@ -30,6 +30,7 @@ export const adminPushCampaignStatusSchema = z.enum([
   "sending",
   "sent",
   "failed",
+  "canceled",
 ]);
 export type AdminPushCampaignStatus = z.infer<typeof adminPushCampaignStatusSchema>;
 
@@ -67,6 +68,26 @@ export const adminCreateCampaignPayloadSchema = z.object({
   scheduledAt: z.string().datetime().optional(),
 });
 export type AdminCreateCampaignPayload = z.infer<typeof adminCreateCampaignPayloadSchema>;
+
+/** Draft-only campaign edit. `scheduledAt: null` returns a scheduled campaign to draft. */
+export const adminUpdateCampaignPayloadSchema = z.object({
+  title: z.string().min(1).max(120).optional(),
+  body: z.string().min(1).max(500).optional(),
+  deepLink: z.string().max(500).nullable().optional(),
+  segment: adminPushSegmentSchema.optional(),
+  scheduledAt: z.string().datetime().nullable().optional(),
+});
+export type AdminUpdateCampaignPayload = z.infer<typeof adminUpdateCampaignPayloadSchema>;
+
+export const adminCampaignCancelPayloadSchema = z.object({
+  confirmation: z.literal("CANCEL"),
+});
+export type AdminCampaignCancelPayload = z.infer<typeof adminCampaignCancelPayloadSchema>;
+
+export const adminCampaignTestPayloadSchema = z.object({
+  confirmation: z.literal("SEND_TEST"),
+});
+export type AdminCampaignTestPayload = z.infer<typeof adminCampaignTestPayloadSchema>;
 
 export const adminAudienceEstimatePayloadSchema = z.object({ segment: adminPushSegmentSchema });
 export type AdminAudienceEstimatePayload = z.infer<typeof adminAudienceEstimatePayloadSchema>;

@@ -7,6 +7,8 @@ import { idSchema, isoDateSchema } from "./common";
  */
 export const adminEmailLogSchema = z.object({
   id: idSchema,
+  userId: idSchema.nullable(),
+  leadId: idSchema.nullable(),
   to: z.string().email(),
   template: z.string(),
   kind: z.enum([
@@ -14,9 +16,11 @@ export const adminEmailLogSchema = z.object({
     "weekly_review",
     "trial_ending",
     "cancellation_confirmation",
+    "waitlist_confirmation",
     "admin_otp",
     "admin_invite",
     "admin_password_reset",
+    "lead_contact",
     "legacy_notification",
   ]),
   status: z.enum([
@@ -42,6 +46,33 @@ export const adminEmailLogSchema = z.object({
 });
 export type AdminEmailLog = z.infer<typeof adminEmailLogSchema>;
 
+export const adminEmailLogDetailSchema = adminEmailLogSchema.extend({
+  userId: idSchema.nullable(),
+  leadId: idSchema.nullable(),
+  parentEmailLogId: idSchema.nullable(),
+  resendable: z.boolean(),
+  resendCount: z.number().int().nonnegative(),
+  resendHistory: z.array(adminEmailLogSchema),
+  lastAttemptAt: isoDateSchema.nullable(),
+  providerEventAt: isoDateSchema.nullable(),
+});
+export type AdminEmailLogDetail = z.infer<typeof adminEmailLogDetailSchema>;
+
+export const adminEmailLogDetailResponseSchema = z.object({
+  emailLog: adminEmailLogDetailSchema,
+});
+export type AdminEmailLogDetailResponse = z.infer<typeof adminEmailLogDetailResponseSchema>;
+
+export const adminEmailResendPayloadSchema = z.object({
+  confirmation: z.literal("RESEND"),
+});
+export type AdminEmailResendPayload = z.infer<typeof adminEmailResendPayloadSchema>;
+
+export const adminEmailResendResponseSchema = z.object({
+  emailLog: adminEmailLogDetailSchema,
+});
+export type AdminEmailResendResponse = z.infer<typeof adminEmailResendResponseSchema>;
+
 export const adminAuditLogEntrySchema = z.object({
   id: idSchema,
   actorEmail: z.string().email(),
@@ -52,6 +83,18 @@ export const adminAuditLogEntrySchema = z.object({
   createdAt: isoDateSchema,
 });
 export type AdminAuditLogEntry = z.infer<typeof adminAuditLogEntrySchema>;
+
+export const adminAuditLogDetailSchema = adminAuditLogEntrySchema.extend({
+  targetType: z.string(),
+  before: z.unknown().nullable(),
+  after: z.unknown().nullable(),
+  ip: z.string().nullable(),
+});
+export type AdminAuditLogDetail = z.infer<typeof adminAuditLogDetailSchema>;
+
+export const adminAuditLogDetailResponseSchema = z.object({
+  entry: adminAuditLogDetailSchema,
+});
 
 // ---------------------------------------------------------------------------
 // List filter query params (backend validates GET query strings with these)
@@ -66,6 +109,8 @@ export const adminAuditLogFilterSchema = z.object({
   actorEmail: z.string().email().optional(),
   action: z.string().optional(),
   targetType: z.string().optional(),
+  targetId: z.string().optional(),
+  requestId: z.string().optional(),
   from: isoDateSchema.optional(),
   to: isoDateSchema.optional(),
   q: z.string().optional(),

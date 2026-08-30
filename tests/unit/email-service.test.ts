@@ -19,7 +19,10 @@ vi.mock("../../src/repositories", () => ({
 const { encryptEmailPayload } = vi.hoisted(() => ({ encryptEmailPayload: vi.fn() }));
 vi.mock("../../src/lib/email/outbox-crypto", () => ({ encryptEmailPayload }));
 
-import { queueTemplatedEmail } from "../../src/services/email.service";
+import {
+  queueTemplatedEmail,
+  queueWaitlistConfirmationEmail,
+} from "../../src/services/email.service";
 import { emailAppLink } from "../../src/lib/email/links";
 
 describe("email.service.queueTemplatedEmail", () => {
@@ -108,6 +111,44 @@ describe("email.service.queueTemplatedEmail", () => {
 
     expect(encryptEmailPayload).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("queues a waitlist confirmation without a welcome CTA", async () => {
+    findActive.mockResolvedValue(null);
+    logSendIdempotent.mockResolvedValue({ row: { id: "waitlist_log" }, created: true });
+    encryptEmailPayload.mockReturnValue({
+      keyId: "key-1",
+      iv: "iv",
+      authTag: "tag",
+      ciphertext: "ciphertext",
+    });
+
+    await expect(queueWaitlistConfirmationEmail("WAITLIST@thrivo.fit")).resolves.toBe(
+      "waitlist_log"
+    );
+
+    expect(logSendIdempotent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toEmail: "waitlist@thrivo.fit",
+        template: "notification",
+        kind: "waitlist_confirmation",
+        dedupeKey: "waitlist_confirmation:waitlist@thrivo.fit",
+        status: "queued",
+      }),
+      expect.any(Object)
+    );
+    expect(encryptEmailPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "waitlist@thrivo.fit",
+        template: "notification",
+        props: {
+          title: "You're on the Thrivo waitlist",
+          body: expect.any(String),
+        },
+      }),
+      "waitlist_log",
+      "waitlist_confirmation"
+    );
   });
 
   it("records a suppressed recipient without retaining an outbox payload", async () => {

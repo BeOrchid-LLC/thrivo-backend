@@ -75,6 +75,7 @@ describe("weekly-review job", () => {
       to: "a@x.com",
       userId: "u1",
       template: "weekly-review",
+      resendable: true,
       dedupeKey: "weekly-review:u1:2024-01-14",
       expiresAt: new Date("2024-01-22T00:00:00.000Z"),
       props: {

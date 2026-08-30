@@ -6,7 +6,7 @@ import { db } from "../../db";
 import { env } from "../../src/env";
 import { adminAuditLog, pushCampaigns, pushTokens } from "../../db/schema";
 import { makeAdminUser, makeUser } from "../helpers/factories";
-import { pushTokenRepo } from "../../src/repositories";
+import { pushCampaignRepo, pushTokenRepo } from "../../src/repositories";
 import {
   adminAudienceEstimateResponseSchema,
   adminPushCampaignDetailResponseSchema,
@@ -142,6 +142,15 @@ describe.skipIf(!run)("integration: admin push campaigns", () => {
     });
     expect(supportSend.status).toBe(403);
 
+    if (!env.ADMIN_PUSH_LIFECYCLE_ENABLED) {
+      const disabled = await app.request(`/api/v1/admin/push/campaigns/${id}/send`, {
+        method: "POST",
+        headers: jsonHeaders(bearerFor("admin")),
+      });
+      expect(disabled.status).toBe(409);
+      return;
+    }
+
     const adminSend = await app.request(`/api/v1/admin/push/campaigns/${id}/send`, {
       method: "POST",
       headers: jsonHeaders(bearerFor("admin")),
@@ -156,5 +165,51 @@ describe.skipIf(!run)("integration: admin push campaigns", () => {
       .from(adminAuditLog)
       .where(eq(adminAuditLog.action, "push_campaign.send"));
     expect(sendAudit).toHaveLength(1);
+  });
+
+  it("rejects scheduled creation while the lifecycle flag is disabled", async () => {
+    if (env.ADMIN_PUSH_LIFECYCLE_ENABLED) return;
+    const app = buildApp();
+    const res = await app.request("/api/v1/admin/push/campaigns", {
+      method: "POST",
+      headers: jsonHeaders(bearerFor("support")),
+      body: JSON.stringify({
+        title: "Scheduled",
+        body: "Later",
+        segment: { all: true },
+        scheduledAt: "2099-01-01T00:00:00.000Z",
+      }),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("serializes a due-campaign claim against cancellation", async () => {
+    const [campaign] = await db
+      .insert(pushCampaigns)
+      .values({
+        title: "Race test",
+        body: "Race test body",
+        segment: { all: true },
+        status: "scheduled",
+        scheduledAt: new Date(Date.now() - 1_000),
+        createdByAdminEmail: "admin@test.thrivo.fit",
+      })
+      .returning();
+
+    const [claimed, canceled] = await Promise.all([
+      pushCampaignRepo.claimDueScheduled(new Date()),
+      pushCampaignRepo.cancelScheduled(campaign.id),
+    ]);
+    const [row] = await db.select().from(pushCampaigns).where(eq(pushCampaigns.id, campaign.id));
+
+    expect(row).toBeDefined();
+    expect(["sending", "canceled"]).toContain(row!.status);
+    if (row!.status === "sending") {
+      expect(claimed.map((item) => item.id)).toContain(campaign.id);
+      expect(canceled).toBeNull();
+    } else {
+      expect(claimed.map((item) => item.id)).not.toContain(campaign.id);
+      expect(canceled?.id).toBe(campaign.id);
+    }
   });
 });

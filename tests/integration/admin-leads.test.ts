@@ -7,6 +7,8 @@ import { env } from "../../src/env";
 import { adminAuditLog } from "../../db/schema";
 import { makeAdminUser } from "../helpers/factories";
 import { emailCaptureRepo } from "../../src/repositories";
+import { makeUser } from "../helpers/factories";
+import { adminLeadDetailResponseSchema } from "../../contracts/src/leads";
 
 const run = process.env.RUN_DB_TESTS === "1";
 const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
@@ -14,6 +16,12 @@ const ALLOWED_ORIGIN = env.CORS_ORIGINS[0] ?? "http://localhost:3001";
 function adminBearer() {
   return "Bearer test-clerk-admin-token:test_admin:admin@test.thrivo.fit";
 }
+
+const jsonHeaders = {
+  authorization: adminBearer(),
+  Origin: ALLOWED_ORIGIN,
+  "Content-Type": "application/json",
+};
 
 describe.skipIf(!run)("integration: admin leads", () => {
   beforeEach(async () => {
@@ -63,7 +71,11 @@ describe.skipIf(!run)("integration: admin leads", () => {
       targetType: "lead",
       targetId: lead.id,
     });
-    expect((auditRows[0]!.before as { email: string }).email).toBe("spam@test.thrivo.fit");
+    expect(auditRows[0]!.before).toEqual({
+      leadId: lead.id,
+      status: "new",
+      reconciledUserId: null,
+    });
   });
 
   it("deleting a nonexistent lead is a no-op ack and writes no audit row", async () => {
@@ -81,5 +93,76 @@ describe.skipIf(!run)("integration: admin leads", () => {
       .from(adminAuditLog)
       .where(eq(adminAuditLog.targetId, missingId));
     expect(auditRows).toHaveLength(0);
+  });
+
+  it("supports CRM updates, notes, filtered reconciliation, and email-verified linking", async () => {
+    const leadEmail = "crm@test.thrivo.fit";
+    const lead = await emailCaptureRepo.capture({
+      email: leadEmail,
+      source: "landing",
+      country: "NG",
+      deviceType: "desktop",
+      osName: "Windows",
+      osVersion: null,
+      browserName: "Chrome",
+      browserVersion: null,
+      rawUserAgent: null,
+      referrer: null,
+      utmSource: "launch",
+      utmMedium: null,
+      utmCampaign: null,
+    });
+    const user = await makeUser({ email: leadEmail });
+    const app = buildApp();
+
+    const filtered = await app.request("/api/v1/admin/leads?reconciled=false", {
+      headers: { authorization: adminBearer() },
+    });
+    expect(filtered.status).toBe(200);
+    const filteredBody = (await filtered.json()) as { data: { items: Array<{ id: string }> } };
+    expect(filteredBody.data.items.some((item) => item.id === lead.id)).toBe(true);
+
+    const update = await app.request(`/api/v1/admin/leads/${lead.id}`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        status: "qualified",
+        ownerAdminEmail: "owner@test.thrivo.fit",
+        tags: ["launch", "priority"],
+      }),
+    });
+    expect(update.status).toBe(200);
+
+    const note = await app.request(`/api/v1/admin/leads/${lead.id}/notes`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ body: "Ready for the launch update." }),
+    });
+    expect(note.status).toBe(201);
+
+    const linked = await app.request(`/api/v1/admin/leads/${lead.id}/link-user`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ userId: user.id }),
+    });
+    expect(linked.status).toBe(200);
+    const linkedBody = (await linked.json()) as { data: unknown };
+    const parsed = adminLeadDetailResponseSchema.safeParse(linkedBody.data);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.lead.reconciledUserId).toBe(user.id);
+      expect(parsed.data.lead.status).toBe("converted");
+      expect(parsed.data.lead.notes).toHaveLength(1);
+      expect(parsed.data.lead.linkedUser).toMatchObject({ id: user.id, email: leadEmail });
+      expect(parsed.data.lead.recentEmails).toEqual([]);
+    }
+
+    const actions = await db
+      .select({ action: adminAuditLog.action })
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.targetId, lead.id));
+    expect(actions.map((row) => row.action)).toEqual(
+      expect.arrayContaining(["lead.update", "lead.note_add", "lead.link_user"])
+    );
   });
 });

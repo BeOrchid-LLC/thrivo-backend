@@ -2,7 +2,7 @@ import type { Job } from "bullmq";
 import { logger } from "../../lib/logger";
 import { pushCampaignRepo, pushTokenRepo } from "../../repositories";
 import type { AdminPushSegment } from "../../../contracts/src/admin-push";
-import { chunk, EXPO_MAX_PER_REQUEST, sendExpoPushBatch } from "../../integrations/expo-push";
+import { EXPO_MAX_PER_REQUEST, sendExpoPushBatch } from "../../integrations/expo-push";
 
 interface SendCampaignJob {
   campaignId: string;
@@ -32,13 +32,17 @@ export async function handleSendCampaign(job: Job): Promise<void> {
   const segment = campaign.segment as AdminPushSegment;
   const recipients = await pushCampaignRepo.resolveRecipients(segment);
   await pushCampaignRepo.insertRecipients(campaignId, recipients);
-  await pushCampaignRepo.setStatus(campaignId, "sending", { recipientCount: recipients.length });
+  await pushCampaignRepo.setStatus(campaignId, "sending", {
+    recipientCount: (await pushCampaignRepo.recipientCounts(campaignId)).recipientCount,
+  });
 
   let sent = 0;
   let failed = 0;
   const dead: string[] = [];
 
-  for (const batch of chunk(recipients, EXPO_MAX_PER_REQUEST)) {
+  while (true) {
+    const batch = await pushCampaignRepo.claimQueuedRecipients(campaignId, EXPO_MAX_PER_REQUEST);
+    if (batch.length === 0) break;
     const messages = batch.map((r) => ({
       to: r.token,
       title: campaign.title,
@@ -48,37 +52,53 @@ export async function handleSendCampaign(job: Job): Promise<void> {
     try {
       const { invalidTokens } = await sendExpoPushBatch(messages);
       const invalid = new Set(invalidTokens);
-      const okTokens = batch.map((r) => r.token).filter((t) => !invalid.has(t));
-      await pushCampaignRepo.markRecipients(campaignId, okTokens, "sent");
+      await pushCampaignRepo.markRecipients(
+        campaignId,
+        batch.filter((r) => !invalid.has(r.token)).map((r) => r.id),
+        "sent",
+        null,
+        batch[0]!.processingToken
+      );
       if (invalidTokens.length > 0) {
         await pushCampaignRepo.markRecipients(
           campaignId,
-          invalidTokens,
+          batch.filter((r) => invalid.has(r.token)).map((r) => r.id),
           "failed",
-          "DeviceNotRegistered"
+          "DeviceNotRegistered",
+          batch[0]!.processingToken
         );
         dead.push(...invalidTokens);
       }
-      sent += okTokens.length;
+      sent += batch.filter((r) => !invalid.has(r.token)).length;
       failed += invalidTokens.length;
     } catch (err) {
-      const tokens = batch.map((r) => r.token);
       await pushCampaignRepo.markRecipients(
         campaignId,
-        tokens,
+        batch.map((r) => r.id),
         "failed",
-        err instanceof Error ? err.message : String(err)
+        err instanceof Error ? err.message : String(err),
+        batch[0]!.processingToken
       );
-      failed += tokens.length;
+      failed += batch.length;
     }
   }
 
   if (dead.length > 0) await pushTokenRepo.pruneInvalid(dead);
 
-  const finalStatus = recipients.length > 0 && failed === recipients.length ? "failed" : "sent";
+  const counts = await pushCampaignRepo.recipientCounts(campaignId);
+  if (counts.queuedCount > 0 || counts.processingCount > 0) {
+    logger.info(
+      { campaignId, queued: counts.queuedCount, processing: counts.processingCount },
+      "send-campaign waiting for another worker claim"
+    );
+    return;
+  }
+  const finalStatus =
+    counts.recipientCount > 0 && counts.failedCount === counts.recipientCount ? "failed" : "sent";
   await pushCampaignRepo.setStatus(campaignId, finalStatus, {
-    sentCount: sent,
-    failedCount: failed,
+    recipientCount: counts.recipientCount,
+    sentCount: counts.sentCount,
+    failedCount: counts.failedCount,
     sentAt: new Date(),
   });
   logger.info({ campaignId, sent, failed, finalStatus }, "send-campaign complete");
