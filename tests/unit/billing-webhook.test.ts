@@ -54,6 +54,7 @@ describe("revenuecat event mapping", () => {
     expect(mapStore("PLAY_STORE")).toBe("play_store");
     expect(mapStore("STRIPE")).toBe("stripe");
     expect(mapStore("APP_STORE")).toBe("app_store");
+    expect(mapStore("TEST_STORE")).toBe("test_store");
     expect(mapStore(undefined)).toBe("app_store");
   });
 });

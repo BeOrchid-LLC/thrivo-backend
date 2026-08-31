@@ -48,10 +48,19 @@ function planFromProductId(productId: string | null): SubscriptionPlan | null {
       const catalog = JSON.parse(env.REVENUECAT_PRODUCT_CATALOG) as {
         app_store?: { monthly?: string; annual?: string };
         play_store?: { monthly?: string; annual?: string };
+        test_store?: { monthly?: string; annual?: string };
       };
-      if (catalog.app_store?.annual === productId || catalog.play_store?.annual === productId)
+      if (
+        catalog.app_store?.annual === productId ||
+        catalog.play_store?.annual === productId ||
+        catalog.test_store?.annual === productId
+      )
         return "annual";
-      if (catalog.app_store?.monthly === productId || catalog.play_store?.monthly === productId)
+      if (
+        catalog.app_store?.monthly === productId ||
+        catalog.play_store?.monthly === productId ||
+        catalog.test_store?.monthly === productId
+      )
         return "monthly";
     } catch {
       return null;

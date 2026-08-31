@@ -51,6 +51,7 @@ const revenueCatEnvelopeSchema = z.object({
 type RevenueCatCatalog = {
   app_store: { monthly: string; annual: string };
   play_store: { monthly: string; annual: string };
+  test_store?: { monthly: string; annual: string };
 };
 
 function dateOrNull(
@@ -81,9 +82,12 @@ function timestampMs(value: number | string, field: string): Date {
   return date;
 }
 
-function providerForStore(store: string | null | undefined): "app_store" | "play_store" {
+function providerForStore(
+  store: string | null | undefined
+): "app_store" | "play_store" | "test_store" {
   if (store === "APP_STORE") return "app_store";
   if (store === "PLAY_STORE") return "play_store";
+  if (store === "TEST_STORE" && env.REVENUECAT_ALLOW_TEST_STORE) return "test_store";
   throw new BillingSyncUnavailableError("RevenueCat returned an unsupported store");
 }
 
@@ -212,6 +216,11 @@ export async function syncRevenueCatSubscription(user: User, now = new Date()) {
 
   const provider = providerForStore(product.store);
   const catalogProducts = catalog[provider];
+  if (!catalogProducts) {
+    throw new BillingSyncUnavailableError(
+      "RevenueCat Test Store product catalog is not configured"
+    );
+  }
   if (![catalogProducts.monthly, catalogProducts.annual].includes(productId)) {
     throw new BillingSyncUnavailableError("RevenueCat returned an unconfigured product");
   }

@@ -4,11 +4,19 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 // auth, etc. are preserved) so the signature gate can be exercised end-to-end.
 vi.mock("../../src/env", async (importOriginal) => {
   const mod = await importOriginal<typeof import("../../src/env")>();
-  return { ...mod, env: { ...mod.env, REVENUECAT_WEBHOOK_AUTH: "test-webhook-secret" } };
+  return {
+    ...mod,
+    env: {
+      ...mod.env,
+      REVENUECAT_WEBHOOK_AUTH: "test-webhook-secret",
+      REVENUECAT_ALLOW_TEST_STORE: true,
+    },
+  };
 });
 
 import { and, eq } from "drizzle-orm";
 import { buildApp } from "../../src/app";
+import { env } from "../../src/env";
 import { db } from "../../db";
 import { emailLogs } from "../../db/schema";
 import { subscriptionRepo, userRepo } from "../../src/repositories";
@@ -93,6 +101,36 @@ describe.skipIf(!run)("integration: revenuecat webhook", () => {
     const res2 = await post(app, event);
     expect(res2.status).toBe(200);
     expect(((await res2.json()) as OutcomeBody).data.outcome).toBe("duplicate");
+  });
+
+  it("applies a Test Store entitlement and preserves its provider", async () => {
+    const app = buildApp();
+    const session = await createSession();
+    const user = await userRepo.findActiveByEmail(session.email);
+    const event = rcEvent({ app_user_id: user!.id, store: "TEST_STORE" });
+
+    const res = await post(app, event);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as OutcomeBody).data.outcome).toBe("processed");
+
+    const sub = await subscriptionRepo.getByUser(user!.id);
+    expect(sub!.provider).toBe("test_store");
+    expect(sub!.status).toBe("active");
+
+    const replay = await post(app, event);
+    expect(replay.status).toBe(200);
+    expect(((await replay.json()) as OutcomeBody).data.outcome).toBe("duplicate");
+  });
+
+  it("rejects Test Store events when the opt-in flag is disabled", async () => {
+    const runtimeEnv = env as { REVENUECAT_ALLOW_TEST_STORE: boolean };
+    runtimeEnv.REVENUECAT_ALLOW_TEST_STORE = false;
+    try {
+      const res = await post(buildApp(), rcEvent({ store: "TEST_STORE" }));
+      expect(res.status).toBe(422);
+    } finally {
+      runtimeEnv.REVENUECAT_ALLOW_TEST_STORE = true;
+    }
   });
 
   it("sends a cancellation confirmation email only for CANCELLATION, not EXPIRATION (A5-5)", async () => {

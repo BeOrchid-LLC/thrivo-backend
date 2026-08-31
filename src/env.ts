@@ -204,6 +204,12 @@ export const envSchema = z
     // operator log flags the missing var (see billing-webhook.service.ts).
     REVENUECAT_WEBHOOK_AUTH: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
     BILLING_PROVIDER: z.enum(["disabled", "revenuecat"]).default("disabled"),
+    // Test Store is intentionally opt-in because it must never grant access in
+    // a production environment. Staging may still run with NODE_ENV=production.
+    REVENUECAT_ALLOW_TEST_STORE: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
     REVENUECAT_SECRET_API_KEY: z.preprocess(
       (v) => (v === "" ? undefined : v),
       z.string().min(1).optional()
@@ -368,6 +374,23 @@ export const envSchema = z
           path: ["REVENUECAT_PRODUCT_CATALOG"],
           message: "Required when BILLING_PROVIDER=revenuecat",
         });
+      }
+      if (parsed.REVENUECAT_ALLOW_TEST_STORE) {
+        const products = catalogRecord?.test_store;
+        const testCatalogComplete =
+          products &&
+          typeof products === "object" &&
+          typeof (products as Record<string, unknown>).monthly === "string" &&
+          typeof (products as Record<string, unknown>).annual === "string" &&
+          Boolean((products as Record<string, unknown>).monthly) &&
+          Boolean((products as Record<string, unknown>).annual);
+        if (!testCatalogComplete) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["REVENUECAT_PRODUCT_CATALOG", "test_store"],
+            message: "Test Store monthly and annual products are required when enabled",
+          });
+        }
       }
     }
 

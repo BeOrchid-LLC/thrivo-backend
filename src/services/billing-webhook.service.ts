@@ -90,7 +90,9 @@ function lifecycleFieldsValid(event: z.infer<typeof revenueCatEventSchema>["even
   ) {
     throw new ValidationError("RevenueCat lifecycle event is missing mandatory fields");
   }
-  if (!["APP_STORE", "PLAY_STORE", "STRIPE"].includes(event.store)) {
+  const supportedStores = ["APP_STORE", "PLAY_STORE", "STRIPE"];
+  const testStoreAllowed = event.store === "TEST_STORE" && env.REVENUECAT_ALLOW_TEST_STORE;
+  if (!testStoreAllowed && !supportedStores.includes(event.store)) {
     throw new ValidationError("RevenueCat store is not supported");
   }
   eventDate(event.event_timestamp_ms);
@@ -150,6 +152,7 @@ async function sendCancellationEmail(
 export function mapStore(store: string | null | undefined): SubProvider {
   if (store === "PLAY_STORE") return "play_store";
   if (store === "STRIPE") return "stripe";
+  if (store === "TEST_STORE") return "test_store";
   return "app_store";
 }
 

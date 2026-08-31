@@ -23,7 +23,12 @@ export const nutrientBasisEnum = pgEnum("nutrient_basis", ["per_100g", "per_100m
 export const weightSourceEnum = pgEnum("weight_source", ["manual", "healthkit", "googlefit"]);
 export const platformEnum = pgEnum("platform", ["ios", "android"]);
 
-export const subProviderEnum = pgEnum("sub_provider", ["app_store", "play_store", "stripe"]);
+export const subProviderEnum = pgEnum("sub_provider", [
+  "app_store",
+  "play_store",
+  "stripe",
+  "test_store",
+]);
 export const subStatusEnum = pgEnum("sub_status", [
   "none",
   "trialing",
