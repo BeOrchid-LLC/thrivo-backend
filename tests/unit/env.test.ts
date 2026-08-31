@@ -123,4 +123,89 @@ describe("env policy", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("accepts a complete Test Store catalog only when explicitly enabled", () => {
+    const key = Buffer.alloc(32, 7).toString("base64");
+    const result = envSchema.safeParse({
+      ...base,
+      NODE_ENV: "production",
+      BILLING_PROVIDER: "revenuecat",
+      REVENUECAT_ALLOW_TEST_STORE: "true",
+      REVENUECAT_SECRET_API_KEY: "rc_secret",
+      REVENUECAT_WEBHOOK_AUTH: "rc_webhook",
+      REVENUECAT_ENTITLEMENT_ID: "Thrivo Premium",
+      REVENUECAT_PRODUCT_CATALOG: JSON.stringify({
+        app_store: { monthly: "app_monthly", annual: "app_annual" },
+        play_store: { monthly: "play_monthly", annual: "play_annual" },
+        test_store: { monthly: "test_monthly", annual: "test_annual" },
+      }),
+      RESEND_API_KEY: "re_live_key",
+      RESEND_WEBHOOK_SECRET: "whsec_resend",
+      EMAIL_LINK_SECRET: "l".repeat(32),
+      EMAIL_OUTBOX_ACTIVE_KEY_ID: "primary",
+      EMAIL_OUTBOX_ENCRYPTION_KEYS: JSON.stringify({ primary: key }),
+      AUTH_BASE_URL: "https://api.thrivo.fit",
+      PUBLIC_APP_URL: "https://thrivo.fit",
+      ADMIN_APP_URL: "https://admin.thrivo.fit",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.REVENUECAT_ALLOW_TEST_STORE).toBe(true);
+  });
+
+  it("rejects an enabled Test Store without monthly and annual products", () => {
+    const key = Buffer.alloc(32, 7).toString("base64");
+    const result = envSchema.safeParse({
+      ...base,
+      NODE_ENV: "production",
+      BILLING_PROVIDER: "revenuecat",
+      REVENUECAT_ALLOW_TEST_STORE: "true",
+      REVENUECAT_SECRET_API_KEY: "rc_secret",
+      REVENUECAT_WEBHOOK_AUTH: "rc_webhook",
+      REVENUECAT_ENTITLEMENT_ID: "Thrivo Premium",
+      REVENUECAT_PRODUCT_CATALOG: JSON.stringify({
+        app_store: { monthly: "app_monthly", annual: "app_annual" },
+        play_store: { monthly: "play_monthly", annual: "play_annual" },
+      }),
+      RESEND_API_KEY: "re_live_key",
+      RESEND_WEBHOOK_SECRET: "whsec_resend",
+      EMAIL_LINK_SECRET: "l".repeat(32),
+      EMAIL_OUTBOX_ACTIVE_KEY_ID: "primary",
+      EMAIL_OUTBOX_ENCRYPTION_KEYS: JSON.stringify({ primary: key }),
+      AUTH_BASE_URL: "https://api.thrivo.fit",
+      PUBLIC_APP_URL: "https://thrivo.fit",
+      ADMIN_APP_URL: "https://admin.thrivo.fit",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.path.join("."))).toContain(
+        "REVENUECAT_PRODUCT_CATALOG.test_store"
+      );
+    }
+  });
+
+  it("keeps Test Store products optional when the flag is false", () => {
+    const key = Buffer.alloc(32, 7).toString("base64");
+    const result = envSchema.safeParse({
+      ...base,
+      NODE_ENV: "production",
+      BILLING_PROVIDER: "revenuecat",
+      REVENUECAT_ALLOW_TEST_STORE: "false",
+      REVENUECAT_SECRET_API_KEY: "rc_secret",
+      REVENUECAT_WEBHOOK_AUTH: "rc_webhook",
+      REVENUECAT_ENTITLEMENT_ID: "Thrivo Premium",
+      REVENUECAT_PRODUCT_CATALOG: JSON.stringify({
+        app_store: { monthly: "app_monthly", annual: "app_annual" },
+        play_store: { monthly: "play_monthly", annual: "play_annual" },
+      }),
+      RESEND_API_KEY: "re_live_key",
+      RESEND_WEBHOOK_SECRET: "whsec_resend",
+      EMAIL_LINK_SECRET: "l".repeat(32),
+      EMAIL_OUTBOX_ACTIVE_KEY_ID: "primary",
+      EMAIL_OUTBOX_ENCRYPTION_KEYS: JSON.stringify({ primary: key }),
+      AUTH_BASE_URL: "https://api.thrivo.fit",
+      PUBLIC_APP_URL: "https://thrivo.fit",
+      ADMIN_APP_URL: "https://admin.thrivo.fit",
+    });
+    expect(result.success).toBe(true);
+  });
 });

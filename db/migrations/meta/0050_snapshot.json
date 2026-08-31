@@ -1,6 +1,6 @@
 {
-  "id": "ec9986c7-6b1c-4132-9a9a-b8fb925ec45a",
-  "prevId": "f4c6a7b5-2c9d-48df-b7d1-c3868b4677c2",
+  "id": "5f7e6c46-5ce4-4a93-96cc-77ad4b4d6de8",
+  "prevId": "ec9986c7-6b1c-4132-9a9a-b8fb925ec45a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5238,7 +5238,8 @@
       "values": [
         "app_store",
         "play_store",
-        "stripe"
+        "stripe",
+        "test_store"
       ]
     },
     "public.sub_status": {

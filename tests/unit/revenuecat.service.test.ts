@@ -5,9 +5,11 @@ const env = vi.hoisted(() => ({
   BILLING_PROVIDER: "revenuecat",
   REVENUECAT_SECRET_API_KEY: "rc_secret",
   REVENUECAT_ENTITLEMENT_ID: "Thrivo Premium",
+  REVENUECAT_ALLOW_TEST_STORE: true,
   REVENUECAT_PRODUCT_CATALOG: JSON.stringify({
     app_store: { monthly: "thrivo_premium_monthly", annual: "thrivo_premium_annual" },
     play_store: { monthly: "thrivo_premium_monthly", annual: "thrivo_premium_annual" },
+    test_store: { monthly: "thrivo_test_monthly", annual: "thrivo_test_annual" },
   }),
 }));
 const repos = vi.hoisted(() => ({
@@ -26,6 +28,7 @@ vi.mock("../../src/services/subscription.service", () => subscription);
 import { syncRevenueCatSubscription } from "../../src/services/revenuecat.service";
 
 const user = { id: "018f6f1e-3d8b-7b30-8b82-bc7c81c1aef2", tier: "premium" } as never;
+const completeCatalog = env.REVENUECAT_PRODUCT_CATALOG;
 
 function response(subscriber: unknown, requestDateMs = "1710000000000"): Response {
   return new Response(JSON.stringify({ request_date_ms: requestDateMs, subscriber }), {
@@ -37,6 +40,7 @@ describe("RevenueCat server synchronization", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    env.REVENUECAT_PRODUCT_CATALOG = completeCatalog;
   });
 
   it("downgrades a valid snapshot with no premium entitlement", async () => {
@@ -116,6 +120,116 @@ describe("RevenueCat server synchronization", () => {
       "incomplete premium entitlement"
     );
     expect(subscription.persistSubscriptionAndMirror).not.toHaveBeenCalled();
+  });
+
+  it("maps a Test Store entitlement to the test_store provider", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response({
+          entitlements: {
+            "Thrivo Premium": {
+              product_identifier: "thrivo_test_monthly",
+              purchase_date: "2026-06-20T00:00:00.000Z",
+              expires_date: "2026-07-04T00:00:00.000Z",
+            },
+          },
+          subscriptions: {
+            thrivo_test_monthly: {
+              product_identifier: "thrivo_test_monthly",
+              period_type: "TRIAL",
+              store: "TEST_STORE",
+              purchase_date: "2026-06-20T00:00:00.000Z",
+              expires_date: "2026-07-04T00:00:00.000Z",
+            },
+          },
+        })
+      )
+    );
+    subscription.getSubscriptionState.mockResolvedValue({
+      subscription: { entitlement: "premium" },
+    });
+    repos.userRepo.findById.mockResolvedValue({ ...user, tier: "premium" });
+
+    await syncRevenueCatSubscription(user, new Date("2026-06-26T00:00:00.000Z"));
+
+    expect(subscription.persistSubscriptionAndMirror).toHaveBeenCalledWith(
+      user.id,
+      expect.objectContaining({
+        provider: "test_store",
+        status: "trialing",
+        productId: "thrivo_test_monthly",
+      })
+    );
+  });
+
+  it("does not mutate access when the Test Store catalog is missing", async () => {
+    env.REVENUECAT_PRODUCT_CATALOG = JSON.stringify({
+      app_store: { monthly: "thrivo_premium_monthly", annual: "thrivo_premium_annual" },
+      play_store: { monthly: "thrivo_premium_monthly", annual: "thrivo_premium_annual" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response({
+          entitlements: {
+            "Thrivo Premium": {
+              product_identifier: "thrivo_test_monthly",
+              purchase_date: "2026-06-20T00:00:00.000Z",
+              expires_date: "2026-07-04T00:00:00.000Z",
+            },
+          },
+          subscriptions: {
+            thrivo_test_monthly: {
+              product_identifier: "thrivo_test_monthly",
+              period_type: "NORMAL",
+              store: "TEST_STORE",
+              purchase_date: "2026-06-20T00:00:00.000Z",
+              expires_date: "2026-07-04T00:00:00.000Z",
+            },
+          },
+        })
+      )
+    );
+
+    await expect(syncRevenueCatSubscription(user)).rejects.toThrow(
+      "Test Store product catalog is not configured"
+    );
+    expect(subscription.persistSubscriptionAndMirror).not.toHaveBeenCalled();
+  });
+
+  it("rejects Test Store reconciliation when the opt-in flag is disabled", async () => {
+    env.REVENUECAT_ALLOW_TEST_STORE = false;
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          response({
+            entitlements: {
+              "Thrivo Premium": {
+                product_identifier: "thrivo_test_monthly",
+                purchase_date: "2026-06-20T00:00:00.000Z",
+                expires_date: "2026-07-04T00:00:00.000Z",
+              },
+            },
+            subscriptions: {
+              thrivo_test_monthly: {
+                product_identifier: "thrivo_test_monthly",
+                period_type: "NORMAL",
+                store: "TEST_STORE",
+                purchase_date: "2026-06-20T00:00:00.000Z",
+                expires_date: "2026-07-04T00:00:00.000Z",
+              },
+            },
+          })
+        )
+      );
+
+      await expect(syncRevenueCatSubscription(user)).rejects.toThrow("unsupported store");
+      expect(subscription.persistSubscriptionAndMirror).not.toHaveBeenCalled();
+    } finally {
+      env.REVENUECAT_ALLOW_TEST_STORE = true;
+    }
   });
 
   it("rejects an invalid authoritative snapshot timestamp without writing", async () => {
