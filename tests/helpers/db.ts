@@ -11,8 +11,9 @@ export { db, closeDb };
  * slate between tests. The drizzle migration ledger lives in the `drizzle`
  * schema, so filtering to `public` leaves it untouched.
  *
- * Also clears Redis rate-limit buckets (`rl:*`) so tests that share a Redis
- * instance don't exhaust each other's auth rate limit between test cases.
+ * Also clears Redis rate-limit buckets (`rl:*`) and admin authorization
+ * snapshots (`admin:snapshot:*`) so tests that share a Redis instance cannot
+ * leak throttling or stale admin row IDs between test cases.
  */
 export async function resetDb(): Promise<void> {
   const result = await db.execute<{ tablename: string }>(
@@ -23,8 +24,10 @@ export async function resetDb(): Promise<void> {
   await db.execute(sql.raw(`truncate table ${tables.join(", ")} restart identity cascade`));
 
   const redis = getRedis();
-  const rlKeys = await redis.keys("rl:*");
-  if (rlKeys.length > 0) await redis.del(...rlKeys);
+  const transientKeys = await redis.keys("rl:*");
+  const snapshotKeys = await redis.keys("admin:snapshot:*");
+  const keysToDelete = [...transientKeys, ...snapshotKeys];
+  if (keysToDelete.length > 0) await redis.del(...keysToDelete);
 
   // Seed the standard test admin accounts so requireAdmin's admin_users lookup
   // succeeds for any test that signs a JWT for these emails.
