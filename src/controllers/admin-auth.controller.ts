@@ -35,6 +35,7 @@ import { queueTemplatedEmail } from "../services/email.service";
 import type { AppEnv } from "../types/http";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
+import { getAdminSelfProfile, toAdminSelfProfileDto } from "../services/admin-profile.service";
 
 const emailSchema = z
   .string()
@@ -303,6 +304,13 @@ export function getAdminSession(c: Context<AppEnv>) {
   return respondOk(c, {
     admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role },
   });
+}
+
+/** GET /admin/auth/profile — return the current admin's authoritative profile. */
+export async function getAdminProfile(c: Context<AppEnv>) {
+  const admin = c.get("adminUser")!;
+  const row = await getAdminSelfProfile(admin);
+  return respondOk(c, { admin: toAdminSelfProfileDto(row) });
 }
 
 /** POST /admin/auth/logout — clear the cookie and invalidate the snapshot. */

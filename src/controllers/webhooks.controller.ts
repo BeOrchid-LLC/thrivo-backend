@@ -53,7 +53,7 @@ export async function postClerkAdminWebhook(c: Context<AppEnv>) {
   };
 
   const event = parseAdminClerkWebhook(rawBody, svixHeaders);
-  const outcome = await handleAdminClerkWebhookEvent(event);
+  const outcome = await handleAdminClerkWebhookEvent(event, svixHeaders["svix-id"]);
   return respondOk(c, { outcome }, "Webhook received");
 }
 

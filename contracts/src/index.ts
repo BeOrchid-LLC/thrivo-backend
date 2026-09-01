@@ -4,6 +4,7 @@ export * from "./users";
 export * from "./auth";
 export * from "./admin";
 export * from "./admin-management";
+export * from "./admin-profile";
 export * from "./admin-analytics";
 export * from "./admin-billing";
 export * from "./admin-content";

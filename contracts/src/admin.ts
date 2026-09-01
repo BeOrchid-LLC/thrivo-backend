@@ -399,6 +399,16 @@ export const adminRoutes = {
     path: "/api/v1/admin/auth/session",
     auth: "admin",
   },
+  getProfile: {
+    method: "GET",
+    path: "/api/v1/admin/auth/profile",
+    auth: "admin",
+  },
+  getProfileActivity: {
+    method: "GET",
+    path: "/api/v1/admin/auth/profile/activity",
+    auth: "admin",
+  },
   requestOtp: {
     method: "POST",
     path: "/api/v1/admin/auth/request-otp",

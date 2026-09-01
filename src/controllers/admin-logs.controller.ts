@@ -80,6 +80,8 @@ const auditLogQuerySchema = paginationSchema.extend({
   q: z.string().optional(),
 });
 
+const profileActivityQuerySchema = paginationSchema;
+
 function csvField(value: unknown): string {
   const text = value === null || value === undefined ? "" : String(value);
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
@@ -221,6 +223,22 @@ export async function listAdminAuditLog(c: Context<AppEnv>) {
     from,
     to,
     q,
+  });
+  return respondOk(c, {
+    items: rows.map(toAdminAuditLogEntry),
+    pagination: buildOffsetMeta(params.page, params.pageSize, total),
+  });
+}
+
+/** GET /admin/auth/profile/activity — activity scoped to the authenticated admin. */
+export async function listAdminProfileActivity(c: Context<AppEnv>) {
+  const { page, pageSize } = profileActivityQuerySchema.parse(c.req.query());
+  const params = parseOffset(page, pageSize);
+  const admin = c.get("adminUser")!;
+  const { rows, total } = await adminAuditLogRepo.listPaged({
+    offset: params.offset,
+    limit: params.pageSize,
+    actorEmail: admin.email.toLowerCase(),
   });
   return respondOk(c, {
     items: rows.map(toAdminAuditLogEntry),

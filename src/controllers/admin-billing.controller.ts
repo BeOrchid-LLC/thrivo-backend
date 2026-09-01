@@ -35,7 +35,7 @@ const eventsQuerySchema = z.object({
 const webhooksQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
-  provider: z.enum(["revenuecat", "stripe"]).optional(),
+  provider: z.enum(["revenuecat", "stripe", "resend", "clerk_admin"]).optional(),
   status: z.enum(["received", "processed", "failed", "quarantined"]).optional(),
 });
 

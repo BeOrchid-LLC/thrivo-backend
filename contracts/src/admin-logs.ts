@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { idSchema, isoDateSchema } from "./common";
+import { adminPaginated } from "./admin";
 
 /**
  * Admin observability DTOs (email + audit logs), promoted from the admin app's
@@ -83,6 +84,9 @@ export const adminAuditLogEntrySchema = z.object({
   createdAt: isoDateSchema,
 });
 export type AdminAuditLogEntry = z.infer<typeof adminAuditLogEntrySchema>;
+
+export const adminAuditLogListResponseSchema = adminPaginated(adminAuditLogEntrySchema);
+export type AdminAuditLogListResponse = z.infer<typeof adminAuditLogListResponseSchema>;
 
 export const adminAuditLogDetailSchema = adminAuditLogEntrySchema.extend({
   targetType: z.string(),

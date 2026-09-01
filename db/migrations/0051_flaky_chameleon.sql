@@ -1,0 +1,2 @@
+ALTER TYPE "public"."webhook_provider" ADD VALUE 'clerk_admin';--> statement-breakpoint
+CREATE INDEX "admin_audit_log_actor_created_idx" ON "admin_audit_log" USING btree ("actor_admin_email","created_at","id");

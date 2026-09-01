@@ -47,7 +47,7 @@ export const adminUserBillingEventsResponseSchema = z.object({
 });
 export type AdminUserBillingEventsResponse = z.infer<typeof adminUserBillingEventsResponseSchema>;
 
-export const adminWebhookProviderSchema = z.enum(["revenuecat", "stripe", "resend"]);
+export const adminWebhookProviderSchema = z.enum(["revenuecat", "stripe", "resend", "clerk_admin"]);
 export const adminWebhookStatusSchema = z.enum(["received", "processed", "failed", "quarantined"]);
 
 export const adminWebhookEventRowSchema = z.object({
