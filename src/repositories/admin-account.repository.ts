@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ne } from "drizzle-orm";
+import { and, asc, count, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { db } from "../../db";
 import type { Executor } from "../../db/tx";
 import { adminUsers, type AdminUserRow, type NewAdminUserRow } from "../../db/schema";
@@ -140,8 +140,17 @@ export async function setPassword(
     .where(eq(adminUsers.email, norm(input.email)));
 }
 
-export async function setLastLogin(id: string, tx: Executor = db): Promise<void> {
-  await tx.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, id));
+export async function setLastLogin(
+  id: string,
+  at: Date = new Date(),
+  tx: Executor = db
+): Promise<void> {
+  await tx
+    .update(adminUsers)
+    .set({ lastLoginAt: at })
+    .where(
+      and(eq(adminUsers.id, id), or(isNull(adminUsers.lastLoginAt), lt(adminUsers.lastLoginAt, at)))
+    );
 }
 
 /** Patch name/role/status. Only provided fields are written. */

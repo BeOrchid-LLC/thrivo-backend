@@ -106,7 +106,12 @@ export const emailSuppressionReasonEnum = pgEnum("email_suppression_reason", [
   "provider_suppressed",
   "permanent_bounce",
 ]);
-export const webhookProviderEnum = pgEnum("webhook_provider", ["revenuecat", "stripe", "resend"]);
+export const webhookProviderEnum = pgEnum("webhook_provider", [
+  "revenuecat",
+  "stripe",
+  "resend",
+  "clerk_admin",
+]);
 export const webhookStatusEnum = pgEnum("webhook_status", [
   "received",
   "processed",

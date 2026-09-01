@@ -53,6 +53,7 @@ import {
   postAdminResetPassword,
   postAdminChangePassword,
   getAdminSession,
+  getAdminProfile,
   postAdminLogout,
 } from "../controllers/admin-auth.controller";
 import {
@@ -110,6 +111,7 @@ import {
   getAdminEmailLog,
   resendAdminEmail,
   listAdminAuditLog,
+  listAdminProfileActivity,
   getAdminAuditLog,
   exportAdminAuditLog,
 } from "../controllers/admin-logs.controller";
@@ -155,7 +157,7 @@ import {
 } from "../controllers/admin-subscription-actions.controller";
 import type { AppEnv } from "../types/http";
 
-/** `/api/v1/admin` — staff-only surface gated by the admin session cookie. */
+/** `/api/v1/admin` — staff-only surface gated by the Admin Clerk bearer token. */
 export const adminRouter = new Hono<AppEnv>();
 
 // CSRF defense-in-depth: reject cross-origin state-changing requests. No-ops
@@ -190,6 +192,13 @@ adminRouter.post(
 
 // Auth (protected — requires a valid admin session cookie)
 adminRouter.get("/auth/session", requireAdmin, getAdminSession);
+adminRouter.get("/auth/profile", requireAdmin, getAdminProfile);
+adminRouter.get(
+  "/auth/profile/activity",
+  requireAdmin,
+  requireAdminPermission("audit.read"),
+  listAdminProfileActivity
+);
 adminRouter.post("/auth/logout", requireAdmin, postAdminLogout);
 adminRouter.post(
   "/auth/change-password",

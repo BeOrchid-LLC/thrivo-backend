@@ -1,7 +1,8 @@
 import { createClerkClient } from "@clerk/backend";
 import { Webhook } from "svix";
+import { z } from "zod";
 import { env } from "../env";
-import { adminAccountRepo, adminAuditLogRepo } from "../repositories";
+import { adminAccountRepo, adminAuditLogRepo, webhookEventRepo } from "../repositories";
 import { db } from "../../db";
 import { logger } from "../lib/logger";
 import { ForbiddenError } from "../lib/errors";
@@ -38,7 +39,16 @@ interface ClerkAdminUserDeletedData {
 interface ClerkAdminWebhookEvent {
   type: string;
   data: unknown;
+  timestamp?: number;
 }
+
+const clerkAdminSessionCreatedDataSchema = z
+  .object({
+    id: z.string().min(1),
+    user_id: z.string().min(1),
+    created_at: z.number().int().positive().optional(),
+  })
+  .passthrough();
 
 /** Verify the svix signature using the Admin Clerk webhook secret. Throws ForbiddenError on bad sig. */
 export function parseAdminClerkWebhook(
@@ -232,7 +242,81 @@ export async function handleAdminClerkUserDeleted(data: ClerkAdminUserDeletedDat
   );
 }
 
-export async function handleAdminClerkWebhookEvent(event: ClerkAdminWebhookEvent): Promise<string> {
+async function handleAdminClerkSessionCreated(
+  data: unknown,
+  eventId: string | undefined,
+  eventTimestamp: number | undefined
+): Promise<string> {
+  if (!eventId) {
+    logger.warn("admin-clerk-webhook: session.created missing Svix event ID");
+    return "ignored";
+  }
+
+  const session = clerkAdminSessionCreatedDataSchema.parse(data);
+  let ledger = await webhookEventRepo.recordReceived({
+    provider: "clerk_admin",
+    eventId,
+    payload: {
+      type: "session.created",
+      data: { id: session.id, user_id: session.user_id },
+      timestamp: eventTimestamp ?? null,
+    },
+  });
+  if (!ledger) {
+    const existing = await webhookEventRepo.findByProviderEvent("clerk_admin", eventId);
+    if (existing?.status === "processed") return "duplicate";
+    ledger = existing;
+  }
+  if (!ledger) return "duplicate";
+
+  let account = await adminAccountRepo.findByClerkAdminId(session.user_id);
+  if (!account) {
+    // Clerk can deliver session.created before user.created. Resolve the user
+    // once through the Admin Clerk API so a pre-existing invited/admin row can
+    // still receive accurate login telemetry when the events arrive out of order.
+    const clerkUser = await clerk.users.getUser(session.user_id).catch(() => null);
+    const email =
+      clerkUser?.primaryEmailAddress?.emailAddress ?? clerkUser?.emailAddresses[0]?.emailAddress;
+    if (email) {
+      account = await adminAccountRepo.findByEmail(email);
+      if (account) await adminAccountRepo.linkClerkAdminId(account.id, session.user_id);
+    }
+  }
+  if (!account || account.status !== "active") {
+    await webhookEventRepo.markProcessed(ledger.id, "processed");
+    logger.info(
+      { clerkAdminId: session.user_id, eventId },
+      "admin-clerk-webhook: session.created for unknown or inactive admin"
+    );
+    return "ignored";
+  }
+
+  const candidate = session.created_at ?? eventTimestamp;
+  const parsedLoginAt = candidate === undefined ? null : new Date(candidate);
+  const loginAt =
+    parsedLoginAt && !Number.isNaN(parsedLoginAt.getTime()) ? parsedLoginAt : ledger.receivedAt;
+  await db.transaction(async (tx) => {
+    await adminAccountRepo.setLastLogin(account.id, loginAt, tx);
+    await adminAuditLogRepo.append(
+      {
+        actorAdminEmail: account.email,
+        action: "admin.login",
+        targetType: "admin",
+        targetId: account.id,
+        requestId: null,
+        ip: null,
+      },
+      tx
+    );
+    await webhookEventRepo.markProcessed(ledger!.id, "processed", tx);
+  });
+  return "processed";
+}
+
+export async function handleAdminClerkWebhookEvent(
+  event: ClerkAdminWebhookEvent,
+  eventId?: string
+): Promise<string> {
   switch (event.type) {
     case "user.created":
       await handleAdminClerkUserCreated(event.data as ClerkAdminUserCreatedData);
@@ -245,6 +329,9 @@ export async function handleAdminClerkWebhookEvent(event: ClerkAdminWebhookEvent
     case "user.deleted":
       await handleAdminClerkUserDeleted(event.data as ClerkAdminUserDeletedData);
       return "deleted";
+
+    case "session.created":
+      return handleAdminClerkSessionCreated(event.data, eventId, event.timestamp);
 
     default:
       logger.debug({ type: event.type }, "admin-clerk-webhook: unhandled event type");
