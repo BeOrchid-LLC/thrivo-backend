@@ -14,6 +14,7 @@ export * from "./admin-moderation";
 export * from "./admin-push";
 export * from "./admin-subscriptions";
 export * from "./leads";
+export * from "./account-deletion";
 export * from "./dashboard";
 export * from "./foods";
 export * from "./metrics";

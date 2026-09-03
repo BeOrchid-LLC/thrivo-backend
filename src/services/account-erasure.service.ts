@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { createClerkClient } from "@clerk/backend";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../../db";
+import type { Tx } from "../../db/tx";
 import { users } from "../../db/schema";
 import { env } from "../env";
 import { AppError } from "../lib/errors";
@@ -12,6 +13,8 @@ import {
   subscriptionRepo,
   webhookEventRepo,
   webhookIdentityOwnershipRepo,
+  emailLogRepo,
+  emailCaptureRepo,
 } from "../repositories";
 
 const PRESIGNED_UPLOAD_TTL_MS = 15 * 60 * 1000;
@@ -32,65 +35,73 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /** Accepts once and immediately locks the user; all destructive work is asynchronous. */
+export async function requestAccountErasureInTransaction(
+  userId: string,
+  authSubjectId: string,
+  email: string,
+  tx: Tx
+) {
+  const concurrent = await accountErasureRepo.findOpenByUser(userId, tx);
+  if (concurrent) return concurrent;
+  const duplicate = await accountErasureRepo.findOpenByAuthSubjectId(authSubjectId, tx);
+  if (duplicate) return duplicate;
+
+  const subscription = await subscriptionRepo.getByUser(userId, tx);
+  const ownershipDigests = await webhookIdentityOwnershipRepo.listDigestsByUser(userId, tx);
+  const rcIds = new Set<string>(
+    [subscription?.rcAppUserId, userId].filter((value): value is string => Boolean(value))
+  );
+  const request = await accountErasureRepo.create(
+    { userId, authSubjectId, rcAppUserId: subscription?.rcAppUserId ?? userId },
+    tx
+  );
+  const tombstoneBase =
+    subscription?.currentPeriodEnd && subscription.currentPeriodEnd > request.requestedAt
+      ? subscription.currentPeriodEnd
+      : request.requestedAt;
+  const revenueCatExpiry = new Date(tombstoneBase.getTime() + 365 * 24 * 60 * 60 * 1000);
+  await accountErasureRepo.addTombstone(
+    "clerk",
+    identityDigest(authSubjectId),
+    new Date(Date.now() + 24 * 60 * 60 * 1000),
+    tx
+  );
+  for (const rcId of rcIds) {
+    await accountErasureRepo.addTombstone("revenuecat", identityDigest(rcId), revenueCatExpiry, tx);
+  }
+  for (const digest of ownershipDigests) {
+    await accountErasureRepo.addTombstone("revenuecat", digest, revenueCatExpiry, tx);
+  }
+  await pushTokenRepo.deactivateForUser(userId, tx);
+  const anonymizedEmail = `deleted+${request.id}@invalid.thrivo`;
+  await emailLogRepo.anonymizeRecipientForUser(userId, anonymizedEmail, tx);
+  await emailCaptureRepo.anonymizeForUser(userId, anonymizedEmail, tx);
+  await tx
+    .update(users)
+    .set({
+      email: anonymizedEmail,
+      name: "Deleted user",
+      image: null,
+      authSubjectId: null,
+      tier: "free",
+      accountStatus: "free_plan",
+      subscriptionStatus: "none",
+      trialEndsAt: null,
+      deletedAt: new Date(),
+    })
+    .where(and(eq(users.id, userId), eq(users.email, email), isNull(users.deletedAt)));
+  return request;
+}
+
+/** Accepts once and immediately locks the user; all destructive work is asynchronous. */
 export async function requestAccountErasure(userId: string, authSubjectId: string, email: string) {
   const existing = await accountErasureRepo.findAnyByUser(userId);
   if (existing) return existing;
 
   try {
-    return await db.transaction(async (tx) => {
-      const concurrent = await accountErasureRepo.findOpenByUser(userId, tx);
-      if (concurrent) return concurrent;
-      const duplicate = await accountErasureRepo.findOpenByAuthSubjectId(authSubjectId, tx);
-      if (duplicate) return duplicate;
-
-      const subscription = await subscriptionRepo.getByUser(userId, tx);
-      const ownershipDigests = await webhookIdentityOwnershipRepo.listDigestsByUser(userId, tx);
-      const rcIds = new Set<string>(
-        [subscription?.rcAppUserId, userId].filter((value): value is string => Boolean(value))
-      );
-      const request = await accountErasureRepo.create(
-        { userId, authSubjectId, rcAppUserId: subscription?.rcAppUserId ?? userId },
-        tx
-      );
-      const tombstoneBase =
-        subscription?.currentPeriodEnd && subscription.currentPeriodEnd > request.requestedAt
-          ? subscription.currentPeriodEnd
-          : request.requestedAt;
-      const revenueCatExpiry = new Date(tombstoneBase.getTime() + 365 * 24 * 60 * 60 * 1000);
-      await accountErasureRepo.addTombstone(
-        "clerk",
-        identityDigest(authSubjectId),
-        new Date(Date.now() + 24 * 60 * 60 * 1000),
-        tx
-      );
-      for (const rcId of rcIds) {
-        await accountErasureRepo.addTombstone(
-          "revenuecat",
-          identityDigest(rcId),
-          revenueCatExpiry,
-          tx
-        );
-      }
-      for (const digest of ownershipDigests) {
-        await accountErasureRepo.addTombstone("revenuecat", digest, revenueCatExpiry, tx);
-      }
-      await pushTokenRepo.deactivateForUser(userId, tx);
-      await tx
-        .update(users)
-        .set({
-          email: `deleted+${request.id}@invalid.thrivo`,
-          name: "Deleted user",
-          image: null,
-          authSubjectId: null,
-          tier: "free",
-          accountStatus: "free_plan",
-          subscriptionStatus: "none",
-          trialEndsAt: null,
-          deletedAt: new Date(),
-        })
-        .where(and(eq(users.id, userId), eq(users.email, email), isNull(users.deletedAt)));
-      return request;
-    });
+    return await db.transaction((tx) =>
+      requestAccountErasureInTransaction(userId, authSubjectId, email, tx)
+    );
   } catch (error) {
     if (isUniqueViolation(error)) {
       return (

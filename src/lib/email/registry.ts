@@ -9,6 +9,7 @@ import {
   adminPasswordResetTemplate,
   type AdminPasswordResetProps,
 } from "./templates/admin-password-reset";
+import { accountDeletionTemplate, type AccountDeletionProps } from "./templates/account-deletion";
 import { EMAIL_CID_ATTACHMENTS } from "./assets";
 
 /**
@@ -23,6 +24,7 @@ export type TemplateProps = {
   "weekly-review": WeeklyReviewProps;
   "admin-invite": AdminInviteProps;
   "admin-password-reset": AdminPasswordResetProps;
+  "account-deletion": AccountDeletionProps;
 };
 
 export type TemplateName = keyof TemplateProps;
@@ -58,6 +60,10 @@ export const templateSchemas = {
     url: z.string().url(),
     expiresInMinutes: z.number().int().positive(),
   }),
+  "account-deletion": z.object({
+    url: z.string().url(),
+    expiresInMinutes: z.number().int().positive(),
+  }),
 } satisfies { [K in TemplateName]: z.ZodType<TemplateProps[K]> };
 
 const templates: { [K in TemplateName]: EmailTemplate<TemplateProps[K]> } = {
@@ -67,6 +73,7 @@ const templates: { [K in TemplateName]: EmailTemplate<TemplateProps[K]> } = {
   "weekly-review": weeklyReviewTemplate,
   "admin-invite": adminInviteTemplate,
   "admin-password-reset": adminPasswordResetTemplate,
+  "account-deletion": accountDeletionTemplate,
 };
 
 export type RenderedEmail = {

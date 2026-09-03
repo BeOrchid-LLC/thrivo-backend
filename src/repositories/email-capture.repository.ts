@@ -175,6 +175,18 @@ export async function reconcileToUser(
     .where(eq(emailCaptures.email, email));
 }
 
+/** Redact the captured address for a lead reconciled to a deleted user. */
+export async function anonymizeForUser(
+  userId: string,
+  replacementEmail: string,
+  tx: Executor = db
+): Promise<void> {
+  await tx
+    .update(emailCaptures)
+    .set({ email: replacementEmail, updatedAt: new Date() })
+    .where(eq(emailCaptures.reconciledUserId, userId));
+}
+
 export type ListParams = {
   /** Opaque cursor from a previous page's `nextCursor` — omit for the first page. */
   cursor?: string;

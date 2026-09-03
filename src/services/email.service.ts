@@ -56,6 +56,7 @@ const templatesByKind: Record<EmailKind, readonly TemplateName[]> = {
   admin_otp: ["otp"],
   admin_invite: ["admin-invite"],
   admin_password_reset: ["admin-password-reset"],
+  account_deletion: ["account-deletion"],
   lead_contact: ["notification"],
   legacy_notification: ["notification", "magic-link", "otp"],
 };
@@ -89,6 +90,7 @@ const kindPropsSchemas: Record<Exclude<EmailKind, "legacy_notification">, z.ZodT
   admin_otp: templateSchemas.otp,
   admin_invite: templateSchemas["admin-invite"].extend({ url: adminUrlSchema }),
   admin_password_reset: templateSchemas["admin-password-reset"].extend({ url: adminUrlSchema }),
+  account_deletion: templateSchemas["account-deletion"],
   lead_contact: templateSchemas.notification,
 };
 

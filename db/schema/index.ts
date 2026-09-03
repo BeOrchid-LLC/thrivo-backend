@@ -32,5 +32,6 @@ export * from "./admin-audit-log";
 export * from "./admin-users";
 export * from "./uploads";
 export * from "./account-erasure";
+export * from "./account-deletion-web-requests";
 export * from "./lead-notes";
 export * from "./admin-action-idempotency";

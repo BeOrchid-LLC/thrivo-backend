@@ -91,6 +91,7 @@ export const emailKindEnum = pgEnum("email_kind", [
   "admin_invite",
   "admin_password_reset",
   "lead_contact",
+  "account_deletion",
   "legacy_notification",
 ]);
 export const emailOutboxStateEnum = pgEnum("email_outbox_state", [

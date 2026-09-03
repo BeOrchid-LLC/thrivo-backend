@@ -22,6 +22,7 @@ export const adminEmailLogSchema = z.object({
     "admin_invite",
     "admin_password_reset",
     "lead_contact",
+    "account_deletion",
     "legacy_notification",
   ]),
   status: z.enum([

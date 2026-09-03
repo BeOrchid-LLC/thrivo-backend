@@ -204,6 +204,15 @@ export async function listForUser(userId: string, tx: Executor = db): Promise<Em
     .orderBy(desc(emailLogs.createdAt));
 }
 
+/** Replace the recipient address before the user's final cascade deletion. */
+export async function anonymizeRecipientForUser(
+  userId: string,
+  replacementEmail: string,
+  tx: Executor = db
+): Promise<void> {
+  await tx.update(emailLogs).set({ toEmail: replacementEmail }).where(eq(emailLogs.userId, userId));
+}
+
 export async function listForLead(
   leadId: string,
   limit = 10,
