@@ -130,6 +130,11 @@ async function registerSchedulers(): Promise<void> {
     { name: "purge-email-replay-payloads", data: {} }
   );
   await maintenance.upsertJobScheduler(
+    "purge-account-deletion-web-requests",
+    { pattern: "0 3 * * *", tz: "UTC" },
+    { name: "purge-account-deletion-web-requests", data: {} }
+  );
+  await maintenance.upsertJobScheduler(
     "purge-admin-action-idempotency",
     { pattern: "45 2 * * *", tz: "UTC" },
     { name: "purge-admin-action-idempotency", data: {} }

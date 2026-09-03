@@ -365,6 +365,20 @@
       "when": 1788249772878,
       "tag": "0051_flaky_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1788428658419,
+      "tag": "0052_square_medusa",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1788429131415,
+      "tag": "0053_thick_snowbird",
+      "breakpoints": true
     }
   ]
 }

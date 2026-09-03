@@ -2,6 +2,7 @@
 // Namespacing avoids collisions between same-named intent functions across repos.
 export * as userRepo from "./user.repository";
 export * as accountErasureRepo from "./account-erasure.repository";
+export * as accountDeletionWebRequestRepo from "./account-deletion-web-request.repository";
 export * as foodItemRepo from "./food-item.repository";
 export * as foodLogRepo from "./food-log.repository";
 export * as foodFavoriteRepo from "./food-favorite.repository";

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "account_deletion_web_requests_pending_user_uniq" ON "account_deletion_web_requests" USING btree ("user_id") WHERE "account_deletion_web_requests"."status" = 'pending';

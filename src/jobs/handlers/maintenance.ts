@@ -12,6 +12,7 @@ import { handleDeleteRevenueCatCustomer } from "./delete-revenuecat-customer";
 import { handleRedactWebhookPayloads } from "./redact-webhook-payloads";
 import { handlePurgeErasureProofs } from "./purge-erasure-proofs";
 import { handlePurgeEmailReplayPayloads } from "./purge-email-replay-payloads";
+import { handlePurgeAccountDeletionWebRequests } from "./purge-account-deletion-web-requests";
 import { dispatchDueCampaigns } from "../../services/admin-push.service";
 import { adminActionIdempotencyRepo } from "../../repositories";
 
@@ -33,6 +34,7 @@ const routes: Record<string, (job: Job) => Promise<void>> = {
   "redact-webhook-payloads": handleRedactWebhookPayloads,
   "purge-erasure-proofs": handlePurgeErasureProofs,
   "purge-email-replay-payloads": handlePurgeEmailReplayPayloads,
+  "purge-account-deletion-web-requests": handlePurgeAccountDeletionWebRequests,
   "purge-admin-action-idempotency": async () => {
     await adminActionIdempotencyRepo.purgeExpired();
   },

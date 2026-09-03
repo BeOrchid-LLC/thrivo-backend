@@ -1,6 +1,6 @@
 {
   "name": "@beorchid-llc/thrivo-contracts",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Shared Thrivo API request and response contracts.",
   "type": "module",
   "private": false,
@@ -59,6 +59,10 @@
     "./history-filters": {
       "types": "./dist/history-filters.d.ts",
       "import": "./dist/history-filters.js"
+    },
+    "./account-deletion": {
+      "types": "./dist/account-deletion.d.ts",
+      "import": "./dist/account-deletion.js"
     }
   },
   "files": [
