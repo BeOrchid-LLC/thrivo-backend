@@ -16,6 +16,7 @@ if (env.SENTRY_DSN) {
     dsn: env.SENTRY_DSN,
     environment: env.NODE_ENV,
     release: env.GIT_SHA,
+    sendDefaultPii: false,
     tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 1.0,
   });
 }
